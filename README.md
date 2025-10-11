@@ -694,6 +694,33 @@ const results = await Promise.all(promises)  // 同时发送
 
 ## 常见问题
 
+### npm: command not found 怎么办？
+
+如果在更新时遇到 `npm: command not found`，说明Node.js没有安装：
+
+```bash
+# 安装Node.js 18
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo bash -
+sudo apt-get install -y nodejs
+
+# 验证
+node -v
+npm -v
+
+# 安装pm2
+sudo npm install -g pm2
+
+# 继续更新
+cd /opt/zeromaps-rpc && npm install && pm2 restart zeromaps-rpc
+```
+
+或者直接重新运行部署脚本（会自动安装所有依赖）：
+
+```bash
+cd /opt/zeromaps-rpc
+sudo ./deploy.sh
+```
+
 ### 如何检查服务是否正常运行？
 
 ```bash
