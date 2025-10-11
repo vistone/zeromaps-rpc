@@ -126,22 +126,39 @@ fi
 # ==========================================
 echo ""
 echo -e "${YELLOW}[3/7] 配置IPv6地址池 (1000个地址)...${NC}"
-ADDED_COUNT=0
 
-for i in {1001..2000}; do
-  if ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null; then
-    ((ADDED_COUNT++))
-  fi
+# 先检查是否已经配置过
+EXISTING_COUNT=$(ip -6 addr show dev $INTERFACE 2>/dev/null | grep "$IPV6_PREFIX" | wc -l)
+echo "检测到已有 $EXISTING_COUNT 个IPv6地址"
+
+if [ $EXISTING_COUNT -ge 1000 ]; then
+  echo -e "${GREEN}✓ IPv6地址池已完整配置，跳过${NC}"
+else
+  echo "开始添加IPv6地址池..."
+  ADDED_COUNT=0
   
-  if [ $((i % 100)) -eq 0 ]; then
-    echo "  进度: $((i - 1000))/1000"
-  fi
-done
-
-echo -e "${GREEN}✓ 成功添加: $ADDED_COUNT 个${NC}"
+  for i in {1001..2000}; do
+    if ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null; then
+      ((ADDED_COUNT++))
+    fi
+    
+    # 每100个显示进度
+    if [ $((i % 100)) -eq 0 ]; then
+      echo -e "  进度: $((i - 1000))/1000 (新增: $ADDED_COUNT)"
+    fi
+  done
+  
+  echo -e "${GREEN}✓ 新增: $ADDED_COUNT 个IPv6地址${NC}"
+fi
 
 TOTAL_COUNT=$(ip -6 addr show dev $INTERFACE | grep "$IPV6_PREFIX" | wc -l)
 echo -e "${GREEN}✓ 当前IPv6总数: $TOTAL_COUNT${NC}"
+
+if [ $TOTAL_COUNT -lt 100 ]; then
+  echo -e "${RED}✗ 警告: IPv6地址池配置不完整${NC}"
+  echo "  预期至少1000个，实际 $TOTAL_COUNT 个"
+  exit 1
+fi
 
 # ==========================================
 # 步骤4: IPv6持久化
