@@ -412,11 +412,18 @@ if command -v caddy &>/dev/null; then
     
     # 创建日志目录（如果不存在）
     mkdir -p /var/log/caddy
-    chown -R caddy:caddy /var/log/caddy
+    
+    # 检查caddy用户是否存在
+    if id caddy &>/dev/null; then
+      chown -R caddy:caddy /var/log/caddy
+      touch /var/log/caddy/zeromaps-rpc.log
+      chown caddy:caddy /var/log/caddy/zeromaps-rpc.log
+      chmod 644 /var/log/caddy/zeromaps-rpc.log
+    else
+      # caddy用户不存在，使用root
+      echo -e "${YELLOW}⚠ caddy用户不存在，使用root权限${NC}"
+    fi
     chmod 755 /var/log/caddy
-    touch /var/log/caddy/zeromaps-rpc.log
-    chown caddy:caddy /var/log/caddy/zeromaps-rpc.log
-    chmod 644 /var/log/caddy/zeromaps-rpc.log
     
     # 重新生成配置
     sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
