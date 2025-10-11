@@ -175,7 +175,7 @@
 
     async function fetchNodeStats(node) {
       try {
-        const response = await fetch(\`http://\${node.domain}:9528/api/stats\`, { 
+        const response = await fetch('http://' + node.domain + ':9528/api/stats', { 
           signal: AbortSignal.timeout(3000) 
         });
         const stats = await response.json();
@@ -232,75 +232,71 @@
         const isOnline = node.status === 'online';
         
         if (!isOnline) {
-          return \`
-            <div class="node-card offline">
-              <div class="node-header">
-                <div class="node-name">\${node.name}</div>
-                <span class="node-status status-offline">离线</span>
-              </div>
-              <div class="node-info">
-                \${node.domain}<br>
-                \${node.ip}
-              </div>
-              <div style="text-align: center; color: #999; padding: 20px;">
-                \${node.error || '无法连接到服务器'}
-              </div>
-              <a href="http://\${node.domain}:9528" target="_blank" class="node-link">查看详情 →</a>
-            </div>
-          \`;
+          return '<div class="node-card offline">' +
+            '<div class="node-header">' +
+              '<div class="node-name">' + node.name + '</div>' +
+              '<span class="node-status status-offline">离线</span>' +
+            '</div>' +
+            '<div class="node-info">' +
+              node.domain + '<br>' +
+              node.ip +
+            '</div>' +
+            '<div style="text-align: center; color: #999; padding: 20px;">' +
+              (node.error || '无法连接到服务器') +
+            '</div>' +
+            '<a href="http://' + node.domain + ':9528" target="_blank" class="node-link">查看详情 →</a>' +
+          '</div>';
         }
         
         const stats = node.stats;
         const successRate = stats.ipv6.successRate || 0;
         const successClass = successRate >= 99 ? 'good' : (successRate >= 95 ? 'warning' : 'bad');
         
-        return \`
-          <div class="node-card online">
-            <div class="node-header">
-              <div class="node-name">\${node.name}</div>
-              <span class="node-status status-online">在线</span>
-            </div>
-            <div class="node-info">
-              \${node.domain}<br>
-              \${node.ip}
-            </div>
-            <div class="stats-grid">
-              <div class="stat-item">
-                <div class="stat-label">客户端</div>
-                <div class="stat-value">\${formatNumber(stats.clients)}</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-label">总请求</div>
-                <div class="stat-value">\${formatNumber(stats.requests.total)}</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-label">当前并发</div>
-                <div class="stat-value">\${stats.requests.concurrent}</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-label">QPS</div>
-                <div class="stat-value">\${stats.ipv6.qps.toFixed(2)}</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-label">成功率</div>
-                <div class="stat-value \${successClass}">\${successRate.toFixed(2)}%</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-label">平均RT</div>
-                <div class="stat-value">\${stats.ipv6.avgResponseTime}ms</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-label">IPv6池</div>
-                <div class="stat-value">\${stats.ipv6.total}</div>
-              </div>
-              <div class="stat-item">
-                <div class="stat-label">平衡度</div>
-                <div class="stat-value">\${stats.ipv6.balance}</div>
-              </div>
-            </div>
-            <a href="http://\${node.domain}:9528" target="_blank" class="node-link">查看详情 →</a>
-          </div>
-        \`;
+        return '<div class="node-card online">' +
+          '<div class="node-header">' +
+            '<div class="node-name">' + node.name + '</div>' +
+            '<span class="node-status status-online">在线</span>' +
+          '</div>' +
+          '<div class="node-info">' +
+            node.domain + '<br>' +
+            node.ip +
+          '</div>' +
+          '<div class="stats-grid">' +
+            '<div class="stat-item">' +
+              '<div class="stat-label">客户端</div>' +
+              '<div class="stat-value">' + formatNumber(stats.clients) + '</div>' +
+            '</div>' +
+            '<div class="stat-item">' +
+              '<div class="stat-label">总请求</div>' +
+              '<div class="stat-value">' + formatNumber(stats.requests.total) + '</div>' +
+            '</div>' +
+            '<div class="stat-item">' +
+              '<div class="stat-label">当前并发</div>' +
+              '<div class="stat-value">' + stats.requests.concurrent + '</div>' +
+            '</div>' +
+            '<div class="stat-item">' +
+              '<div class="stat-label">QPS</div>' +
+              '<div class="stat-value">' + stats.ipv6.qps.toFixed(2) + '</div>' +
+            '</div>' +
+            '<div class="stat-item">' +
+              '<div class="stat-label">成功率</div>' +
+              '<div class="stat-value ' + successClass + '">' + successRate.toFixed(2) + '%</div>' +
+            '</div>' +
+            '<div class="stat-item">' +
+              '<div class="stat-label">平均RT</div>' +
+              '<div class="stat-value">' + stats.ipv6.avgResponseTime + 'ms</div>' +
+            '</div>' +
+            '<div class="stat-item">' +
+              '<div class="stat-label">IPv6池</div>' +
+              '<div class="stat-value">' + stats.ipv6.total + '</div>' +
+            '</div>' +
+            '<div class="stat-item">' +
+              '<div class="stat-label">平衡度</div>' +
+              '<div class="stat-value">' + stats.ipv6.balance + '</div>' +
+            '</div>' +
+          '</div>' +
+          '<a href="http://' + node.domain + ':9528" target="_blank" class="node-link">查看详情 →</a>' +
+        '</div>';
       }).join('');
     }
 
