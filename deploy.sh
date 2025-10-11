@@ -419,7 +419,20 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}✓ 已清理旧证书${NC}"
   fi
   
-  # 获取新证书（Caddy已经停止了）
+  # 确保80端口空闲
+  echo "检查并释放80端口..."
+  systemctl stop caddy >/dev/null 2>&1
+  
+  # 杀掉占用80端口的进程
+  PIDS=$(lsof -ti:80 2>/dev/null)
+  if [ -n "$PIDS" ]; then
+    echo "  发现占用80端口的进程，正在释放..."
+    kill -9 $PIDS 2>/dev/null
+    sleep 1
+  fi
+  echo -e "${GREEN}✓ 80端口已释放${NC}"
+  
+  # 获取新证书
   certbot certonly --standalone --non-interactive --agree-tos \
     --email admin@$SERVER_DOMAIN \
     -d $SERVER_DOMAIN
