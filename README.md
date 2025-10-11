@@ -165,7 +165,7 @@ curl http://localhost:9528/api/stats
 curl http://localhost:9528/api/ipv6
 ```
 
-返回每个IPv6地址的详细使用情况（前100个）
+返回每个IPv6地址的详细使用情况（Top 100）
 
 ### 📤 手动导出统计
 
@@ -549,7 +549,7 @@ journalctl -u zeromaps-rpc | grep "Error"
 
 ### 性能指标（基于实际运行数据）
 
-- **QPS**: 15-20 req/s (单服务器，100个IPv6)
+- **QPS**: 15-20 req/s (单服务器，1000个IPv6)
 - **成功率**: >99.5%
 - **平均响应时间**: 200-300ms
 - **负载平衡度**: <5 (1000个IPv6时 <2)
@@ -609,10 +609,10 @@ const results = await Promise.all(promises)  // 同时发送
    journalctl -u zeromaps-rpc -f | grep "当前并发"
    ```
 
-2. **是否只有100个IPv6**
+2. **检查IPv6地址池数量**
    ```bash
-   # 应该显示1001个（主地址+1000个池）
-   ip -6 addr show dev ipv6net | grep "2607:8700:5500:2043" | wc -l
+   # 应该显示1001个（主地址::2 + 1000个池::1001-2000）
+   ip -6 addr show dev ipv6net | grep "2607:8700:5500" | wc -l
    ```
 
 3. **网络延迟**
