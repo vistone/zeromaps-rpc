@@ -109,9 +109,12 @@ export class CurlFetcher {
       }
     }
     
-    // 默认 Headers（模拟真实浏览器）
+    // 默认 Headers（模拟真实浏览器的 fetch 请求，不是页面导航）
     parts.push('-H "Accept: */*"')
     parts.push('-H "Accept-Language: zh-CN,zh;q=0.9,en;q=0.8"')
+    parts.push('-H "Sec-Fetch-Dest: empty"')       // fetch 请求
+    parts.push('-H "Sec-Fetch-Mode: cors"')        // CORS 模式
+    parts.push('-H "Sec-Fetch-Site: cross-site"')  // 跨站请求
     parts.push('-H "Origin: https://earth.google.com"')
     parts.push('-H "Referer: https://earth.google.com/"')
     
