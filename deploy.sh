@@ -525,12 +525,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}✓ 未检测到旧版Caddy${NC}"
   fi
   
-  # 清理配置和证书（完全清理）
-  echo "清理旧配置和证书..."
+  # 清理旧配置（保留证书，避免速率限制）
+  echo "清理旧配置..."
   rm -f /etc/caddy/Caddyfile 2>/dev/null || true
-  rm -rf /var/lib/caddy/.local/share/caddy 2>/dev/null || true
-  rm -rf /var/lib/caddy/.config/caddy 2>/dev/null || true
-  echo -e "${GREEN}✓ 已清理旧证书和配置${NC}"
+  echo -e "${GREEN}✓ 已清理旧配置${NC}"
   
   # 重新安装Caddy
   echo "重新安装Caddy..."
