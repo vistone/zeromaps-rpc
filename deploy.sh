@@ -311,6 +311,13 @@ else
   npm install
 fi
 
+# 确保tsx已全局安装（pm2需要）
+if ! command -v tsx &>/dev/null; then
+  echo "安装tsx..."
+  npm install -g tsx
+fi
+echo -e "${GREEN}✓ tsx已安装${NC}"
+
 # 配置pm2（使用.cjs后缀，因为package.json是type:module）
 cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
 module.exports = {
