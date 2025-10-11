@@ -552,27 +552,20 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   chmod 644 /var/log/caddy/zeromaps-rpc.log
   echo -e "${GREEN}✓ 日志目录已配置${NC}"
   
-  # 配置Caddy（使用当前VPS的域名）
-  echo "配置Caddy..."
-  if [ -n "$SERVER_DOMAIN" ]; then
-    # 替换域名占位符
-    sed "s/{DOMAIN}/$SERVER_DOMAIN/g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
-    echo -e "${GREEN}✓ 配置域名: $SERVER_DOMAIN${NC}"
-  else
-    echo -e "${RED}✗ 配置文件缺少域名，跳过Caddy配置${NC}"
+  # 生成Caddy配置（从模板文件）
+  echo "生成Caddy配置..."
+  
+  if [ -z "$SERVER_DOMAIN" ]; then
+    echo -e "${RED}✗ 配置文件缺少域名${NC}"
     exit 1
   fi
   
-  # 不再使用certbot，让Caddy自动获取证书
-  echo "配置自动HTTPS（Caddy会自动获取Let's Encrypt证书）..."
-  
-  # 配置Caddy（总是重新生成，确保最新）
-  echo "生成Caddy配置..."
-  
-  # 强制重新生成配置文件
+  # 从Caddyfile模板生成配置
   sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
   
-  echo "Caddy配置已生成:"
+  echo -e "${GREEN}✓ 配置已生成: $SERVER_DOMAIN${NC}"
+  echo ""
+  echo "Caddy配置内容:"
   cat /etc/caddy/Caddyfile
   echo ""
   
