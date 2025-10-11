@@ -389,14 +389,35 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     exit 1
   fi
   
+  # 开放443和80端口（如果使用ufw）
+  if command -v ufw &>/dev/null; then
+    ufw allow 80/tcp >/dev/null 2>&1
+    ufw allow 443/tcp >/dev/null 2>&1
+    ufw allow 8080/tcp >/dev/null 2>&1
+  fi
+  
   # 重启Caddy
   systemctl enable caddy >/dev/null 2>&1
   systemctl restart caddy
   
-  echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
-  echo ""
-  echo -e "${GREEN}访问地址:${NC}"
-  echo "  https://$SERVER_DOMAIN"
+  # 等待Caddy启动
+  sleep 2
+  
+  if systemctl is-active caddy >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
+    echo ""
+    echo -e "${GREEN}访问地址:${NC}"
+    echo "  HTTP:  http://$SERVER_DOMAIN:8080"
+    echo "  HTTPS: https://$SERVER_DOMAIN  (使用自签名证书)"
+    echo ""
+    echo -e "${YELLOW}提示:${NC}"
+    echo "  - HTTP访问: http://$SERVER_DOMAIN:8080"
+    echo "  - HTTPS会有证书警告，点击'继续访问'即可"
+    echo "  - 如需Let's Encrypt证书，请修改Caddyfile"
+  else
+    echo -e "${RED}✗ Caddy启动失败${NC}"
+    echo "  查看日志: journalctl -u caddy -n 50"
+  fi
   echo ""
 fi
 
@@ -422,9 +443,10 @@ echo "访问地址:"
 if [ -n "$SERVER_DOMAIN" ]; then
   echo "  单节点监控: http://$SERVER_DOMAIN:$MONITOR_PORT"
   
-  # 如果安装了Caddy，显示HTTPS管理面板地址
+  # 如果安装了Caddy，显示管理面板地址
   if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
-    echo "  统一管理面板: https://$SERVER_DOMAIN"
+    echo "  统一管理面板(HTTP):  http://$SERVER_DOMAIN:8080"
+    echo "  统一管理面板(HTTPS): https://$SERVER_DOMAIN"
   fi
 fi
 echo ""

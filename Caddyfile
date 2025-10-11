@@ -1,27 +1,30 @@
 # ZeroMaps RPC 统一管理面板 Caddy配置
 # 使用当前VPS的域名托管管理面板
-# 将自动替换为实际域名
 
-# 监控管理面板（HTTPS）
+# 监控管理面板
 {DOMAIN} {
     # 静态管理面板
     root * /opt/zeromaps-rpc/public
     file_server
     
-    # 启用HTTPS
-    tls {
-        protocols tls1.2 tls1.3
-    }
+    # 使用内部自签名证书（用于内网或测试）
+    # 如需Let's Encrypt证书，删除下面的tls internal
+    tls internal
+    
+    # 或者如果域名已正确解析，注释掉上面的tls internal，使用自动HTTPS
+    # tls {
+    #     protocols tls1.2 tls1.3
+    # }
     
     # 日志
     log {
         output file /var/log/caddy/zeromaps-rpc.log
-        format json
     }
 }
 
-# HTTP重定向到HTTPS
-http://{DOMAIN} {
-    redir https://{DOMAIN}{uri} permanent
+# 同时监听HTTP（不强制跳转HTTPS）
+http://{DOMAIN}:8080 {
+    root * /opt/zeromaps-rpc/public
+    file_server
 }
 
