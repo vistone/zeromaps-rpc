@@ -425,7 +425,11 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   
   # 配置Caddy
   echo "配置Caddy..."
-  sed "s/{DOMAIN}/$SERVER_DOMAIN/g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
+  # 使用双引号确保变量替换，并转义特殊字符
+  sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
+  
+  echo "Caddy配置已生成:"
+  cat /etc/caddy/Caddyfile
   
   # 开放端口
   if command -v ufw &>/dev/null; then
