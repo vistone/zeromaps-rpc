@@ -1,188 +1,4 @@
-/**
- * 统一监控面板服务器
- * 聚合所有VPS节点的监控数据，提供集中管理界面
- */
-
-import * as http from 'http'
-import * as https from 'https'
-
-interface VPSConfig {
-  name: string
-  domain: string
-  ip: string
-  ipv6Prefix: string
-  monitorUrl: string
-}
-
-export class DashboardServer {
-  private server: http.Server | null = null
-  private vpsConfigs: VPSConfig[] = []
-
-  constructor(private port: number) {
-    // 7个VPS配置
-    this.vpsConfigs = [
-      {
-        name: 'tile0',
-        domain: 'tile0.zeromaps.cn',
-        ip: '172.93.47.57',
-        ipv6Prefix: '2607:8700:5500:2943',
-        monitorUrl: 'http://tile0.zeromaps.cn:9528'
-      },
-      {
-        name: 'tile3',
-        domain: 'tile3.zeromaps.cn',
-        ip: '65.49.192.85',
-        ipv6Prefix: '2607:8700:5500:e639',
-        monitorUrl: 'http://tile3.zeromaps.cn:9528'
-      },
-      {
-        name: 'tile4',
-        domain: 'tile4.zeromaps.cn',
-        ip: '65.49.195.185',
-        ipv6Prefix: '2607:8700:5500:1e09',
-        monitorUrl: 'http://tile4.zeromaps.cn:9528'
-      },
-      {
-        name: 'tile5',
-        domain: 'tile5.zeromaps.cn',
-        ip: '65.49.194.100',
-        ipv6Prefix: '2607:8700:5500:203e',
-        monitorUrl: 'http://tile5.zeromaps.cn:9528'
-      },
-      {
-        name: 'tile6',
-        domain: 'tile6.zeromaps.cn',
-        ip: '66.112.211.45',
-        ipv6Prefix: '2607:8700:5500:bf4b',
-        monitorUrl: 'http://tile6.zeromaps.cn:9528'
-      },
-      {
-        name: 'tile12',
-        domain: 'tile12.zeromaps.cn',
-        ip: '107.182.186.123',
-        ipv6Prefix: '2607:8700:5500:2043',
-        monitorUrl: 'http://tile12.zeromaps.cn:9528'
-      },
-      {
-        name: 'www',
-        domain: 'www.zeromaps.com.cn',
-        ip: '45.78.5.252',
-        ipv6Prefix: '2607:8700:5500:d197',
-        monitorUrl: 'http://www.zeromaps.com.cn:9528'
-      }
-    ]
-  }
-
-  /**
-   * 启动管理面板服务器
-   */
-  public start(): void {
-    this.server = http.createServer((req, res) => {
-      this.handleRequest(req, res)
-    })
-
-    this.server.listen(this.port, () => {
-      console.log(`🎛️  统一管理面板启动: http://0.0.0.0:${this.port}`)
-    })
-  }
-
-  /**
-   * 处理HTTP请求
-   */
-  private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-    // 设置CORS
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(200)
-      res.end()
-      return
-    }
-
-    const url = req.url || '/'
-
-    if (url === '/' || url === '/index.html') {
-      this.serveDashboard(res)
-    } else if (url === '/api/all-stats') {
-      this.serveAllStats(res)
-    } else {
-      res.writeHead(404)
-      res.end('Not Found')
-    }
-  }
-
-  /**
-   * 从单个VPS获取统计数据
-   */
-  private async fetchVPSStats(vps: VPSConfig): Promise<any> {
-    return new Promise((resolve) => {
-      const url = `${vps.monitorUrl}/api/stats`
-      
-      http.get(url, { timeout: 3000 }, (response) => {
-        let data = ''
-        
-        response.on('data', (chunk) => {
-          data += chunk
-        })
-        
-        response.on('end', () => {
-          try {
-            const stats = JSON.parse(data)
-            resolve({
-              ...vps,
-              status: 'online',
-              stats
-            })
-          } catch (error) {
-            resolve({
-              ...vps,
-              status: 'error',
-              error: '数据解析失败'
-            })
-          }
-        })
-      }).on('error', () => {
-        resolve({
-          ...vps,
-          status: 'offline',
-          error: '无法连接'
-        })
-      })
-    })
-  }
-
-  /**
-   * 获取所有VPS的统计数据
-   */
-  private async serveAllStats(res: http.ServerResponse): Promise<void> {
-    const promises = this.vpsConfigs.map(vps => this.fetchVPSStats(vps))
-    const results = await Promise.all(promises)
-
-    res.writeHead(200, { 'Content-Type': 'application/json' })
-    res.end(JSON.stringify({
-      timestamp: Date.now(),
-      total: results.length,
-      online: results.filter(r => r.status === 'online').length,
-      offline: results.filter(r => r.status === 'offline').length,
-      nodes: results
-    }, null, 2))
-  }
-
-  /**
-   * 返回管理面板HTML
-   */
-  private serveDashboard(res: http.ServerResponse): void {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
-    res.end(this.getDashboardHTML())
-  }
-
-  /**
-   * 生成管理面板HTML
-   */
-  private getDashboardHTML(): string {
-    return `<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -341,24 +157,56 @@ export class DashboardServer {
   </div>
 
   <script>
+    // 7个VPS节点配置
+    const NODES = [
+      { name: 'tile0', domain: 'tile0.zeromaps.cn', ip: '172.93.47.57', ipv6: '2607:8700:5500:2943' },
+      { name: 'tile3', domain: 'tile3.zeromaps.cn', ip: '65.49.192.85', ipv6: '2607:8700:5500:e639' },
+      { name: 'tile4', domain: 'tile4.zeromaps.cn', ip: '65.49.195.185', ipv6: '2607:8700:5500:1e09' },
+      { name: 'tile5', domain: 'tile5.zeromaps.cn', ip: '65.49.194.100', ipv6: '2607:8700:5500:203e' },
+      { name: 'tile6', domain: 'tile6.zeromaps.cn', ip: '66.112.211.45', ipv6: '2607:8700:5500:bf4b' },
+      { name: 'tile12', domain: 'tile12.zeromaps.cn', ip: '107.182.186.123', ipv6: '2607:8700:5500:2043' },
+      { name: 'www', domain: 'www.zeromaps.com.cn', ip: '45.78.5.252', ipv6: '2607:8700:5500:d197' }
+    ];
+
     function formatNumber(num) {
       if (!num && num !== 0) return '-';
       return num.toLocaleString('zh-CN');
     }
 
+    async function fetchNodeStats(node) {
+      try {
+        const response = await fetch(\`http://\${node.domain}:9528/api/stats\`, { 
+          signal: AbortSignal.timeout(3000) 
+        });
+        const stats = await response.json();
+        return {
+          ...node,
+          status: 'online',
+          stats
+        };
+      } catch (error) {
+        return {
+          ...node,
+          status: 'offline',
+          error: '无法连接'
+        };
+      }
+    }
+
     async function fetchAllStats() {
       try {
-        const response = await fetch('/api/all-stats');
-        const data = await response.json();
+        const promises = NODES.map(node => fetchNodeStats(node));
+        const results = await Promise.all(promises);
         
         // 更新摘要
-        document.getElementById('onlineCount').textContent = data.online;
-        document.getElementById('totalCount').textContent = data.total;
+        const online = results.filter(r => r.status === 'online').length;
+        document.getElementById('onlineCount').textContent = online;
+        document.getElementById('totalCount').textContent = results.length;
         
         let totalRequests = 0;
         let totalQPS = 0;
         
-        data.nodes.forEach(node => {
+        results.forEach(node => {
           if (node.status === 'online' && node.stats) {
             totalRequests += node.stats.requests.total || 0;
             totalQPS += node.stats.ipv6.qps || 0;
@@ -369,7 +217,7 @@ export class DashboardServer {
         document.getElementById('totalQPS').textContent = totalQPS.toFixed(2);
         
         // 渲染节点卡片
-        renderNodes(data.nodes);
+        renderNodes(results);
         
         document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-CN');
       } catch (error) {
@@ -382,7 +230,6 @@ export class DashboardServer {
       
       grid.innerHTML = nodes.map(node => {
         const isOnline = node.status === 'online';
-        const stats = node.stats;
         
         if (!isOnline) {
           return \`
@@ -398,11 +245,12 @@ export class DashboardServer {
               <div style="text-align: center; color: #999; padding: 20px;">
                 \${node.error || '无法连接到服务器'}
               </div>
-              <a href="\${node.monitorUrl}" target="_blank" class="node-link">查看详情 →</a>
+              <a href="http://\${node.domain}:9528" target="_blank" class="node-link">查看详情 →</a>
             </div>
           \`;
         }
         
+        const stats = node.stats;
         const successRate = stats.ipv6.successRate || 0;
         const successClass = successRate >= 99 ? 'good' : (successRate >= 95 ? 'warning' : 'bad');
         
@@ -450,7 +298,7 @@ export class DashboardServer {
                 <div class="stat-value">\${stats.ipv6.balance}</div>
               </div>
             </div>
-            <a href="\${node.monitorUrl}" target="_blank" class="node-link">查看详情 →</a>
+            <a href="http://\${node.domain}:9528" target="_blank" class="node-link">查看详情 →</a>
           </div>
         \`;
       }).join('');
@@ -463,17 +311,5 @@ export class DashboardServer {
     setInterval(fetchAllStats, 5000);
   </script>
 </body>
-</html>`;
-  }
-
-  /**
-   * 停止服务器
-   */
-  public stop(): void {
-    if (this.server) {
-      this.server.close()
-      console.log('✓ 管理面板服务器已停止')
-    }
-  }
-}
+</html>
 

@@ -84,26 +84,48 @@ if (response.statusCode === 200) {
 
 ### 🎛️ 统一管理面板（推荐）
 
-在一个页面上查看所有7个VPS的运行状态：
+在一个页面上查看所有7个VPS的运行状态，使用Caddy反向代理：
+
+#### 部署方式（在任意VPS上）
 
 ```bash
-# 在任意一台VPS上启动管理面板（推荐在www上）
-npm run dashboard
+# 1. 安装Caddy
+apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
+apt update
+apt install caddy
 
-# 或使用pm2后台运行
-pm2 start server/dashboard.ts --name zeromaps-dashboard --interpreter tsx
+# 2. 拉取最新代码
+cd /opt/zeromaps-rpc
+git pull
 
-# 访问地址（假设在www服务器上运行）
-http://www.zeromaps.com.cn:8080
+# 3. 复制Caddy配置
+cp Caddyfile /etc/caddy/Caddyfile
+
+# 4. 重启Caddy
+systemctl restart caddy
+
+# 5. 配置DNS
+# 将 monitor.zeromaps.cn 解析到当前VPS的IP
+```
+
+#### 访问地址
+
+```
+https://monitor.zeromaps.cn
 ```
 
 **功能特性**：
+- ✅ 纯静态HTML，无需后端服务器
 - ✅ 7个VPS节点状态一目了然
 - ✅ 在线/离线状态实时显示
-- ✅ 每个节点的关键指标
+- ✅ 每个节点的关键指标（客户端、请求数、QPS、成功率等）
 - ✅ 总计数据汇总（总请求数、总QPS）
 - ✅ 点击可跳转到单节点详细监控
 - ✅ 自动刷新（每5秒）
+- ✅ HTTPS安全访问
+- ✅ 可部署在任意VPS上
 
 ### 🌐 单节点监控
 
@@ -564,7 +586,10 @@ RPC_PORT=9527                       # RPC端口（默认）
 ```
 zeromaps-rpc/
 ├── deploy.sh              # 一键部署脚本
+├── Caddyfile              # Caddy反向代理配置
 ├── README.md              # 项目文档（唯一）
+├── public/                # 静态文件（管理面板）
+│   └── index.html        # 统一管理面板
 ├── configs/               # VPS配置文件（7个）
 │   ├── vps-107.182.186.123.conf  # tile12
 │   ├── vps-172.93.47.57.conf     # tile0
@@ -581,16 +606,9 @@ zeromaps-rpc/
 │   ├── stats-exporter.ts # 统计导出工具
 │   └── monitor-server.ts # Web监控服务器
 ├── client/                # 客户端 SDK
-│   ├── rpc-client.ts
-│   └── index.ts
 ├── proto/                 # Protocol Buffers 定义
-│   └── zeromaps-rpc.proto
 ├── tests/                 # 测试文件
-│   ├── test-connection.ts
-│   ├── test-monitoring.ts
-│   └── ...
 ├── examples/              # 使用示例
-│   └── basic-usage.ts
 ├── package.json
 └── tsconfig.json
 ```

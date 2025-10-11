@@ -1,0 +1,29 @@
+# ZeroMaps RPC 统一管理面板 Caddy配置
+# 可以部署在任意一台VPS上
+
+# 监控管理面板（HTTPS）
+monitor.zeromaps.cn {
+    # 静态管理面板
+    root * /opt/zeromaps-rpc/public
+    file_server
+    
+    # 默认页面
+    try_files {path} /dashboard.html
+    
+    # 启用HTTPS
+    tls {
+        protocols tls1.2 tls1.3
+    }
+    
+    # 日志
+    log {
+        output file /var/log/caddy/monitor.log
+        format json
+    }
+}
+
+# HTTP重定向到HTTPS
+http://monitor.zeromaps.cn {
+    redir https://monitor.zeromaps.cn{uri} permanent
+}
+
