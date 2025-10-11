@@ -67,7 +67,7 @@ IPV6_PREFIX=2607:8700:5500:2043 npm run server
 import { RpcClient } from 'zeromaps-rpc/client'
 
 // 连接到服务器（可以连接任意一个tile服务器）
-const client = new RpcClient('tile0.zeromaps.com.cn', 9527)
+const client = new RpcClient('tile0.zeromaps.cn', 9527)
 await client.connect()
 
 // 发起请求（只需传入URI）
@@ -299,12 +299,12 @@ DataResponse {
 
 | No | 服务器 | IPv4地址 | IPv6前缀 | 域名 | Web监控 |
 |----|-------|---------|---------|------|---------|
-| 1 | tile0 | 172.93.47.57 | 2607:8700:5500:2943 | tile0.zeromaps.com.cn | http://tile0.zeromaps.com.cn:9528 |
-| 2 | tile3 | 65.49.192.85 | 2607:8700:5500:e639 | tile3.zeromaps.com.cn | http://tile3.zeromaps.com.cn:9528 |
-| 3 | tile4 | 65.49.195.185 | 2607:8700:5500:1e09 | tile4.zeromaps.com.cn | http://tile4.zeromaps.com.cn:9528 |
+| 1 | tile0 | 172.93.47.57 | 2607:8700:5500:2943 | tile0.zeromaps.cn | http://tile0.zeromaps.cn:9528 |
+| 2 | tile3 | 65.49.192.85 | 2607:8700:5500:e639 | tile3.zeromaps.cn | http://tile3.zeromaps.cn:9528 |
+| 3 | tile4 | 65.49.195.185 | 2607:8700:5500:1e09 | tile4.zeromaps.cn | http://tile4.zeromaps.cn:9528 |
 | 4 | tile5 | 65.49.194.100 | 2607:8700:5500:203e | tile5.zeromaps.cn | http://tile5.zeromaps.cn:9528 |
-| 5 | tile6 | 66.112.211.45 | 2607:8700:5500:bf4b | tile6.zeromaps.com.cn | http://tile6.zeromaps.com.cn:9528 |
-| 6 | tile12 | 107.182.186.123 | 2607:8700:5500:2043 | tile12.zeromaps.com.cn | http://tile12.zeromaps.com.cn:9528 |
+| 5 | tile6 | 66.112.211.45 | 2607:8700:5500:bf4b | tile6.zeromaps.cn | http://tile6.zeromaps.cn:9528 |
+| 6 | tile12 | 107.182.186.123 | 2607:8700:5500:2043 | tile12.zeromaps.cn | http://tile12.zeromaps.cn:9528 |
 | 7 | www | 45.78.5.252 | 2607:8700:5500:d197 | www.zeromaps.com.cn | http://www.zeromaps.com.cn:9528 |
 
 **每个VPS配置**：
