@@ -389,25 +389,70 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     exit 1
   fi
   
-  # 配置Caddy（HTTP模式）
+  # 安装certbot
+  echo "安装certbot..."
+  if ! command -v certbot &>/dev/null; then
+    apt update >/dev/null 2>&1
+    apt install -y certbot >/dev/null 2>&1
+    echo -e "${GREEN}✓ certbot安装成功${NC}"
+  else
+    echo -e "${GREEN}✓ certbot已安装${NC}"
+  fi
+  
+  # 获取SSL证书
+  echo "获取SSL证书..."
+  if [ ! -d "/etc/letsencrypt/live/$SERVER_DOMAIN" ]; then
+    # 临时停止Caddy
+    systemctl stop caddy >/dev/null 2>&1
+    
+    # 获取证书
+    certbot certonly --standalone --non-interactive --agree-tos \
+      --email admin@$SERVER_DOMAIN \
+      -d $SERVER_DOMAIN
+    
+    if [ $? -eq 0 ]; then
+      echo -e "${GREEN}✓ SSL证书获取成功${NC}"
+    else
+      echo -e "${RED}✗ SSL证书获取失败${NC}"
+      echo "  错误：请检查域名DNS是否正确解析到本机"
+      echo "  当前IP: $(curl -s ifconfig.me)"
+      echo "  域名解析: $(dig +short $SERVER_DOMAIN)"
+      exit 1
+    fi
+  else
+    echo -e "${GREEN}✓ SSL证书已存在${NC}"
+  fi
+  
+  # 配置Caddy
   echo "配置Caddy..."
   sed "s/{DOMAIN}/$SERVER_DOMAIN/g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
   
-  # 开放80端口
+  # 开放端口
   if command -v ufw &>/dev/null; then
     ufw allow 80/tcp >/dev/null 2>&1
+    ufw allow 443/tcp >/dev/null 2>&1
   fi
   
   # 启动Caddy
   systemctl enable caddy >/dev/null 2>&1
   systemctl restart caddy
   
-  sleep 1
+  sleep 2
   if systemctl is-active caddy >/dev/null 2>&1; then
     echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
-    echo -e "${GREEN}访问地址: http://$SERVER_DOMAIN${NC}"
+    echo -e "${GREEN}访问地址: https://$SERVER_DOMAIN${NC}"
+    echo ""
+    echo "排查命令:"
+    echo "  systemctl status caddy    - 查看Caddy状态"
+    echo "  journalctl -u caddy -n 50 - 查看日志"
+    echo "  netstat -tlnp | grep caddy - 查看端口"
   else
-    echo -e "${RED}✗ Caddy启动失败，查看日志: journalctl -u caddy${NC}"
+    echo -e "${RED}✗ Caddy启动失败${NC}"
+    echo "排查步骤:"
+    echo "  1. journalctl -u caddy -n 50"
+    echo "  2. cat /etc/caddy/Caddyfile"
+    echo "  3. ls -la /etc/letsencrypt/live/$SERVER_DOMAIN/"
+    exit 1
   fi
   echo ""
 fi
@@ -436,7 +481,7 @@ if [ -n "$SERVER_DOMAIN" ]; then
   
   # 如果安装了Caddy，显示管理面板地址
   if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
-    echo "  统一管理面板: http://$SERVER_DOMAIN"
+    echo "  统一管理面板: https://$SERVER_DOMAIN"
   fi
 fi
 echo ""
