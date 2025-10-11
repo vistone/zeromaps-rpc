@@ -3,8 +3,9 @@
 
 {DOMAIN} {
     # API反向代理（解决混合内容问题）
+    # 使用[::1]（IPv6 localhost）而不是127.0.0.1
     handle /api/* {
-        reverse_proxy localhost:9528
+        reverse_proxy [::1]:9528
     }
     
     # 静态管理面板
