@@ -152,30 +152,32 @@ if [ $EXISTING_COUNT -ge 90 ]; then
   echo -e "${GREEN}✓ IPv6地址池已配置完整（共 $EXISTING_COUNT 个），跳过配置${NC}"
 else
   echo "批量添加 ${IPV6_PREFIX}::1001-1100 (100个地址)..."
-  echo "  [开始] 0/100"
   
-  ADDED_COUNT=0
   START_TIME=$(date +%s)
   
-  # 添加100个地址，每5个显示进度
-  for i in {1001..1100}; do
-    ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null && ((ADDED_COUNT++))
-    
-    # 每5个显示一次（20次输出）
-    if [ $(((i - 1000) % 5)) -eq 0 ]; then
-      CURRENT=$((i - 1000))
-      echo "  [$CURRENT/100] 已添加 $ADDED_COUNT 个"
-    fi
-  done
+  # 创建临时脚本快速添加所有地址
+  cat > /tmp/add-ipv6.sh << ADDSCRIPT
+#!/bin/bash
+for i in {1001..1100}; do
+  ip -6 addr add ${IPV6_PREFIX}::\$i/128 dev $INTERFACE 2>/dev/null &
+done
+wait
+ADDSCRIPT
   
-  echo -e "${GREEN}✓ 完成! 新增: $ADDED_COUNT 个IPv6地址${NC}"
+  chmod +x /tmp/add-ipv6.sh
+  echo "  执行批量添加..."
+  /tmp/add-ipv6.sh
+  rm -f /tmp/add-ipv6.sh
   
   END_TIME=$(date +%s)
   DURATION=$((END_TIME - START_TIME))
-  echo "  总耗时: ${DURATION}秒"
   
   # 最终统计
   TOTAL_COUNT=$(ip -6 addr show dev $INTERFACE | grep "$IPV6_PREFIX" | wc -l)
+  ADDED_COUNT=$((TOTAL_COUNT - EXISTING_COUNT))
+  
+  echo -e "${GREEN}✓ 完成! 新增: $ADDED_COUNT 个IPv6地址${NC}"
+  echo "  总耗时: ${DURATION}秒"
   echo -e "${GREEN}✓ 当前IPv6总数: $TOTAL_COUNT${NC}"
 fi
 
