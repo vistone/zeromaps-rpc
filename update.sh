@@ -89,12 +89,7 @@ if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; th
   if [ -f "$CONFIG_FILE" ]; then
     source $CONFIG_FILE
     
-    # 停止Caddy并清理证书缓存
-    echo "清理证书缓存..."
-    systemctl stop caddy
-    rm -rf /var/lib/caddy/.local/share/caddy/certificates 2>/dev/null || true
-    rm -rf /var/lib/caddy/.local/share/caddy/locks 2>/dev/null || true
-    echo -e "${GREEN}✓ 证书缓存已清理${NC}"
+    # 不清理证书（避免Let's Encrypt速率限制）
     
     # 创建日志目录
     mkdir -p /var/log/caddy
@@ -108,17 +103,19 @@ if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; th
     # 重新生成配置
     sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
     
-    # 验证并启动
+    # 验证并reload
     if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
-      echo "启动Caddy（将重新获取证书）..."
-      systemctl start caddy
-      sleep 5
-      
-      if systemctl is-active caddy >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ Caddy已启动，证书将自动获取${NC}"
+      if systemctl reload caddy >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Caddy配置已更新${NC}"
       else
-        echo -e "${RED}✗ Caddy启动失败${NC}"
-        journalctl -u caddy -n 10 --no-pager
+        systemctl restart caddy
+        sleep 3
+        if systemctl is-active caddy >/dev/null 2>&1; then
+          echo -e "${GREEN}✓ Caddy已重启${NC}"
+        else
+          echo -e "${RED}✗ Caddy启动失败${NC}"
+          journalctl -u caddy -n 10 --no-pager
+        fi
       fi
     else
       echo -e "${RED}✗ Caddy配置验证失败${NC}"
