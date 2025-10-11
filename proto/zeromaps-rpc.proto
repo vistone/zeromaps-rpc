@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package zeromaps.rpc;
+
+// ============================================
+// 帧类型定义
+// ============================================
+enum FrameType {
+  UNKNOWN_FRAME = 0;      // Proto3 要求第一个值为 0
+  
+  // 现有的代理协议（保留兼容）
+  PROXY_REQUEST = 1;
+  PROXY_RESPONSE = 2;
+  DATA = 3;
+  CLOSE = 4;
+  
+  // 新增的 RPC 协议
+  HANDSHAKE_REQUEST = 16;
+  HANDSHAKE_RESPONSE = 17;
+  DATA_REQUEST = 18;
+  DATA_RESPONSE = 19;
+}
+
+// ============================================
+// 数据类型枚举
+// ============================================
+enum DataType {
+  UNKNOWN = 0;
+  BULK_METADATA = 1;
+  NODE_DATA = 2;
+  IMAGERY_DATA = 3;
+}
+
+// ============================================
+// 握手协议
+// ============================================
+
+// 握手请求（客户端 → 服务器）
+message HandshakeRequest {
+  string clientInfo = 1;  // 可选：客户端版本、系统信息等
+}
+
+// 握手响应（服务器 → 客户端）
+message HandshakeResponse {
+  uint32 clientID = 1;    // 服务器分配的客户端ID: 1,2,3,4,5...
+  bool success = 2;
+  string message = 3;     // 可选：欢迎信息或错误信息
+}
+
+// ============================================
+// 数据请求协议
+// ============================================
+
+// 数据请求（客户端 → 服务器）
+message DataRequest {
+  uint32 clientID = 1;         // 握手时分配的客户端ID
+  DataType dataType = 2;       // 数据类型枚举
+  string tilekey = 3;          // "04", "0413", "041320"...
+  uint32 epoch = 4;            // epoch 值
+  uint32 imageryEpoch = 5;     // 仅 dataType=IMAGERY_DATA 时使用
+}
+
+// 数据响应（服务器 → 客户端）
+message DataResponse {
+  uint32 clientID = 1;         // 客户端ID
+  DataType dataType = 2;       // 回传：数据类型
+  string tilekey = 3;          // 回传：tilekey
+  uint32 epoch = 4;            // 回传：epoch
+  uint32 imageryEpoch = 5;     // 回传：imageryEpoch
+  bytes data = 6;              // 二进制数据（成功时有数据）
+  uint32 statusCode = 7;       // HTTP 状态码: 200=成功, 404=不存在, 403=被封, 500=错误, 0=网络错误
+}
+
