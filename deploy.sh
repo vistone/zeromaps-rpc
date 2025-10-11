@@ -282,9 +282,16 @@ echo -e "${GREEN}✓ Node.js: $(node -v)${NC}"
 # pm2
 if ! command -v pm2 &>/dev/null; then
   echo "安装pm2..."
-  npm install -g pm2 >/dev/null 2>&1
+  npm install -g pm2
+  if command -v pm2 &>/dev/null; then
+    echo -e "${GREEN}✓ pm2安装成功${NC}"
+  else
+    echo -e "${RED}✗ pm2安装失败${NC}"
+    exit 1
+  fi
+else
+  echo -e "${GREEN}✓ pm2已安装: $(pm2 -v)${NC}"
 fi
-echo -e "${GREEN}✓ pm2已安装${NC}"
 
 # ==========================================
 # 步骤6: 安装curl-impersonate
