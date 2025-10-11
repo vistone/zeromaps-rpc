@@ -134,28 +134,38 @@ echo "检测到已有 $EXISTING_COUNT 个IPv6地址"
 if [ $EXISTING_COUNT -ge 1000 ]; then
   echo -e "${GREEN}✓ IPv6地址池已完整配置，跳过${NC}"
 else
-  echo "开始添加IPv6地址池（需要1-2分钟）..."
+  echo "开始添加IPv6地址池（大约需要1-2分钟，请耐心等待）..."
   ADDED_COUNT=0
+  FAILED_COUNT=0
   START_TIME=$(date +%s)
   
-  for i in {1001..2000}; do
-    if ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null; then
-      ((ADDED_COUNT++))
+  # 分批添加，每批10个，显示进度
+  for batch_start in {1001..2000..10}; do
+    batch_end=$((batch_start + 9))
+    if [ $batch_end -gt 2000 ]; then
+      batch_end=2000
     fi
     
-    # 每50个显示进度（更频繁的反馈）
-    if [ $((i % 50)) -eq 0 ]; then
-      CURRENT=$((i - 1000))
-      PERCENT=$((CURRENT * 100 / 1000))
-      echo -ne "  进度: ${CURRENT}/1000 (${PERCENT}%) 新增: ${ADDED_COUNT}\r"
-    fi
+    # 批量添加10个地址
+    for i in $(seq $batch_start $batch_end); do
+      if ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null; then
+        ((ADDED_COUNT++))
+      else
+        ((FAILED_COUNT++))
+      fi
+    done
+    
+    # 实时显示进度
+    CURRENT=$((batch_end - 1000))
+    PERCENT=$((CURRENT * 100 / 1000))
+    echo "  [${PERCENT}%] 进度: ${CURRENT}/1000 | 新增: ${ADDED_COUNT} | 已存在: ${FAILED_COUNT}"
   done
   
-  echo -e "\n${GREEN}✓ 新增: $ADDED_COUNT 个IPv6地址${NC}"
+  echo -e "${GREEN}✓ 完成! 新增: $ADDED_COUNT 个，已存在: $FAILED_COUNT 个${NC}"
   
   END_TIME=$(date +%s)
   DURATION=$((END_TIME - START_TIME))
-  echo "  耗时: ${DURATION}秒"
+  echo "  总耗时: ${DURATION}秒"
 fi
 
 TOTAL_COUNT=$(ip -6 addr show dev $INTERFACE | grep "$IPV6_PREFIX" | wc -l)
