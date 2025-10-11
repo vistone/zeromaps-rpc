@@ -365,18 +365,30 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   echo ""
   echo -e "${YELLOW}[额外] 安装Caddy和统一管理面板...${NC}"
   
-  # 安装Caddy
-  if ! command -v caddy &>/dev/null; then
-    echo "安装Caddy..."
-    apt install -y debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' 2>/dev/null | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' 2>/dev/null | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
-    apt update >/dev/null 2>&1
-    apt install -y caddy >/dev/null 2>&1
-    echo -e "${GREEN}✓ Caddy安装成功${NC}"
-  else
-    echo -e "${GREEN}✓ Caddy已安装${NC}"
+  # 清理并重新安装Caddy
+  echo "清理旧的Caddy..."
+  
+  # 停止Caddy服务
+  systemctl stop caddy >/dev/null 2>&1
+  systemctl disable caddy >/dev/null 2>&1
+  
+  # 卸载Caddy
+  if command -v caddy &>/dev/null; then
+    apt remove --purge -y caddy >/dev/null 2>&1
+    echo -e "${GREEN}✓ 已卸载旧版Caddy${NC}"
   fi
+  
+  # 清理配置
+  rm -f /etc/caddy/Caddyfile
+  
+  # 重新安装Caddy
+  echo "重新安装Caddy..."
+  apt install -y debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' 2>/dev/null | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' 2>/dev/null | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+  apt update >/dev/null 2>&1
+  apt install -y caddy >/dev/null 2>&1
+  echo -e "${GREEN}✓ Caddy安装成功${NC}"
   
   # 配置Caddy（使用当前VPS的域名）
   echo "配置Caddy..."
