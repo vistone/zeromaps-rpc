@@ -504,22 +504,30 @@ curl -sSL https://raw.githubusercontent.com/vistone/zeromaps-rpc/master/deploy.s
 如果已经部署过，需要更新到最新版本：
 
 ```bash
-# 在VPS上执行（推荐方式）
+# 一键更新（推荐）
 cd /opt/zeromaps-rpc
-
-# 拉取最新代码和脚本
 git pull
-
-# 重新运行部署脚本（会自动更新所有内容）
 sudo ./deploy.sh
+
+# 脚本会自动：
+# ✓ 检测已安装的组件（跳过IPv6、Node.js等）
+# ✓ 更新npm依赖
+# ✓ 清理端口冲突（9527/9528）
+# ✓ 停止冲突的systemd服务
+# ✓ 重启pm2服务
+# ✓ 如果安装了Caddy，自动更新配置并reload
+# ✓ 所有操作都是自动的，无需手动干预
 ```
 
-**说明**：
-- deploy.sh会检测已有配置，跳过重复步骤
-- 只更新代码、依赖和服务
-- 自动重启pm2服务
+**脚本智能检测**：
+- 已配置的IPv6池（>=90个地址） → 跳过
+- 已安装的Node.js → 跳过
+- 已安装的curl-impersonate → 跳过
+- 端口被占用 → 自动清理
+- systemd服务冲突 → 自动停止禁用
+- Caddy已安装 → 自动更新配置
 
-**手动更新方式**（仅更新代码，不重新配置IPv6）：
+**手动更新方式**（不推荐，仅供参考）：
 ```bash
 cd /opt/zeromaps-rpc
 git pull
@@ -613,14 +621,75 @@ zeromaps-rpc/
 
 ## 故障排查
 
-### 统计文件不存在
+### 服务无法启动（端口被占用）
 
 ```bash
-# 检查服务状态
-systemctl status zeromaps-rpc
+# 推荐方式：运行脚本自动清理
+cd /opt/zeromaps-rpc
+sudo ./deploy.sh
+# 脚本会自动清理端口冲突并重启服务
 
-# 手动触发导出
-kill -SIGUSR1 $(pgrep -f "node.*server/index")
+# 手动清理方式：
+# 1. 查看端口占用
+netstat -tlnp | grep -E ":(9527|9528)"
+
+# 2. 停止systemd服务
+systemctl stop zeromaps-rpc.service
+systemctl disable zeromaps-rpc.service
+
+# 3. 清理端口
+fuser -k 9527/tcp
+fuser -k 9528/tcp
+
+# 4. 重启pm2
+pm2 restart zeromaps-rpc
+```
+
+### Caddy无法访问（502 Bad Gateway）
+
+```bash
+# 1. 检查监控服务是否运行
+curl http://localhost:9528/api/stats
+
+# 2. 如果正常，运行脚本更新Caddy配置
+cd /opt/zeromaps-rpc
+git pull
+sudo ./deploy.sh
+# 脚本会自动更新Caddy配置（使用[::1]:9528）
+
+# 3. 测试通过Caddy访问
+curl https://域名/api/stats
+```
+
+### 管理面板显示节点离线
+
+```bash
+# 在对应VPS上检查服务
+pm2 list
+pm2 logs zeromaps-rpc --lines 30
+
+# 测试监控API
+curl http://localhost:9528/api/stats
+
+# 重新运行部署脚本
+cd /opt/zeromaps-rpc
+git pull
+sudo ./deploy.sh
+```
+
+### SSH部署时超时断开
+
+```bash
+# 使用screen避免SSH超时
+apt install screen -y
+screen -S deploy
+sudo ./deploy.sh
+
+# 如果断开，重新连接
+screen -r deploy
+
+# 退出screen但保持运行
+Ctrl+A 然后按 D
 ```
 
 ### 平衡度很高（>10）
@@ -629,7 +698,7 @@ kill -SIGUSR1 $(pgrep -f "node.*server/index")
 
 ```bash
 # 查看详细统计
-kill -SIGUSR2 $(pgrep -f "node.*server/index")
+pm2 logs zeromaps-rpc
 
 # 测试IPv6连接
 curl -6 --interface "2607:8700:5500:2043::1001" https://kh.google.com/
@@ -639,7 +708,7 @@ curl -6 --interface "2607:8700:5500:2043::1001" https://kh.google.com/
 
 ```bash
 # 查看错误日志
-journalctl -u zeromaps-rpc | grep "Error"
+pm2 logs zeromaps-rpc --err --lines 50
 
 # 检查curl-impersonate
 /usr/local/bin/curl-impersonate-chrome --version
