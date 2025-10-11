@@ -122,38 +122,33 @@ else
 fi
 
 # ==========================================
-# 步骤3: 添加IPv6地址池（1000个）
+# 步骤3: 添加IPv6地址池（100个）
 # ==========================================
 echo ""
-echo -e "${YELLOW}[3/7] 配置IPv6地址池 (1000个地址)...${NC}"
+echo -e "${YELLOW}[3/7] 配置IPv6地址池 (100个地址)...${NC}"
 
 # 先检查是否已经配置过
 EXISTING_COUNT=$(ip -6 addr show dev $INTERFACE 2>/dev/null | grep "$IPV6_PREFIX" | wc -l)
 
-# 如果已经有900个以上，认为已配置完整（包含主地址::2 + 池地址）
-if [ $EXISTING_COUNT -ge 900 ]; then
+# 如果已经有90个以上，认为已配置完整（包含主地址::2 + 池地址）
+if [ $EXISTING_COUNT -ge 90 ]; then
   echo -e "${GREEN}✓ IPv6地址池已配置完整（共 $EXISTING_COUNT 个），跳过配置${NC}"
 else
-  echo "检测到 $EXISTING_COUNT 个IPv6地址，开始批量添加 ${IPV6_PREFIX}::1001-2000"
-  echo "  [开始添加...] 0% | 0/1000"
+  echo "检测到 $EXISTING_COUNT 个IPv6地址，开始批量添加 ${IPV6_PREFIX}::1001-1100"
   
   ADDED_COUNT=0
   START_TIME=$(date +%s)
   
-  # 每个地址都添加，每1个都显示进度
-  for i in {1001..2000}; do
+  # 添加100个地址
+  for i in {1001..1100}; do
     ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null && ((ADDED_COUNT++))
     
-    # 每1个都显示（实时反馈）
+    # 每个都显示进度
     CURRENT=$((i - 1000))
-    PERCENT=$((CURRENT * 100 / 1000))
-    BARS=$((PERCENT / 2))
-    printf "  [%-50s] %3d%% | %4d/1000 | 新增: %4d\r" \
-      "$(printf '#%.0s' $(seq 1 $BARS))" \
-      $PERCENT $CURRENT $ADDED_COUNT
+    PERCENT=$((CURRENT * 100 / 100))
+    echo "  进度: $CURRENT/100 ($PERCENT%) - 新增: $ADDED_COUNT"
   done
   
-  echo ""
   echo -e "${GREEN}✓ 完成! 新增: $ADDED_COUNT 个IPv6地址${NC}"
   
   END_TIME=$(date +%s)
@@ -165,9 +160,9 @@ else
   echo -e "${GREEN}✓ 当前IPv6总数: $TOTAL_COUNT${NC}"
 fi
 
-if [ $TOTAL_COUNT -lt 100 ]; then
+if [ $EXISTING_COUNT -lt 90 ] && [ ${TOTAL_COUNT:-0} -lt 50 ]; then
   echo -e "${RED}✗ 警告: IPv6地址池配置不完整${NC}"
-  echo "  预期至少1000个，实际 $TOTAL_COUNT 个"
+  echo "  预期至少100个，实际 ${TOTAL_COUNT:-0} 个"
   exit 1
 fi
 
@@ -198,7 +193,7 @@ if ! ip link show \$INTERFACE &>/dev/null; then
   ip route add ::/0 dev \$INTERFACE
 fi
 
-for i in {1001..2000}; do
+for i in {1001..1100}; do
   ip -6 addr add \${IPV6_PREFIX}::\$i/128 dev \$INTERFACE 2>/dev/null
 done
 SCRIPT_END

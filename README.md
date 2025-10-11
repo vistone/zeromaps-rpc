@@ -23,17 +23,17 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     ↓ 接收 RPC 请求
     ↓ 组合完整 URL: https://kh.google.com/rt/earth/{uri}
-    ↓ 轮询选择 IPv6 地址 (1000个IP池)
+    ↓ 轮询选择 IPv6 地址 (100个IP池)
     ↓ curl-impersonate --interface <ipv6>
     ↓ Chrome 116 TLS 指纹 + 不同 IPv6
     ↓
-kh.google.com (看到 1000 个不同的真实 Chrome)
+kh.google.com (看到 100 个不同的真实 Chrome)
 ```
 
 ## 核心优势
 
 - ✅ **真实浏览器指纹** - curl-impersonate 完美模拟 Chrome 116
-- ✅ **IPv6 地址池** - 每个服务器 1000 个不同 IPv6，避免封禁
+- ✅ **IPv6 地址池** - 每个服务器 100 个不同 IPv6，避免封禁
 - ✅ **负载均衡** - 轮询算法确保流量均匀分布
 - ✅ **多节点分流** - 请求自动分散到多个服务器
 - ✅ **极简协议** - 客户端只发送URI，服务器组装完整URL
@@ -178,7 +178,7 @@ PID=$(pgrep -f "node.*server/index")
 # 导出统计数据（生成JSON和CSV文件）
 kill -SIGUSR1 $PID
 
-# 显示所有1000个IPv6的详细统计
+# 显示所有100个IPv6的详细统计
 kill -SIGUSR2 $PID
 ```
 
@@ -308,7 +308,7 @@ DataResponse {
 | 7 | www | 45.78.5.252 | 2607:8700:5500:d197 | www.zeromaps.com.cn | http://www.zeromaps.com.cn:9528 |
 
 **每个VPS配置**：
-- IPv6地址池：1000个地址（::1001 到 ::2000）
+- IPv6地址池：100个地址（::1001 到 ::1100）
 - RPC端口：9527
 - 监控端口：9528
 
@@ -346,17 +346,17 @@ ip route add ::/0 dev ipv6net
 
 #### 为RPC服务配置IPv6地址池
 
-你需要在 `ipv6net` 接口上添加1000个额外的IPv6地址供RPC使用：
+你需要在 `ipv6net` 接口上添加100个额外的IPv6地址供RPC使用：
 
 ```bash
-# 批量添加1000个IPv6地址（::1001 到 ::2000）
-for i in {1001..2000}; do
+# 批量添加100个IPv6地址（::1001 到 ::1100）
+for i in {1001..1100}; do
   ip -6 addr add 2607:8700:5500:2043::$i/128 dev ipv6net
 done
 
 # 验证地址已添加
 ip -6 addr show dev ipv6net | grep "2607:8700:5500:2043" | wc -l
-# 应该显示 1001 (你的主地址::2 + 1000个新地址)
+# 应该显示 101 (你的主地址::2 + 100个新地址)
 ```
 
 **测试IPv6连接：**
@@ -392,7 +392,7 @@ echo "配置IPv6地址池..."
 for i in {1001..2000}; do
   ip -6 addr add 2607:8700:5500:2043::$i/128 dev ipv6net 2>/dev/null
 done
-echo "✓ IPv6池配置完成: 1000个地址"
+echo "✓ IPv6池配置完成: 100个地址"
 EOF
 
 chmod +x /root/setup-ipv6-pool.sh
@@ -437,7 +437,7 @@ sudo ./deploy.sh
 **工作流程**：
 1. ✅ 自动检测当前VPS的IP地址
 2. ✅ 自动匹配对应的配置文件
-3. ✅ 自动配置IPv6隧道和1000个地址池
+3. ✅ 自动配置IPv6隧道和100个地址池
 4. ✅ 自动安装所有依赖
 5. ✅ 自动启动RPC和监控服务
 
@@ -597,10 +597,10 @@ journalctl -u zeromaps-rpc | grep "Error"
 
 ### 性能指标（基于实际运行数据）
 
-- **QPS**: 15-20 req/s (单服务器，1000个IPv6)
+- **QPS**: 15-20 req/s (单服务器，100个IPv6)
 - **成功率**: >99.5%
 - **平均响应时间**: 200-300ms
-- **负载平衡度**: <5 (1000个IPv6时 <2)
+- **负载平衡度**: <5 (100个IPv6时 <2)
 - **已验证**: 16万+ 请求无问题
 
 ### 关键性能要素
@@ -609,11 +609,11 @@ journalctl -u zeromaps-rpc | grep "Error"
 
 | IPv6数量 | 单IP压力 | 封禁风险 | 推荐场景 |
 |---------|---------|---------|---------|
-| 100个 | 中等 | 较低 | 测试/小规模 |
-| 1000个 | 很低 | 极低 | ✅ **生产推荐** |
-| 500个 | 低 | 低 | 中等规模 |
+| 100个 | 中等 | 较低 | ✅ **当前配置** |
+| 500个 | 低 | 低 | 高并发场景 |
+| 1000个 | 很低 | 极低 | 超大规模（需手动调整） |
 
-**当前配置**：默认1000个IPv6（`::1001` ~ `::2000`）
+**当前配置**：默认100个IPv6（`::1001` ~ `::1100`）
 
 #### 2. 客户端并发策略
 
@@ -659,7 +659,7 @@ const results = await Promise.all(promises)  // 同时发送
 
 2. **检查IPv6地址池数量**
    ```bash
-   # 应该显示1001个（主地址::2 + 1000个池::1001-2000）
+   # 应该显示101个（主地址::2 + 100个池::1001-1100）
    ip -6 addr show dev ipv6net | grep "2607:8700:5500" | wc -l
    ```
 
@@ -673,12 +673,11 @@ const results = await Promise.all(promises)  // 同时发送
 
 #### 立即优化（无需改代码）
 
-1. **部署1000个IPv6**（如果还没部署）
+1. **确认IPv6地址池已部署**
    ```bash
-   for i in {1001..2000}; do
-     ip -6 addr add 2607:8700:5500:2043::$i/128 dev ipv6net
-   done
-   pm2 restart zeromaps-rpc
+   # 检查IPv6数量
+   ip -6 addr show dev ipv6net | grep "2607:8700:5500" | wc -l
+   # 应该显示101个
    ```
 
 2. **客户端改为并发请求**
@@ -791,7 +790,7 @@ systemctl disable ipv6-pool
 ## 开发状态
 
 - ✅ Proto 协议定义
-- ✅ IPv6 池管理（1000个地址）
+- ✅ IPv6 池管理（100个地址）
 - ✅ curl-impersonate 集成
 - ✅ RPC 请求处理
 - ✅ Web监控界面

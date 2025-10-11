@@ -39,8 +39,8 @@ export class RpcServer extends EventEmitter {
   ) {
     super()
     
-    // 初始化 IPv6 地址池（1000个地址）
-    this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 1000)
+    // 初始化 IPv6 地址池（100个地址）
+    this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
     
     // 初始化 curl 执行器
     this.curlFetcher = new CurlFetcher(curlPath, this.ipv6Pool)
