@@ -46,29 +46,36 @@ echo "[3/4] 重启服务..."
 
 # 清理可能冲突的systemd服务
 if systemctl list-units --full --all 2>/dev/null | grep -q "zeromaps-rpc.service"; then
+  echo "停止systemd服务..."
   systemctl stop zeromaps-rpc.service >/dev/null 2>&1 || true
   systemctl disable zeromaps-rpc.service >/dev/null 2>&1 || true
-  echo -e "${GREEN}✓ 已停止冲突的systemd服务${NC}"
+  echo -e "${GREEN}✓ 已停止systemd服务${NC}"
 fi
 
 # 检查并释放端口
+echo "检查端口占用..."
 for port in 9527 9528; do
   if netstat -tlnp 2>/dev/null | grep -q ":$port.*LISTEN"; then
-    PIDS=$(netstat -tlnp 2>/dev/null | grep ":$port.*LISTEN" | awk '{print $7}' | cut -d'/' -f1 | grep -E "^[0-9]+$")
-    if [ -n "$PIDS" ]; then
-      for pid in $PIDS; do
-        # 不要kill pm2管理的进程
-        if ! ps -p $pid -o cmd= | grep -q "PM2"; then
-          kill -9 $pid 2>/dev/null || true
-        fi
-      done
-    fi
+    echo "  端口 $port 被占用，正在清理..."
+    fuser -k $port/tcp 2>/dev/null || true
+    sleep 1
   fi
 done
+echo -e "${GREEN}✓ 端口检查完成${NC}"
 
 # 重启pm2服务
-pm2 restart zeromaps-rpc
-echo -e "${GREEN}✓ 服务重启完成${NC}"
+echo "重启pm2服务..."
+if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
+  pm2 restart zeromaps-rpc
+  echo -e "${GREEN}✓ 服务重启完成${NC}"
+else
+  echo -e "${RED}✗ pm2服务不存在，请先运行deploy.sh${NC}"
+  exit 1
+fi
+
+# 等待服务启动
+sleep 2
+pm2 list
 
 # 4. 更新Caddy配置（如果已安装）
 echo ""
