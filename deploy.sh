@@ -134,19 +134,20 @@ EXISTING_COUNT=$(ip -6 addr show dev $INTERFACE 2>/dev/null | grep "$IPV6_PREFIX
 if [ $EXISTING_COUNT -ge 90 ]; then
   echo -e "${GREEN}✓ IPv6地址池已配置完整（共 $EXISTING_COUNT 个），跳过配置${NC}"
 else
-  echo "检测到 $EXISTING_COUNT 个IPv6地址，开始批量添加 ${IPV6_PREFIX}::1001-1100"
+  echo "批量添加 ${IPV6_PREFIX}::1001-1100 (100个地址，约需10-15秒)..."
   
   ADDED_COUNT=0
   START_TIME=$(date +%s)
   
-  # 添加100个地址
+  # 添加100个地址，每10个显示进度
   for i in {1001..1100}; do
     ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null && ((ADDED_COUNT++))
     
-    # 每个都显示进度
-    CURRENT=$((i - 1000))
-    PERCENT=$((CURRENT * 100 / 100))
-    echo "  进度: $CURRENT/100 ($PERCENT%) - 新增: $ADDED_COUNT"
+    # 每10个显示一次（10次输出）
+    if [ $((i % 10)) -eq 0 ]; then
+      CURRENT=$((i - 1000))
+      echo "  [$CURRENT/100] 已添加 $ADDED_COUNT 个"
+    fi
   done
   
   echo -e "${GREEN}✓ 完成! 新增: $ADDED_COUNT 个IPv6地址${NC}"
