@@ -54,20 +54,14 @@ message HandshakeResponse {
 // 数据请求（客户端 → 服务器）
 message DataRequest {
   uint32 clientID = 1;         // 握手时分配的客户端ID
-  DataType dataType = 2;       // 数据类型枚举
-  string tilekey = 3;          // "04", "0413", "041320"...
-  uint32 epoch = 4;            // epoch 值
-  uint32 imageryEpoch = 5;     // 仅 dataType=IMAGERY_DATA 时使用
+  string uri = 2;              // URI 路径，如 "BulkMetadata/pb=!1m2!1s04!2u2699" 或 "PlanetoidMetadata"
 }
 
 // 数据响应（服务器 → 客户端）
 message DataResponse {
   uint32 clientID = 1;         // 客户端ID
-  DataType dataType = 2;       // 回传：数据类型
-  string tilekey = 3;          // 回传：tilekey
-  uint32 epoch = 4;            // 回传：epoch
-  uint32 imageryEpoch = 5;     // 回传：imageryEpoch
-  bytes data = 6;              // 二进制数据（成功时有数据）
-  uint32 statusCode = 7;       // HTTP 状态码: 200=成功, 404=不存在, 403=被封, 500=错误, 0=网络错误
+  string uri = 2;              // 回传：请求的 URI
+  bytes data = 3;              // 二进制数据（成功时有数据）
+  uint32 statusCode = 4;       // HTTP 状态码: 200=成功, 404=不存在, 403=被封, 500=错误, 0=网络错误
 }
 

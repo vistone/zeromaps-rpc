@@ -161,28 +161,16 @@ export interface HandshakeResponse {
 export interface DataRequest {
   /** 握手时分配的客户端ID */
   clientID: number;
-  /** 数据类型枚举 */
-  dataType: DataType;
-  /** "04", "0413", "041320"... */
-  tilekey: string;
-  /** epoch 值 */
-  epoch: number;
-  /** 仅 dataType=IMAGERY_DATA 时使用 */
-  imageryEpoch: number;
+  /** URI 路径，如 "BulkMetadata/pb=!1m2!1s04!2u2699" 或 "PlanetoidMetadata" */
+  uri: string;
 }
 
 /** 数据响应（服务器 → 客户端） */
 export interface DataResponse {
   /** 客户端ID */
   clientID: number;
-  /** 回传：数据类型 */
-  dataType: DataType;
-  /** 回传：tilekey */
-  tilekey: string;
-  /** 回传：epoch */
-  epoch: number;
-  /** 回传：imageryEpoch */
-  imageryEpoch: number;
+  /** 回传：请求的 URI */
+  uri: string;
   /** 二进制数据（成功时有数据） */
   data: Uint8Array;
   /** HTTP 状态码: 200=成功, 404=不存在, 403=被封, 500=错误, 0=网络错误 */
@@ -340,7 +328,7 @@ export const HandshakeResponse: MessageFns<HandshakeResponse> = {
 };
 
 function createBaseDataRequest(): DataRequest {
-  return { clientID: 0, dataType: 0, tilekey: "", epoch: 0, imageryEpoch: 0 };
+  return { clientID: 0, uri: "" };
 }
 
 export const DataRequest: MessageFns<DataRequest> = {
@@ -348,17 +336,8 @@ export const DataRequest: MessageFns<DataRequest> = {
     if (message.clientID !== 0) {
       writer.uint32(8).uint32(message.clientID);
     }
-    if (message.dataType !== 0) {
-      writer.uint32(16).int32(message.dataType);
-    }
-    if (message.tilekey !== "") {
-      writer.uint32(26).string(message.tilekey);
-    }
-    if (message.epoch !== 0) {
-      writer.uint32(32).uint32(message.epoch);
-    }
-    if (message.imageryEpoch !== 0) {
-      writer.uint32(40).uint32(message.imageryEpoch);
+    if (message.uri !== "") {
+      writer.uint32(18).string(message.uri);
     }
     return writer;
   },
@@ -379,35 +358,11 @@ export const DataRequest: MessageFns<DataRequest> = {
           continue;
         }
         case 2: {
-          if (tag !== 16) {
+          if (tag !== 18) {
             break;
           }
 
-          message.dataType = reader.int32() as any;
-          continue;
-        }
-        case 3: {
-          if (tag !== 26) {
-            break;
-          }
-
-          message.tilekey = reader.string();
-          continue;
-        }
-        case 4: {
-          if (tag !== 32) {
-            break;
-          }
-
-          message.epoch = reader.uint32();
-          continue;
-        }
-        case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.imageryEpoch = reader.uint32();
+          message.uri = reader.string();
           continue;
         }
       }
@@ -422,10 +377,7 @@ export const DataRequest: MessageFns<DataRequest> = {
   fromJSON(object: any): DataRequest {
     return {
       clientID: isSet(object.clientID) ? globalThis.Number(object.clientID) : 0,
-      dataType: isSet(object.dataType) ? dataTypeFromJSON(object.dataType) : 0,
-      tilekey: isSet(object.tilekey) ? globalThis.String(object.tilekey) : "",
-      epoch: isSet(object.epoch) ? globalThis.Number(object.epoch) : 0,
-      imageryEpoch: isSet(object.imageryEpoch) ? globalThis.Number(object.imageryEpoch) : 0,
+      uri: isSet(object.uri) ? globalThis.String(object.uri) : "",
     };
   },
 
@@ -434,17 +386,8 @@ export const DataRequest: MessageFns<DataRequest> = {
     if (message.clientID !== 0) {
       obj.clientID = Math.round(message.clientID);
     }
-    if (message.dataType !== 0) {
-      obj.dataType = dataTypeToJSON(message.dataType);
-    }
-    if (message.tilekey !== "") {
-      obj.tilekey = message.tilekey;
-    }
-    if (message.epoch !== 0) {
-      obj.epoch = Math.round(message.epoch);
-    }
-    if (message.imageryEpoch !== 0) {
-      obj.imageryEpoch = Math.round(message.imageryEpoch);
+    if (message.uri !== "") {
+      obj.uri = message.uri;
     }
     return obj;
   },
@@ -455,16 +398,13 @@ export const DataRequest: MessageFns<DataRequest> = {
   fromPartial<I extends Exact<DeepPartial<DataRequest>, I>>(object: I): DataRequest {
     const message = createBaseDataRequest();
     message.clientID = object.clientID ?? 0;
-    message.dataType = object.dataType ?? 0;
-    message.tilekey = object.tilekey ?? "";
-    message.epoch = object.epoch ?? 0;
-    message.imageryEpoch = object.imageryEpoch ?? 0;
+    message.uri = object.uri ?? "";
     return message;
   },
 };
 
 function createBaseDataResponse(): DataResponse {
-  return { clientID: 0, dataType: 0, tilekey: "", epoch: 0, imageryEpoch: 0, data: new Uint8Array(0), statusCode: 0 };
+  return { clientID: 0, uri: "", data: new Uint8Array(0), statusCode: 0 };
 }
 
 export const DataResponse: MessageFns<DataResponse> = {
@@ -472,23 +412,14 @@ export const DataResponse: MessageFns<DataResponse> = {
     if (message.clientID !== 0) {
       writer.uint32(8).uint32(message.clientID);
     }
-    if (message.dataType !== 0) {
-      writer.uint32(16).int32(message.dataType);
-    }
-    if (message.tilekey !== "") {
-      writer.uint32(26).string(message.tilekey);
-    }
-    if (message.epoch !== 0) {
-      writer.uint32(32).uint32(message.epoch);
-    }
-    if (message.imageryEpoch !== 0) {
-      writer.uint32(40).uint32(message.imageryEpoch);
+    if (message.uri !== "") {
+      writer.uint32(18).string(message.uri);
     }
     if (message.data.length !== 0) {
-      writer.uint32(50).bytes(message.data);
+      writer.uint32(26).bytes(message.data);
     }
     if (message.statusCode !== 0) {
-      writer.uint32(56).uint32(message.statusCode);
+      writer.uint32(32).uint32(message.statusCode);
     }
     return writer;
   },
@@ -509,11 +440,11 @@ export const DataResponse: MessageFns<DataResponse> = {
           continue;
         }
         case 2: {
-          if (tag !== 16) {
+          if (tag !== 18) {
             break;
           }
 
-          message.dataType = reader.int32() as any;
+          message.uri = reader.string();
           continue;
         }
         case 3: {
@@ -521,35 +452,11 @@ export const DataResponse: MessageFns<DataResponse> = {
             break;
           }
 
-          message.tilekey = reader.string();
+          message.data = reader.bytes();
           continue;
         }
         case 4: {
           if (tag !== 32) {
-            break;
-          }
-
-          message.epoch = reader.uint32();
-          continue;
-        }
-        case 5: {
-          if (tag !== 40) {
-            break;
-          }
-
-          message.imageryEpoch = reader.uint32();
-          continue;
-        }
-        case 6: {
-          if (tag !== 50) {
-            break;
-          }
-
-          message.data = reader.bytes();
-          continue;
-        }
-        case 7: {
-          if (tag !== 56) {
             break;
           }
 
@@ -568,10 +475,7 @@ export const DataResponse: MessageFns<DataResponse> = {
   fromJSON(object: any): DataResponse {
     return {
       clientID: isSet(object.clientID) ? globalThis.Number(object.clientID) : 0,
-      dataType: isSet(object.dataType) ? dataTypeFromJSON(object.dataType) : 0,
-      tilekey: isSet(object.tilekey) ? globalThis.String(object.tilekey) : "",
-      epoch: isSet(object.epoch) ? globalThis.Number(object.epoch) : 0,
-      imageryEpoch: isSet(object.imageryEpoch) ? globalThis.Number(object.imageryEpoch) : 0,
+      uri: isSet(object.uri) ? globalThis.String(object.uri) : "",
       data: isSet(object.data) ? bytesFromBase64(object.data) : new Uint8Array(0),
       statusCode: isSet(object.statusCode) ? globalThis.Number(object.statusCode) : 0,
     };
@@ -582,17 +486,8 @@ export const DataResponse: MessageFns<DataResponse> = {
     if (message.clientID !== 0) {
       obj.clientID = Math.round(message.clientID);
     }
-    if (message.dataType !== 0) {
-      obj.dataType = dataTypeToJSON(message.dataType);
-    }
-    if (message.tilekey !== "") {
-      obj.tilekey = message.tilekey;
-    }
-    if (message.epoch !== 0) {
-      obj.epoch = Math.round(message.epoch);
-    }
-    if (message.imageryEpoch !== 0) {
-      obj.imageryEpoch = Math.round(message.imageryEpoch);
+    if (message.uri !== "") {
+      obj.uri = message.uri;
     }
     if (message.data.length !== 0) {
       obj.data = base64FromBytes(message.data);
@@ -609,10 +504,7 @@ export const DataResponse: MessageFns<DataResponse> = {
   fromPartial<I extends Exact<DeepPartial<DataResponse>, I>>(object: I): DataResponse {
     const message = createBaseDataResponse();
     message.clientID = object.clientID ?? 0;
-    message.dataType = object.dataType ?? 0;
-    message.tilekey = object.tilekey ?? "";
-    message.epoch = object.epoch ?? 0;
-    message.imageryEpoch = object.imageryEpoch ?? 0;
+    message.uri = object.uri ?? "";
     message.data = object.data ?? new Uint8Array(0);
     message.statusCode = object.statusCode ?? 0;
     return message;

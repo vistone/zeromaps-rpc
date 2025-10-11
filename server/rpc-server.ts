@@ -193,12 +193,10 @@ export class RpcServer extends EventEmitter {
         session.lastActiveAt = Date.now()
       }
       
-      console.log(
-        `[Server] 数据请求: clientID=${request.clientID}, type=${request.dataType}, tilekey=${request.tilekey}, epoch=${request.epoch}`
-      )
+      console.log(`[Server] 数据请求: clientID=${request.clientID}, uri=${request.uri}`)
       
-      // 构建 URL
-      const url = this.buildUrl(request)
+      // 构建完整 URL
+      const url = `https://kh.google.com/rt/earth/${request.uri}`
       
       // 使用 curl-impersonate 获取数据
       const result = await this.curlFetcher.fetch({
@@ -209,10 +207,7 @@ export class RpcServer extends EventEmitter {
       // 构建响应
       const response = DataResponse.encode({
         clientID: request.clientID,
-        dataType: request.dataType,
-        tilekey: request.tilekey,
-        epoch: request.epoch,
-        imageryEpoch: request.imageryEpoch,
+        uri: request.uri,
         data: result.body,
         statusCode: result.statusCode
       }).finish()
@@ -225,36 +220,12 @@ export class RpcServer extends EventEmitter {
       const request = DataRequest.decode(payload)
       const errorResponse = DataResponse.encode({
         clientID: request.clientID,
-        dataType: request.dataType,
-        tilekey: request.tilekey,
-        epoch: request.epoch,
-        imageryEpoch: request.imageryEpoch,
+        uri: request.uri,
         data: Buffer.alloc(0),
         statusCode: 500
       }).finish()
       
       this.sendFrame(socket, FrameType.DATA_RESPONSE, Buffer.from(errorResponse))
-    }
-  }
-
-  /**
-   * 构建 Google Earth 数据 URL
-   */
-  private buildUrl(request: DataRequest): string {
-    const base = 'https://kh.google.com/rt/earth/'
-    
-    switch (request.dataType) {
-      case DataType.BULK_METADATA:
-        return `${base}BulkMetadata/pb=!1m2!1s${request.tilekey}!2u${request.epoch}`
-      
-      case DataType.NODE_DATA:
-        return `${base}NodeData/pb=!1m2!1s${request.tilekey}!2u${request.epoch}`
-      
-      case DataType.IMAGERY_DATA:
-        return `${base}ImageryData/pb=!1m3!1s${request.tilekey}!2u${request.epoch}!3u${request.imageryEpoch}`
-      
-      default:
-        throw new Error(`Unknown data type: ${request.dataType}`)
     }
   }
 

@@ -143,13 +143,8 @@ export class RpcClient extends EventEmitter {
    * 处理数据响应
    */
   private handleDataResponse(response: DataResponse): void {
-    // 生成请求key用于匹配
-    const key = this.getRequestKey(
-      response.dataType,
-      response.tilekey,
-      response.epoch,
-      response.imageryEpoch
-    )
+    // 使用 URI 作为 key 匹配
+    const key = response.uri
     
     const pending = this.pendingRequests.get(key)
     if (pending) {
@@ -163,32 +158,21 @@ export class RpcClient extends EventEmitter {
 
   /**
    * 发起数据请求
+   * @param uri URI 路径，如 "PlanetoidMetadata" 或 "BulkMetadata/pb=!1m2!1s04!2u2699"
    */
-  public async fetchData(params: {
-    dataType: DataType
-    tilekey: string
-    epoch: number
-    imageryEpoch?: number
-  }): Promise<DataResponse> {
+  public async fetchData(uri: string): Promise<DataResponse> {
     if (!this.connected) {
       throw new Error('未连接到服务器')
     }
     
     const request: DataRequest = {
       clientID: this.clientID,
-      dataType: params.dataType,
-      tilekey: params.tilekey,
-      epoch: params.epoch,
-      imageryEpoch: params.imageryEpoch || 0
+      uri
     }
     
     return new Promise((resolve, reject) => {
-      const key = this.getRequestKey(
-        request.dataType,
-        request.tilekey,
-        request.epoch,
-        request.imageryEpoch
-      )
+      // 使用 URI 作为 key
+      const key = uri
       
       // 设置超时
       const timeout = setTimeout(() => {
@@ -202,18 +186,6 @@ export class RpcClient extends EventEmitter {
       const encoded = DataRequest.encode(request).finish()
       this.sendFrame(FrameType.DATA_REQUEST, Buffer.from(encoded))
     })
-  }
-
-  /**
-   * 生成请求标识key
-   */
-  private getRequestKey(
-    dataType: DataType,
-    tilekey: string,
-    epoch: number,
-    imageryEpoch: number
-  ): string {
-    return `${dataType}-${tilekey}-${epoch}-${imageryEpoch}`
   }
 
   /**
