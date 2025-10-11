@@ -342,6 +342,29 @@ mkdir -p $INSTALL_DIR/logs
 # 启动服务
 echo "启动RPC服务..."
 
+# 清理可能冲突的systemd服务
+if systemctl list-units --full --all 2>/dev/null | grep -q "zeromaps-rpc.service"; then
+  echo "检测到systemd服务，正在停止..."
+  systemctl stop zeromaps-rpc.service >/dev/null 2>&1 || true
+  systemctl disable zeromaps-rpc.service >/dev/null 2>&1 || true
+  echo -e "${GREEN}✓ 已停止冲突的systemd服务${NC}"
+fi
+
+# 检查并释放9527和9528端口
+for port in 9527 9528; do
+  if netstat -tlnp 2>/dev/null | grep -q ":$port.*LISTEN"; then
+    echo "端口 $port 被占用，正在释放..."
+    PIDS=$(netstat -tlnp 2>/dev/null | grep ":$port.*LISTEN" | awk '{print $7}' | cut -d'/' -f1 | grep -E "^[0-9]+$")
+    if [ -n "$PIDS" ]; then
+      for pid in $PIDS; do
+        kill -9 $pid 2>/dev/null || true
+      done
+      sleep 1
+      echo -e "${GREEN}✓ 已释放端口 $port${NC}"
+    fi
+  fi
+done
+
 # 检查服务是否已运行
 if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
   echo "服务已存在，重启中..."
