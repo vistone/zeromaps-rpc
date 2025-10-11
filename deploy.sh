@@ -456,6 +456,13 @@ if command -v caddy &>/dev/null; then
     echo ""
     echo -e "${YELLOW}检测到Caddy已安装，正在更新配置...${NC}"
     
+    # 停止Caddy清理证书缓存
+    echo "清理证书缓存..."
+    systemctl stop caddy
+    rm -rf /var/lib/caddy/.local/share/caddy/certificates 2>/dev/null || true
+    rm -rf /var/lib/caddy/.local/share/caddy/locks 2>/dev/null || true
+    echo -e "${GREEN}✓ 证书缓存已清理${NC}"
+    
     # 创建日志目录（如果不存在）
     mkdir -p /var/log/caddy
     
@@ -479,18 +486,16 @@ if command -v caddy &>/dev/null; then
       echo -e "${RED}✗ Caddy配置验证失败${NC}"
       caddy validate --config /etc/caddy/Caddyfile
     else
-      # 尝试reload，失败则restart
-      if systemctl reload caddy >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ Caddy配置已更新并重新加载${NC}"
+      # 启动Caddy
+      echo "启动Caddy（将重新获取证书）..."
+      systemctl start caddy
+      sleep 5
+      
+      if systemctl is-active caddy >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Caddy已启动，证书将自动获取${NC}"
       else
-        echo -e "${YELLOW}⚠ reload失败，尝试restart...${NC}"
-        systemctl restart caddy
-        if systemctl is-active caddy >/dev/null 2>&1; then
-          echo -e "${GREEN}✓ Caddy已重启${NC}"
-        else
-          echo -e "${RED}✗ Caddy启动失败${NC}"
-          journalctl -u caddy -n 10 --no-pager
-        fi
+        echo -e "${RED}✗ Caddy启动失败${NC}"
+        journalctl -u caddy -n 10 --no-pager
       fi
     fi
   fi
@@ -522,8 +527,12 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}✓ 未检测到旧版Caddy${NC}"
   fi
   
-  # 清理配置（忽略错误）
+  # 清理配置和证书（完全清理）
+  echo "清理旧配置和证书..."
   rm -f /etc/caddy/Caddyfile 2>/dev/null || true
+  rm -rf /var/lib/caddy/.local/share/caddy 2>/dev/null || true
+  rm -rf /var/lib/caddy/.config/caddy 2>/dev/null || true
+  echo -e "${GREEN}✓ 已清理旧证书和配置${NC}"
   
   # 重新安装Caddy
   echo "重新安装Caddy..."
