@@ -433,7 +433,32 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   # 启动Caddy
   echo "启动Caddy服务..."
   systemctl enable caddy >/dev/null 2>&1
-  systemctl restart caddy
+  
+  # 先停止可能存在的进程
+  systemctl stop caddy >/dev/null 2>&1
+  sleep 1
+  
+  # 检查端口占用
+  if netstat -tlnp | grep -q ":443.*LISTEN"; then
+    echo -e "${YELLOW}⚠ 443端口被占用，尝试释放...${NC}"
+    PIDS=$(lsof -ti:443 2>/dev/null)
+    if [ -n "$PIDS" ]; then
+      kill -9 $PIDS 2>/dev/null
+      sleep 1
+    fi
+  fi
+  
+  if netstat -tlnp | grep -q ":80.*LISTEN"; then
+    echo -e "${YELLOW}⚠ 80端口被占用，尝试释放...${NC}"
+    PIDS=$(lsof -ti:80 2>/dev/null)
+    if [ -n "$PIDS" ]; then
+      kill -9 $PIDS 2>/dev/null
+      sleep 1
+    fi
+  fi
+  
+  # 启动Caddy
+  systemctl start caddy
   
   # 等待启动
   sleep 3
@@ -442,7 +467,14 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   if ! systemctl is-active caddy >/dev/null 2>&1; then
     echo -e "${RED}✗ Caddy启动失败${NC}"
     echo ""
-    journalctl -u caddy -n 20 --no-pager
+    echo "=== Caddy状态 ==="
+    systemctl status caddy --no-pager -l
+    echo ""
+    echo "=== 最近日志 ==="
+    journalctl -u caddy -n 30 --no-pager
+    echo ""
+    echo "=== 端口占用情况 ==="
+    netstat -tlnp | grep -E ":(80|443)"
     exit 1
   fi
   
