@@ -52,8 +52,7 @@ export class CurlFetcher {
       // 构建 curl 命令
       const curlCmd = this.buildCurlCommand(options, ipv6)
       
-      console.log(`[Curl] Request #${this.requestCount}: ${options.url.substring(0, 80)}... ${ipv6 ? `via ${ipv6.substring(0, 30)}...` : ''}`)
-      console.log(`[Curl] Command: ${curlCmd.substring(0, 200)}...`)
+      console.log(`[Curl] #${this.requestCount}: ${options.url.substring(0, 60)}... ${ipv6 ? `via ${ipv6.substring(20, 30)}...` : ''}`)
       
       // 执行 curl
       const { stdout, stderr } = await execAsync(curlCmd, {
@@ -67,7 +66,10 @@ export class CurlFetcher {
       // 解析响应
       const result = this.parseResponse(stdout as Buffer)
       
-      console.log(`[Curl] Response: ${result.statusCode} (${duration}ms, ${result.body.length} bytes) ${ipv6 ? `from ${ipv6.substring(0, 30)}...` : ''}`)
+      // 只在非200时记录日志
+      if (result.statusCode !== 200) {
+        console.log(`[Curl] ${result.statusCode} (${duration}ms)`)
+      }
       
       return result
     } catch (error) {
