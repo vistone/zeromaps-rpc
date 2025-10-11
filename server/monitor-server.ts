@@ -34,17 +34,9 @@ export class MonitorServer {
    * 处理HTTP请求
    */
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-    // 设置CORS
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-    if (req.method === 'OPTIONS') {
-      res.writeHead(200)
-      res.end()
-      return
-    }
-
+    // CORS在Caddy层统一处理，这里不再设置
+    // 避免CORS头重复
+    
     const url = req.url || '/'
 
     if (url === '/' || url === '/index.html') {
