@@ -392,35 +392,39 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   # 安装certbot
   echo "安装certbot..."
   if ! command -v certbot &>/dev/null; then
-    apt update >/dev/null 2>&1
     apt install -y certbot >/dev/null 2>&1
     echo -e "${GREEN}✓ certbot安装成功${NC}"
   else
     echo -e "${GREEN}✓ certbot已安装${NC}"
   fi
   
-  # 获取SSL证书
-  echo "获取SSL证书..."
-  if [ ! -d "/etc/letsencrypt/live/$SERVER_DOMAIN" ]; then
-    # 临时停止Caddy
-    systemctl stop caddy >/dev/null 2>&1
-    
-    # 获取证书
-    certbot certonly --standalone --non-interactive --agree-tos \
-      --email admin@$SERVER_DOMAIN \
-      -d $SERVER_DOMAIN
-    
-    if [ $? -eq 0 ]; then
-      echo -e "${GREEN}✓ SSL证书获取成功${NC}"
-    else
-      echo -e "${RED}✗ SSL证书获取失败${NC}"
-      echo "  错误：请检查域名DNS是否正确解析到本机"
-      echo "  当前IP: $(curl -s ifconfig.me)"
-      echo "  域名解析: $(dig +short $SERVER_DOMAIN)"
-      exit 1
-    fi
+  # 清理旧证书并重新获取
+  echo "清理并重新获取SSL证书..."
+  
+  # 删除旧证书
+  if [ -d "/etc/letsencrypt/live/$SERVER_DOMAIN" ]; then
+    certbot delete --non-interactive --cert-name $SERVER_DOMAIN >/dev/null 2>&1
+    echo -e "${GREEN}✓ 已清理旧证书${NC}"
+  fi
+  
+  # 获取新证书（Caddy已经停止了）
+  certbot certonly --standalone --non-interactive --agree-tos \
+    --email admin@$SERVER_DOMAIN \
+    -d $SERVER_DOMAIN
+  
+  if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✓ SSL证书获取成功${NC}"
+    ls -la /etc/letsencrypt/live/$SERVER_DOMAIN/
   else
-    echo -e "${GREEN}✓ SSL证书已存在${NC}"
+    echo -e "${RED}✗ SSL证书获取失败${NC}"
+    echo "  当前IP: $(curl -s ifconfig.me 2>/dev/null || echo '无法获取')"
+    echo "  域名解析: $(dig +short $SERVER_DOMAIN 2>/dev/null || echo '无法解析')"
+    echo ""
+    echo "常见原因:"
+    echo "  1. 域名DNS未正确解析到本机IP"
+    echo "  2. 80端口被占用"
+    echo "  3. 防火墙阻止了80端口"
+    exit 1
   fi
   
   # 配置Caddy
