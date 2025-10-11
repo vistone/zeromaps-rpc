@@ -311,8 +311,8 @@ else
   npm install
 fi
 
-# 配置pm2
-cat > $INSTALL_DIR/ecosystem.config.js << PM2_END
+# 配置pm2（使用.cjs后缀，因为package.json是type:module）
+cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
 module.exports = {
   apps: [{
     name: 'zeromaps-rpc',
@@ -341,7 +341,7 @@ if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
   pm2 restart zeromaps-rpc
 else
   echo "首次启动服务..."
-  pm2 start ecosystem.config.js
+  pm2 start ecosystem.config.cjs
   pm2 save
   # 设置开机启动
   pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
