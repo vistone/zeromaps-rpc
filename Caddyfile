@@ -1,14 +1,12 @@
 # ZeroMaps RPC 统一管理面板 Caddy配置
-# 自动HTTPS（Let's Encrypt）
 
 {DOMAIN} {
     # 静态管理面板
     root * /opt/zeromaps-rpc/public
     file_server
     
-    # Caddy会自动处理HTTPS证书
-    # 自动从Let's Encrypt获取证书
-    # HTTP自动跳转HTTPS
+    # 使用certbot获取的证书
+    tls /etc/letsencrypt/live/{DOMAIN}/fullchain.pem /etc/letsencrypt/live/{DOMAIN}/privkey.pem
     
     # 日志
     log {

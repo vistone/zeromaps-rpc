@@ -389,30 +389,76 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     exit 1
   fi
   
-  # 开放80和443端口（如果使用ufw）
+  # 安装certbot
+  echo "安装certbot..."
+  if ! command -v certbot &>/dev/null; then
+    apt update >/dev/null 2>&1
+    apt install -y certbot >/dev/null 2>&1
+    echo -e "${GREEN}✓ certbot安装成功${NC}"
+  else
+    echo -e "${GREEN}✓ certbot已安装${NC}"
+  fi
+  
+  # 获取SSL证书
+  echo "获取SSL证书..."
+  if [ ! -d "/etc/letsencrypt/live/$SERVER_DOMAIN" ]; then
+    # 临时停止Caddy（如果运行中）
+    systemctl stop caddy >/dev/null 2>&1
+    
+    # 使用standalone模式获取证书
+    certbot certonly --standalone --non-interactive --agree-tos \
+      --email admin@$SERVER_DOMAIN \
+      -d $SERVER_DOMAIN
+    
+    if [ $? -eq 0 ]; then
+      echo -e "${GREEN}✓ SSL证书获取成功${NC}"
+    else
+      echo -e "${RED}✗ SSL证书获取失败${NC}"
+      echo "  将使用HTTP模式部署"
+    fi
+  else
+    echo -e "${GREEN}✓ SSL证书已存在${NC}"
+  fi
+  
+  # 配置Caddy（根据是否有证书决定配置）
+  if [ -d "/etc/letsencrypt/live/$SERVER_DOMAIN" ]; then
+    # 使用SSL证书
+    sed -e "s/{DOMAIN}/$SERVER_DOMAIN/g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
+  else
+    # 使用HTTP模式
+    cat > /etc/caddy/Caddyfile << EOF
+# HTTP模式
+$SERVER_DOMAIN:80 {
+    root * /opt/zeromaps-rpc/public
+    file_server
+    log {
+        output file /var/log/caddy/zeromaps-rpc.log
+    }
+}
+EOF
+  fi
+  
+  # 开放80和443端口
   if command -v ufw &>/dev/null; then
     ufw allow 80/tcp >/dev/null 2>&1
     ufw allow 443/tcp >/dev/null 2>&1
   fi
   
-  # 重启Caddy
+  # 启动Caddy
   systemctl enable caddy >/dev/null 2>&1
   systemctl restart caddy
   
-  # 等待Caddy启动和获取证书
-  echo "等待Caddy启动和获取HTTPS证书..."
-  sleep 3
-  
+  # 检查Caddy状态
+  sleep 2
   if systemctl is-active caddy >/dev/null 2>&1; then
     echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
     echo ""
     echo -e "${GREEN}访问地址:${NC}"
-    echo "  https://$SERVER_DOMAIN"
-    echo ""
-    echo -e "${YELLOW}提示:${NC}"
-    echo "  - Caddy会自动从Let's Encrypt获取HTTPS证书"
-    echo "  - 首次访问可能需要等待10-30秒获取证书"
-    echo "  - HTTP会自动跳转到HTTPS"
+    if [ -d "/etc/letsencrypt/live/$SERVER_DOMAIN" ]; then
+      echo "  https://$SERVER_DOMAIN"
+    else
+      echo "  http://$SERVER_DOMAIN"
+    fi
   else
     echo -e "${RED}✗ Caddy启动失败${NC}"
     echo "  查看日志: journalctl -u caddy -n 50"
