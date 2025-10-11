@@ -405,17 +405,42 @@ fi
 # ==========================================
 # 检查并更新Caddy配置（如果已安装）
 # ==========================================
-if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
-  echo ""
-  echo -e "${YELLOW}检测到Caddy已安装，正在更新配置...${NC}"
-  
-  # 重新生成配置
-  sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
-  
-  # 重启Caddy
-  systemctl reload caddy
-  
-  echo -e "${GREEN}✓ Caddy配置已更新并重新加载${NC}"
+if command -v caddy &>/dev/null; then
+  if systemctl is-active caddy >/dev/null 2>&1; then
+    echo ""
+    echo -e "${YELLOW}检测到Caddy已安装，正在更新配置...${NC}"
+    
+    # 创建日志目录（如果不存在）
+    mkdir -p /var/log/caddy
+    chown -R caddy:caddy /var/log/caddy
+    chmod 755 /var/log/caddy
+    touch /var/log/caddy/zeromaps-rpc.log
+    chown caddy:caddy /var/log/caddy/zeromaps-rpc.log
+    chmod 644 /var/log/caddy/zeromaps-rpc.log
+    
+    # 重新生成配置
+    sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
+    
+    # 验证配置
+    if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+      echo -e "${RED}✗ Caddy配置验证失败${NC}"
+      caddy validate --config /etc/caddy/Caddyfile
+    else
+      # 尝试reload，失败则restart
+      if systemctl reload caddy >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Caddy配置已更新并重新加载${NC}"
+      else
+        echo -e "${YELLOW}⚠ reload失败，尝试restart...${NC}"
+        systemctl restart caddy
+        if systemctl is-active caddy >/dev/null 2>&1; then
+          echo -e "${GREEN}✓ Caddy已重启${NC}"
+        else
+          echo -e "${RED}✗ Caddy启动失败${NC}"
+          journalctl -u caddy -n 10 --no-pager
+        fi
+      fi
+    fi
+  fi
 fi
 
 # ==========================================
