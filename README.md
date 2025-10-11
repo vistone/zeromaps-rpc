@@ -420,6 +420,8 @@ systemctl status ipv6-pool
 
 ### 一键部署（推荐）
 
+#### 首次安装
+
 在任意VPS上运行一条命令即可：
 
 ```bash
@@ -440,6 +442,48 @@ sudo ./deploy.sh
 5. ✅ 自动启动RPC和监控服务
 
 **支持的VPS**：tile0、tile3、tile4、tile5、tile6、tile12、www（共7个）
+
+#### 更新已安装的服务
+
+如果已经部署过，需要更新到最新版本：
+
+```bash
+# 在VPS上执行
+cd /opt/zeromaps-rpc
+
+# 拉取最新代码
+git pull
+
+# 安装新依赖（如果有）
+npm install
+
+# 重启服务
+pm2 restart zeromaps-rpc
+
+# 查看日志确认运行正常
+pm2 logs zeromaps-rpc --lines 50
+```
+
+**快速更新脚本**：
+```bash
+# 一键更新并重启
+cd /opt/zeromaps-rpc && git pull && npm install && pm2 restart zeromaps-rpc
+```
+
+#### 强制重新部署
+
+如果遇到问题，需要完全重新部署：
+
+```bash
+# 停止服务
+pm2 delete zeromaps-rpc
+
+# 删除旧代码
+rm -rf /opt/zeromaps-rpc
+
+# 重新部署
+curl -sSL https://raw.githubusercontent.com/vistone/zeromaps-rpc/master/deploy.sh | sudo bash
+```
 
 ### 手动部署步骤
 
@@ -648,14 +692,82 @@ const results = await Promise.all(promises)  // 同时发送
 2. **HTTP/2连接复用** - 减少连接建立时间
 3. **本地缓存** - 对相同请求返回缓存结果
 
+## 常见问题
+
+### 如何检查服务是否正常运行？
+
+```bash
+# 查看服务状态
+pm2 status
+
+# 查看日志
+pm2 logs zeromaps-rpc --lines 100
+
+# 访问Web监控
+http://你的服务器:9528
+```
+
+### 如何重启服务？
+
+```bash
+pm2 restart zeromaps-rpc
+```
+
+### 如何查看IPv6地址池？
+
+```bash
+# 查看所有IPv6地址
+ip -6 addr show dev ipv6net | grep "2607:8700:5500"
+
+# 统计数量
+ip -6 addr show dev ipv6net | grep "2607:8700:5500" | wc -l
+```
+
+### 如何测试IPv6连接？
+
+```bash
+# 测试主地址
+curl -6 https://api64.ipify.org
+
+# 测试池中地址
+curl -6 --interface 2607:8700:5500:203e::1001 https://api64.ipify.org
+
+# 测试Google连接
+curl -6 --interface 2607:8700:5500:203e::1500 -I https://kh.google.com/
+```
+
+### 如何停止服务？
+
+```bash
+pm2 stop zeromaps-rpc
+```
+
+### 如何完全卸载？
+
+```bash
+# 停止并删除服务
+pm2 delete zeromaps-rpc
+pm2 save
+
+# 删除代码
+rm -rf /opt/zeromaps-rpc
+
+# 删除IPv6配置（可选）
+systemctl stop ipv6-pool
+systemctl disable ipv6-pool
+```
+
 ## 开发状态
 
 - ✅ Proto 协议定义
-- ✅ IPv6 池管理
+- ✅ IPv6 池管理（1000个地址）
 - ✅ curl-impersonate 集成
 - ✅ RPC 请求处理
-- ✅ 完整监控系统
-- ✅ 统计数据导出
+- ✅ Web监控界面
+- ✅ 完整统计系统
+- ✅ 统计数据导出（JSON/CSV）
+- ✅ 7个VPS配置管理
+- ✅ 一键部署脚本
 - ⏳ 客户端 SDK
 - ⏳ 自动重连
 - ⏳ 集成到 taskcli
