@@ -134,29 +134,29 @@ EXISTING_COUNT=$(ip -6 addr show dev $INTERFACE 2>/dev/null | grep "$IPV6_PREFIX
 if [ $EXISTING_COUNT -ge 900 ]; then
   echo -e "${GREEN}✓ IPv6地址池已配置完整（共 $EXISTING_COUNT 个），跳过配置${NC}"
 else
-  echo "检测到 $EXISTING_COUNT 个IPv6地址，开始批量添加..."
-  echo "正在添加 ${IPV6_PREFIX}::1001 到 ::2000 ..."
+  echo "检测到 $EXISTING_COUNT 个IPv6地址，开始批量添加 ${IPV6_PREFIX}::1001-2000"
+  echo ""
   
   ADDED_COUNT=0
-  FAILED_COUNT=0
   START_TIME=$(date +%s)
   
-  # 使用后台批量添加，每10个显示一次进度
+  # 每5个显示一次进度（更频繁的反馈）
   for i in {1001..2000}; do
-    ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null && ((ADDED_COUNT++)) || ((FAILED_COUNT++))
+    ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null && ((ADDED_COUNT++))
     
-    # 每10个显示一次
-    if [ $((i % 10)) -eq 0 ]; then
+    # 每5个显示一次
+    if [ $((i % 5)) -eq 0 ]; then
       CURRENT=$((i - 1000))
       PERCENT=$((CURRENT * 100 / 1000))
-      printf "\r  进度: [%-50s] %d%% (%d/%d) 新增:%d 已存在:%d" \
-        $(printf '#%.0s' $(seq 1 $((PERCENT / 2)))) \
-        $PERCENT $CURRENT 1000 $ADDED_COUNT $FAILED_COUNT
+      BARS=$((PERCENT / 2))
+      printf "  [%-50s] %3d%% | %4d/1000 | 新增: %4d\r" \
+        "$(printf '#%.0s' $(seq 1 $BARS))" \
+        $PERCENT $CURRENT $ADDED_COUNT
     fi
   done
   
   echo ""
-  echo -e "${GREEN}✓ 完成! 新增: $ADDED_COUNT 个，已存在: $FAILED_COUNT 个${NC}"
+  echo -e "${GREEN}✓ 完成! 新增: $ADDED_COUNT 个IPv6地址${NC}"
   
   END_TIME=$(date +%s)
   DURATION=$((END_TIME - START_TIME))
