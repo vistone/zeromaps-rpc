@@ -19,7 +19,7 @@
     ↓ ZeroMaps 协议传输（多节点自动分流）
     ↓
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-服务器端 (tile2/tile6/tile12)
+服务器端 (tile0/tile3/tile4/tile5/tile6/tile12/www)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     ↓ 接收 RPC 请求
     ↓ 组合完整 URL: https://kh.google.com/rt/earth/{uri}
@@ -66,8 +66,8 @@ IPV6_PREFIX=2607:8700:5500:2043 npm run server
 ```typescript
 import { RpcClient } from 'zeromaps-rpc/client'
 
-// 连接到服务器
-const client = new RpcClient('tile2.zeromaps.cn', 9527)
+// 连接到服务器（可以连接任意一个tile服务器）
+const client = new RpcClient('tile0.zeromaps.com.cn', 9527)
 await client.connect()
 
 // 发起请求（只需传入URI）
@@ -293,14 +293,31 @@ DataResponse {
 
 ## 部署指南
 
+### 已配置的VPS列表
+
+项目已为以下7个VPS预配置好部署文件（`configs/vps-*.conf`）：
+
+| No | 服务器 | IPv4地址 | IPv6前缀 | 域名 | Web监控 |
+|----|-------|---------|---------|------|---------|
+| 1 | tile0 | 172.93.47.57 | 2607:8700:5500:2943 | tile0.zeromaps.com.cn | http://tile0.zeromaps.com.cn:9528 |
+| 2 | tile3 | 65.49.192.85 | 2607:8700:5500:e639 | tile3.zeromaps.com.cn | http://tile3.zeromaps.com.cn:9528 |
+| 3 | tile4 | 65.49.195.185 | 2607:8700:5500:1e09 | tile4.zeromaps.com.cn | http://tile4.zeromaps.com.cn:9528 |
+| 4 | tile5 | 65.49.194.100 | 2607:8700:5500:203e | tile5.zeromaps.cn | http://tile5.zeromaps.cn:9528 |
+| 5 | tile6 | 66.112.211.45 | 2607:8700:5500:bf4b | tile6.zeromaps.com.cn | http://tile6.zeromaps.com.cn:9528 |
+| 6 | tile12 | 107.182.186.123 | 2607:8700:5500:2043 | tile12.zeromaps.com.cn | http://tile12.zeromaps.com.cn:9528 |
+| 7 | www | 45.78.5.252 | 2607:8700:5500:d197 | www.zeromaps.com.cn | http://www.zeromaps.com.cn:9528 |
+
+**每个VPS配置**：
+- IPv6地址池：1000个地址（::1001 到 ::2000）
+- RPC端口：9527
+- 监控端口：9528
+
 ### 服务器要求
 
 - **操作系统**: Ubuntu 20.04+
 - **IPv6支持**: 需要/64网段的IPv6地址（通过6in4隧道或原生IPv6）
-- **IPv6地址池**: 1000个IPv6地址（::1001 到 ::2000）
 - **curl-impersonate**: Chrome 116版本
 - **Node.js**: 18+
-- **端口**: 9527 (RPC) + 9528 (Web监控)
 
 ### IPv6配置说明
 
@@ -462,22 +479,36 @@ RPC_PORT=9527                       # RPC端口（默认）
 
 ```
 zeromaps-rpc/
-├── proto/                 # Protocol Buffers 定义
-│   └── zeromaps-rpc.proto
-├── client/                # 客户端 SDK
-│   ├── rpc-client.ts
-│   └── index.ts
+├── deploy.sh              # 一键部署脚本
+├── README.md              # 项目文档（唯一）
+├── configs/               # VPS配置文件（7个）
+│   ├── vps-107.182.186.123.conf  # tile12
+│   ├── vps-172.93.47.57.conf     # tile0
+│   ├── vps-45.78.5.252.conf      # www
+│   ├── vps-65.49.192.85.conf     # tile3
+│   ├── vps-65.49.194.100.conf    # tile5
+│   ├── vps-65.49.195.185.conf    # tile4
+│   └── vps-66.112.211.45.conf    # tile6
 ├── server/                # 服务器端实现
 │   ├── index.ts          # 启动入口（含监控）
 │   ├── rpc-server.ts     # RPC服务器核心
 │   ├── ipv6-pool.ts      # IPv6池管理（核心统计）
 │   ├── curl-fetcher.ts   # Curl请求执行器
-│   └── stats-exporter.ts # 统计导出工具
+│   ├── stats-exporter.ts # 统计导出工具
+│   └── monitor-server.ts # Web监控服务器
+├── client/                # 客户端 SDK
+│   ├── rpc-client.ts
+│   └── index.ts
+├── proto/                 # Protocol Buffers 定义
+│   └── zeromaps-rpc.proto
+├── tests/                 # 测试文件
+│   ├── test-connection.ts
+│   ├── test-monitoring.ts
+│   └── ...
 ├── examples/              # 使用示例
 │   └── basic-usage.ts
-├── install.sh             # 完整安装脚本
-├── quick-deploy.sh        # 快速部署脚本
-└── README.md
+├── package.json
+└── tsconfig.json
 ```
 
 ## 故障排查

@@ -8,8 +8,8 @@ import { DataType } from '../proto/proto/zeromaps-rpc'
 async function main() {
   console.log('=== ZeroMaps RPC 客户端示例 ===\n')
   
-  // 连接到服务器
-  const client = new RpcClient('tile12.zeromaps.cn', 9527)
+  // 连接到服务器（可以连接任意一个tile服务器）
+  const client = new RpcClient('tile0.zeromaps.com.cn', 9527)
   
   try {
     await client.connect()
