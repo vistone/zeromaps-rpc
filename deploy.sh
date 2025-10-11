@@ -411,32 +411,56 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   
   echo "Caddy配置已生成:"
   cat /etc/caddy/Caddyfile
+  echo ""
+  
+  # 验证配置
+  echo "验证Caddy配置..."
+  if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ 配置验证通过${NC}"
+  else
+    echo -e "${RED}✗ 配置验证失败${NC}"
+    caddy validate --config /etc/caddy/Caddyfile
+    exit 1
+  fi
   
   # 开放端口
   if command -v ufw &>/dev/null; then
     ufw allow 80/tcp >/dev/null 2>&1
     ufw allow 443/tcp >/dev/null 2>&1
+    echo -e "${GREEN}✓ 防火墙端口已开放${NC}"
   fi
   
   # 启动Caddy
+  echo "启动Caddy服务..."
   systemctl enable caddy >/dev/null 2>&1
   systemctl restart caddy
   
-  sleep 2
+  # 等待启动
+  sleep 3
+  
+  # 检查状态
   if systemctl is-active caddy >/dev/null 2>&1; then
+    echo -e "${GREEN}✓ Caddy服务运行正常${NC}"
     echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
+    echo ""
     echo -e "${GREEN}访问地址: https://$SERVER_DOMAIN${NC}"
+    echo ""
+    echo "提示:"
+    echo "  - 首次访问可能需要等待10-30秒（Caddy自动获取SSL证书）"
+    echo "  - 管理面板会自动显示所有7个VPS节点的状态"
+    echo "  - API通过HTTPS反向代理访问（/api/* -> :9528）"
     echo ""
     echo "排查命令:"
     echo "  systemctl status caddy    - 查看Caddy状态"
     echo "  journalctl -u caddy -n 50 - 查看日志"
-    echo "  netstat -tlnp | grep caddy - 查看端口"
+    echo "  curl https://$SERVER_DOMAIN - 测试访问"
   else
     echo -e "${RED}✗ Caddy启动失败${NC}"
+    echo ""
     echo "排查步骤:"
     echo "  1. journalctl -u caddy -n 50"
-    echo "  2. cat /etc/caddy/Caddyfile"
-    echo "  3. ls -la /etc/letsencrypt/live/$SERVER_DOMAIN/"
+    echo "  2. systemctl status caddy"
+    echo "  3. caddy validate --config /etc/caddy/Caddyfile"
     exit 1
   fi
   echo ""
