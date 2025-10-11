@@ -134,21 +134,28 @@ echo "检测到已有 $EXISTING_COUNT 个IPv6地址"
 if [ $EXISTING_COUNT -ge 1000 ]; then
   echo -e "${GREEN}✓ IPv6地址池已完整配置，跳过${NC}"
 else
-  echo "开始添加IPv6地址池..."
+  echo "开始添加IPv6地址池（需要1-2分钟）..."
   ADDED_COUNT=0
+  START_TIME=$(date +%s)
   
   for i in {1001..2000}; do
     if ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null; then
       ((ADDED_COUNT++))
     fi
     
-    # 每100个显示进度
-    if [ $((i % 100)) -eq 0 ]; then
-      echo -e "  进度: $((i - 1000))/1000 (新增: $ADDED_COUNT)"
+    # 每50个显示进度（更频繁的反馈）
+    if [ $((i % 50)) -eq 0 ]; then
+      CURRENT=$((i - 1000))
+      PERCENT=$((CURRENT * 100 / 1000))
+      echo -ne "  进度: ${CURRENT}/1000 (${PERCENT}%) 新增: ${ADDED_COUNT}\r"
     fi
   done
   
-  echo -e "${GREEN}✓ 新增: $ADDED_COUNT 个IPv6地址${NC}"
+  echo -e "\n${GREEN}✓ 新增: $ADDED_COUNT 个IPv6地址${NC}"
+  
+  END_TIME=$(date +%s)
+  DURATION=$((END_TIME - START_TIME))
+  echo "  耗时: ${DURATION}秒"
 fi
 
 TOTAL_COUNT=$(ip -6 addr show dev $INTERFACE | grep "$IPV6_PREFIX" | wc -l)
