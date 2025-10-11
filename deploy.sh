@@ -378,6 +378,22 @@ else
 fi
 
 # ==========================================
+# 检查并更新Caddy配置（如果已安装）
+# ==========================================
+if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
+  echo ""
+  echo -e "${YELLOW}检测到Caddy已安装，正在更新配置...${NC}"
+  
+  # 重新生成配置
+  sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
+  
+  # 重启Caddy
+  systemctl reload caddy
+  
+  echo -e "${GREEN}✓ Caddy配置已更新并重新加载${NC}"
+fi
+
+# ==========================================
 # 可选: 安装统一管理面板
 # ==========================================
 echo ""
