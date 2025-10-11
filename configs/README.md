@@ -61,27 +61,45 @@ SERVER_LOCATION="<地理位置>"
 
 ## 使用方法
 
-### 1. 添加新VPS
+### 1. 智能部署（推荐）
+
+在任意VPS上运行，自动识别并部署：
+
 ```bash
-cd scripts
-./create-vps-config.sh
+# 一键部署（自动检测IP）
+curl -sSL https://raw.githubusercontent.com/vistone/zeromaps-rpc/master/deploy.sh | sudo bash
+
+# 或者克隆后运行
+git clone https://github.com/vistone/zeromaps-rpc.git /opt/zeromaps-rpc
+cd /opt/zeromaps-rpc
+sudo ./deploy.sh
 ```
 
-### 2. 部署单个VPS
+### 2. 手动部署单个VPS
+
 ```bash
 cd scripts
 sudo ./deploy-vps.sh ../configs/vps-107.182.186.123.conf
 ```
 
-### 3. 部署所有VPS
+### 3. 批量部署所有VPS
+
 ```bash
 cd scripts
 ./deploy-all.sh
 ```
 
-### 4. 管理VPS
+### 4. VPS管理面板
+
 ```bash
 cd scripts
 ./manage-vps.sh
+```
+
+### 5. 添加新VPS
+
+```bash
+cd scripts
+./create-vps-config.sh
 ```
 

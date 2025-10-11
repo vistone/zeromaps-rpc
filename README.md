@@ -401,14 +401,38 @@ systemctl start ipv6-pool
 systemctl status ipv6-pool
 ```
 
-### 一键部署
+### 一键部署（推荐）
+
+**智能部署 - 自动检测IP并选择配置**
 
 ```bash
-# 使用你的IPv6前缀部署
-./install.sh 2607:8700:5500:2043
+# 方式1: 在VPS上直接运行（推荐）
+curl -sSL https://raw.githubusercontent.com/vistone/zeromaps-rpc/master/deploy.sh | sudo bash
 
-# 或快速部署（需要手动配置IPv6）
-./quick-deploy.sh
+# 方式2: 克隆代码后运行
+git clone https://github.com/vistone/zeromaps-rpc.git /opt/zeromaps-rpc
+cd /opt/zeromaps-rpc
+sudo ./deploy.sh
+
+# 方式3: 使用auto-deploy脚本
+cd /opt/zeromaps-rpc
+sudo ./scripts/auto-deploy.sh
+```
+
+**说明**：
+- 脚本会自动检测当前VPS的IP地址
+- 自动匹配对应的配置文件
+- 无需手动指定配置，一键完成部署
+- 支持7个VPS自动识别部署
+
+### 手动部署
+
+如需手动指定配置：
+
+```bash
+# 部署特定VPS
+cd /opt/zeromaps-rpc
+sudo ./scripts/deploy-vps.sh ./configs/vps-<IP>.conf
 ```
 
 ### 手动部署步骤
