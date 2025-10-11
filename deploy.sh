@@ -17,6 +17,23 @@ echo "ZeroMaps RPC 一键部署"
 echo "====================================="
 echo ""
 
+# 检测是否在screen中运行
+if [ -z "$STY" ]; then
+  echo -e "${YELLOW}提示: 建议在screen中运行，避免SSH超时${NC}"
+  echo "  安装screen: apt install screen -y"
+  echo "  使用方法: screen -S deploy"
+  echo "  退出screen: Ctrl+A 然后按 D"
+  echo "  恢复screen: screen -r deploy"
+  echo ""
+  read -p "继续部署? (y/n) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "取消部署"
+    exit 0
+  fi
+  echo ""
+fi
+
 # 检测是否从curl管道运行
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "/opt/zeromaps-rpc")"
 

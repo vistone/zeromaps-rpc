@@ -422,16 +422,29 @@ systemctl status ipv6-pool
 
 #### 首次安装
 
-在任意VPS上运行一条命令即可：
+**推荐使用screen避免SSH超时**：
 
 ```bash
-# 方式1: 直接运行（推荐）
-curl -sSL https://raw.githubusercontent.com/vistone/zeromaps-rpc/master/deploy.sh | sudo bash
+# 1. 安装screen
+apt install screen -y
 
-# 方式2: 克隆后运行
+# 2. 在screen中运行部署
+screen -S deploy
 git clone https://github.com/vistone/zeromaps-rpc.git /opt/zeromaps-rpc
 cd /opt/zeromaps-rpc
 sudo ./deploy.sh
+
+# 3. 退出screen（脚本继续运行）
+# 按 Ctrl+A 然后按 D
+
+# 4. 重新连接后恢复
+screen -r deploy
+```
+
+**或者直接运行**（可能因SSH超时中断）：
+
+```bash
+curl -sSL https://raw.githubusercontent.com/vistone/zeromaps-rpc/master/deploy.sh | sudo bash
 ```
 
 **工作流程**：
