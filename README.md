@@ -448,27 +448,31 @@ sudo ./deploy.sh
 如果已经部署过，需要更新到最新版本：
 
 ```bash
-# 在VPS上执行
+# 在VPS上执行（推荐方式）
 cd /opt/zeromaps-rpc
 
-# 拉取最新代码
+# 拉取最新代码和脚本
 git pull
 
-# 安装新依赖（如果有）
+# 重新运行部署脚本（会自动更新所有内容）
+sudo ./deploy.sh
+```
+
+**说明**：
+- deploy.sh会检测已有配置，跳过重复步骤
+- 只更新代码、依赖和服务
+- 自动重启pm2服务
+
+**手动更新方式**（仅更新代码，不重新配置IPv6）：
+```bash
+cd /opt/zeromaps-rpc
+git pull
 npm install
-
-# 重启服务
 pm2 restart zeromaps-rpc
-
-# 查看日志确认运行正常
 pm2 logs zeromaps-rpc --lines 50
 ```
 
-**快速更新脚本**：
-```bash
-# 一键更新并重启
-cd /opt/zeromaps-rpc && git pull && npm install && pm2 restart zeromaps-rpc
-```
+**注意**：手动更新需要确保Node.js和pm2已安装
 
 #### 强制重新部署
 

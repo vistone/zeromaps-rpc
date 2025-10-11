@@ -263,14 +263,14 @@ cd $INSTALL_DIR
 # 更新代码
 if [ -d ".git" ]; then
   echo "更新代码..."
-  git pull >/dev/null 2>&1
+  git pull
 else
   echo -e "${YELLOW}代码目录不是git仓库，跳过更新${NC}"
 fi
 
 # 安装依赖
 echo "安装npm依赖..."
-npm install >/dev/null 2>&1
+npm install
 
 # 配置pm2
 cat > $INSTALL_DIR/ecosystem.config.js << PM2_END
@@ -296,8 +296,8 @@ mkdir -p $INSTALL_DIR/logs
 # 启动服务
 echo "启动RPC服务..."
 pm2 delete zeromaps-rpc 2>/dev/null || true
-pm2 start ecosystem.config.js >/dev/null 2>&1
-pm2 save >/dev/null 2>&1
+pm2 start ecosystem.config.js
+pm2 save
 
 # 设置开机启动（静默）
 pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
