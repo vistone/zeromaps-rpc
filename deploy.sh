@@ -272,19 +272,40 @@ echo ""
 echo -e "${YELLOW}[5/7] 安装系统依赖...${NC}"
 
 # Node.js
-if ! command -v node &>/dev/null; then
-  echo "安装Node.js..."
+if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
+  echo "安装Node.js 18..."
   curl -fsSL https://deb.nodesource.com/setup_18.x | bash - >/dev/null 2>&1
   apt install -y nodejs >/dev/null 2>&1
+  
+  # 验证安装
+  if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
+    echo -e "${RED}✗ Node.js安装失败，重试...${NC}"
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+    apt install -y nodejs
+  fi
 fi
-echo -e "${GREEN}✓ Node.js: $(node -v)${NC}"
+
+# 验证Node.js和npm
+if command -v node &>/dev/null; then
+  echo -e "${GREEN}✓ Node.js: $(node -v)${NC}"
+else
+  echo -e "${RED}✗ Node.js未安装${NC}"
+  exit 1
+fi
+
+if command -v npm &>/dev/null; then
+  echo -e "${GREEN}✓ npm: $(npm -v)${NC}"
+else
+  echo -e "${RED}✗ npm未安装${NC}"
+  exit 1
+fi
 
 # pm2
 if ! command -v pm2 &>/dev/null; then
   echo "安装pm2..."
   npm install -g pm2
   if command -v pm2 &>/dev/null; then
-    echo -e "${GREEN}✓ pm2安装成功${NC}"
+    echo -e "${GREEN}✓ pm2安装成功: $(pm2 -v)${NC}"
   else
     echo -e "${RED}✗ pm2安装失败${NC}"
     exit 1
