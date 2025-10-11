@@ -404,9 +404,10 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   # 不再使用certbot，让Caddy自动获取证书
   echo "配置自动HTTPS（Caddy会自动获取Let's Encrypt证书）..."
   
-  # 配置Caddy
+  # 配置Caddy（总是重新生成，确保最新）
   echo "配置Caddy..."
-  # 使用双引号确保变量替换，并转义特殊字符
+  
+  # 强制重新生成配置文件
   sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
   
   echo "Caddy配置已生成:"
@@ -415,13 +416,12 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   
   # 验证配置
   echo "验证Caddy配置..."
-  if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ 配置验证通过${NC}"
-  else
+  if ! caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
     echo -e "${RED}✗ 配置验证失败${NC}"
     caddy validate --config /etc/caddy/Caddyfile
     exit 1
   fi
+  echo -e "${GREEN}✓ 配置验证通过${NC}"
   
   # 开放端口
   if command -v ufw &>/dev/null; then
@@ -439,30 +439,32 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   sleep 3
   
   # 检查状态
-  if systemctl is-active caddy >/dev/null 2>&1; then
-    echo -e "${GREEN}✓ Caddy服务运行正常${NC}"
-    echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
-    echo ""
-    echo -e "${GREEN}访问地址: https://$SERVER_DOMAIN${NC}"
-    echo ""
-    echo "提示:"
-    echo "  - 首次访问可能需要等待10-30秒（Caddy自动获取SSL证书）"
-    echo "  - 管理面板会自动显示所有7个VPS节点的状态"
-    echo "  - API通过HTTPS反向代理访问（/api/* -> :9528）"
-    echo ""
-    echo "排查命令:"
-    echo "  systemctl status caddy    - 查看Caddy状态"
-    echo "  journalctl -u caddy -n 50 - 查看日志"
-    echo "  curl https://$SERVER_DOMAIN - 测试访问"
-  else
+  if ! systemctl is-active caddy >/dev/null 2>&1; then
     echo -e "${RED}✗ Caddy启动失败${NC}"
     echo ""
-    echo "排查步骤:"
-    echo "  1. journalctl -u caddy -n 50"
-    echo "  2. systemctl status caddy"
-    echo "  3. caddy validate --config /etc/caddy/Caddyfile"
+    journalctl -u caddy -n 20 --no-pager
     exit 1
   fi
+  
+  echo -e "${GREEN}✓ Caddy服务运行正常${NC}"
+  
+  # 测试API反向代理
+  echo "测试API反向代理..."
+  sleep 2
+  if curl -k -s -o /dev/null -w "%{http_code}" https://localhost/api/stats | grep -q "200"; then
+    echo -e "${GREEN}✓ API反向代理工作正常${NC}"
+  else
+    echo -e "${YELLOW}⚠ API反向代理测试失败（服务可能刚启动）${NC}"
+  fi
+  
+  echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
+  echo ""
+  echo -e "${GREEN}访问地址: https://$SERVER_DOMAIN${NC}"
+  echo ""
+  echo "提示:"
+  echo "  - 首次访问可能需要等待10-30秒（Caddy自动获取SSL证书）"
+  echo "  - 管理面板会自动显示所有7个VPS节点的状态"
+  echo "  - API通过HTTPS反向代理访问（/api/* -> :9528）"
   echo ""
 fi
 
