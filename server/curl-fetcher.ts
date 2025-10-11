@@ -53,6 +53,7 @@ export class CurlFetcher {
       const curlCmd = this.buildCurlCommand(options, ipv6)
       
       console.log(`[Curl] Request #${this.requestCount}: ${options.url.substring(0, 80)}... ${ipv6 ? `via ${ipv6.substring(0, 30)}...` : ''}`)
+      console.log(`[Curl] Command: ${curlCmd.substring(0, 200)}...`)
       
       // 执行 curl
       const { stdout, stderr } = await execAsync(curlCmd, {
