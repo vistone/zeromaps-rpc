@@ -354,6 +354,48 @@ else
   pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
 fi
 
+# ==========================================
+# 可选: 安装统一管理面板
+# ==========================================
+echo ""
+echo -e "${YELLOW}是否安装统一管理面板（可在一个页面查看所有7个VPS）?${NC}"
+read -p "安装Caddy和管理面板? (y/n) " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+  echo ""
+  echo -e "${YELLOW}[额外] 安装Caddy和统一管理面板...${NC}"
+  
+  # 安装Caddy
+  if ! command -v caddy &>/dev/null; then
+    echo "安装Caddy..."
+    apt install -y debian-keyring debian-archive-keyring apt-transport-https >/dev/null 2>&1
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' 2>/dev/null | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+    curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' 2>/dev/null | tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+    apt update >/dev/null 2>&1
+    apt install -y caddy >/dev/null 2>&1
+    echo -e "${GREEN}✓ Caddy安装成功${NC}"
+  else
+    echo -e "${GREEN}✓ Caddy已安装${NC}"
+  fi
+  
+  # 配置Caddy
+  echo "配置Caddy..."
+  cp $INSTALL_DIR/Caddyfile /etc/caddy/Caddyfile
+  
+  # 重启Caddy
+  systemctl enable caddy >/dev/null 2>&1
+  systemctl restart caddy
+  
+  echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
+  echo ""
+  echo -e "${YELLOW}请配置DNS:${NC}"
+  echo "  monitor.zeromaps.cn -> $LOCAL_IP"
+  echo ""
+  echo -e "${GREEN}访问地址:${NC}"
+  echo "  https://monitor.zeromaps.cn"
+  echo ""
+fi
+
 echo ""
 echo "====================================="
 echo -e "${GREEN}✓ 部署完成！${NC}"
@@ -366,21 +408,27 @@ if [ -n "$SERVER_DOMAIN" ]; then
 fi
 echo "  IPv4: $LOCAL_IP"
 echo "  IPv6前缀: $IPV6_PREFIX"
-echo "  IPv6池: ::1001 ~ ::2000 (1000个地址)"
+echo "  IPv6池: ::1001 ~ ::1100 (100个地址)"
 echo ""
 echo "服务端口:"
 echo "  RPC服务: 0.0.0.0:$RPC_PORT"
-echo "  Web监控: 0.0.0.0:$MONITOR_PORT"
+echo "  单节点监控: 0.0.0.0:$MONITOR_PORT"
 echo ""
+echo "访问地址:"
 if [ -n "$SERVER_DOMAIN" ]; then
-  echo "监控地址:"
-  echo "  http://$SERVER_DOMAIN:$MONITOR_PORT"
-  echo ""
+  echo "  单节点: http://$SERVER_DOMAIN:$MONITOR_PORT"
 fi
+if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
+  echo "  统一管理: https://monitor.zeromaps.cn"
+fi
+echo ""
 echo "常用命令:"
 echo "  pm2 status              - 查看服务状态"
 echo "  pm2 logs zeromaps-rpc   - 查看日志"
 echo "  pm2 restart zeromaps-rpc - 重启服务"
+if command -v caddy &>/dev/null; then
+  echo "  systemctl status caddy  - 查看Caddy状态"
+fi
 echo ""
 echo "测试IPv6:"
 echo "  curl -6 --interface ${IPV6_PREFIX}::1001 https://api64.ipify.org"
