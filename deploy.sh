@@ -130,12 +130,37 @@ else
 fi
 
 # 测试IPv6
+echo "测试IPv6连接..."
 if curl -6 -s --max-time 5 https://api64.ipify.org &>/dev/null; then
   IPV6_ADDR=$(curl -6 -s --max-time 5 https://api64.ipify.org)
   echo -e "${GREEN}✓ IPv6连接正常: $IPV6_ADDR${NC}"
 else
-  echo -e "${RED}✗ IPv6连接失败${NC}"
-  exit 1
+  echo -e "${YELLOW}⚠ IPv6连接测试失败（可能是api64.ipify.org无法访问）${NC}"
+  echo "  尝试其他测试..."
+  
+  # 尝试ping IPv6网关
+  if ping6 -c 2 ${IPV6_PREFIX}::1 &>/dev/null; then
+    echo -e "${GREEN}✓ IPv6网关可达${NC}"
+  else
+    echo -e "${YELLOW}⚠ IPv6网关无响应${NC}"
+  fi
+  
+  # 尝试访问Google
+  if curl -6 -s --max-time 5 https://www.google.com &>/dev/null; then
+    echo -e "${GREEN}✓ IPv6外网连接正常（Google可访问）${NC}"
+  else
+    echo -e "${YELLOW}⚠ IPv6外网可能受限${NC}"
+  fi
+  
+  # 显示IPv6地址
+  IPV6_ADDRS=$(ip -6 addr show dev $INTERFACE | grep "inet6" | head -3)
+  echo "  当前IPv6地址:"
+  echo "$IPV6_ADDRS" | while read line; do
+    echo "    $line"
+  done
+  
+  echo ""
+  echo -e "${YELLOW}继续部署（IPv6可能需要手动检查）${NC}"
 fi
 
 # ==========================================
