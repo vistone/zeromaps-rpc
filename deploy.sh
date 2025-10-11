@@ -135,24 +135,22 @@ if [ $EXISTING_COUNT -ge 900 ]; then
   echo -e "${GREEN}✓ IPv6地址池已配置完整（共 $EXISTING_COUNT 个），跳过配置${NC}"
 else
   echo "检测到 $EXISTING_COUNT 个IPv6地址，开始批量添加 ${IPV6_PREFIX}::1001-2000"
-  echo ""
+  echo "  [开始添加...] 0% | 0/1000"
   
   ADDED_COUNT=0
   START_TIME=$(date +%s)
   
-  # 每5个显示一次进度（更频繁的反馈）
+  # 每个地址都添加，每1个都显示进度
   for i in {1001..2000}; do
     ip -6 addr add ${IPV6_PREFIX}::$i/128 dev $INTERFACE 2>/dev/null && ((ADDED_COUNT++))
     
-    # 每5个显示一次
-    if [ $((i % 5)) -eq 0 ]; then
-      CURRENT=$((i - 1000))
-      PERCENT=$((CURRENT * 100 / 1000))
-      BARS=$((PERCENT / 2))
-      printf "  [%-50s] %3d%% | %4d/1000 | 新增: %4d\r" \
-        "$(printf '#%.0s' $(seq 1 $BARS))" \
-        $PERCENT $CURRENT $ADDED_COUNT
-    fi
+    # 每1个都显示（实时反馈）
+    CURRENT=$((i - 1000))
+    PERCENT=$((CURRENT * 100 / 1000))
+    BARS=$((PERCENT / 2))
+    printf "  [%-50s] %3d%% | %4d/1000 | 新增: %4d\r" \
+      "$(printf '#%.0s' $(seq 1 $BARS))" \
+      $PERCENT $CURRENT $ADDED_COUNT
   done
   
   echo ""
