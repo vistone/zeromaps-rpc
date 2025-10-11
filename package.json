@@ -7,6 +7,7 @@
     "proto:build": "protoc --plugin=node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=./proto --ts_proto_opt=esModuleInterop=true ./proto/zeromaps-rpc.proto",
     "build": "tsc",
     "server": "tsx server/index.ts",
+    "dashboard": "tsx server/dashboard.ts",
     "client": "tsx client/index.ts",
     "example": "tsx examples/basic-usage.ts"
   },

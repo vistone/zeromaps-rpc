@@ -82,12 +82,35 @@ if (response.statusCode === 200) {
 
 ## IPv6流量监控
 
-### 🌐 Web监控界面（推荐）
+### 🎛️ 统一管理面板（推荐）
 
-服务器启动后会自动开启Web监控服务，直接在浏览器访问：
+在一个页面上查看所有7个VPS的运行状态：
+
+```bash
+# 在任意一台VPS上启动管理面板（推荐在www上）
+npm run dashboard
+
+# 或使用pm2后台运行
+pm2 start server/dashboard.ts --name zeromaps-dashboard --interpreter tsx
+
+# 访问地址（假设在www服务器上运行）
+http://www.zeromaps.com.cn:8080
+```
+
+**功能特性**：
+- ✅ 7个VPS节点状态一目了然
+- ✅ 在线/离线状态实时显示
+- ✅ 每个节点的关键指标
+- ✅ 总计数据汇总（总请求数、总QPS）
+- ✅ 点击可跳转到单节点详细监控
+- ✅ 自动刷新（每5秒）
+
+### 🌐 单节点监控
+
+每个VPS单独的监控界面：
 
 ```
-http://服务器IP:9528
+http://服务器:9528
 ```
 
 **功能特性**：
