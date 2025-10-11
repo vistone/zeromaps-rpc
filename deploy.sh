@@ -274,14 +274,25 @@ echo -e "${YELLOW}[5/7] 安装系统依赖...${NC}"
 # Node.js
 if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
   echo "安装Node.js 18..."
-  curl -fsSL https://deb.nodesource.com/setup_18.x | bash - >/dev/null 2>&1
-  apt install -y nodejs >/dev/null 2>&1
+  echo "  下载NodeSource安装脚本..."
+  
+  if curl -fsSL --max-time 30 https://deb.nodesource.com/setup_18.x -o /tmp/setup_nodejs.sh; then
+    echo "  执行安装脚本..."
+    bash /tmp/setup_nodejs.sh
+    echo "  安装Node.js包..."
+    apt install -y nodejs
+    rm -f /tmp/setup_nodejs.sh
+  else
+    echo -e "${RED}✗ 下载NodeSource脚本失败${NC}"
+    echo "  尝试直接安装nodejs..."
+    apt update >/dev/null 2>&1
+    apt install -y nodejs npm
+  fi
   
   # 验证安装
   if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
-    echo -e "${RED}✗ Node.js安装失败，重试...${NC}"
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-    apt install -y nodejs
+    echo -e "${RED}✗ Node.js或npm安装失败${NC}"
+    exit 1
   fi
 fi
 
