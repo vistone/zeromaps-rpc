@@ -175,7 +175,8 @@
 
     async function fetchNodeStats(node) {
       try {
-        const response = await fetch('http://' + node.domain + ':9528/api/stats', { 
+        // 使用HTTPS请求API（通过Caddy反向代理）
+        const response = await fetch('https://' + node.domain + '/api/stats', { 
           signal: AbortSignal.timeout(3000) 
         });
         const stats = await response.json();
@@ -244,7 +245,7 @@
             '<div style="text-align: center; color: #999; padding: 20px;">' +
               (node.error || '无法连接到服务器') +
             '</div>' +
-            '<a href="http://' + node.domain + ':9528" target="_blank" class="node-link">查看详情 →</a>' +
+            '<a href="https://' + node.domain + '/api/stats" target="_blank" class="node-link">查看详情 →</a>' +
           '</div>';
         }
         
@@ -295,7 +296,7 @@
               '<div class="stat-value">' + stats.ipv6.balance + '</div>' +
             '</div>' +
           '</div>' +
-          '<a href="http://' + node.domain + ':9528" target="_blank" class="node-link">查看详情 →</a>' +
+          '<a href="https://' + node.domain + '/api/stats" target="_blank" class="node-link">查看详情 →</a>' +
         '</div>';
       }).join('');
     }

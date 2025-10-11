@@ -2,6 +2,11 @@
 # Caddy会自动获取Let's Encrypt证书
 
 {DOMAIN} {
+    # API反向代理（解决混合内容问题）
+    handle /api/* {
+        reverse_proxy localhost:9528
+    }
+    
     # 静态管理面板
     root * /opt/zeromaps-rpc/public
     file_server
