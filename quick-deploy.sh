@@ -20,12 +20,13 @@ IPV6_PREFIX=$1
 
 echo ""
 echo "1. 安装 curl-impersonate..."
-if [ ! -f "/usr/local/bin/curl_chrome124" ]; then
+if [ ! -f "/usr/local/bin/curl_chrome116" ]; then
   cd /tmp
   wget -q https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz
   tar -xzf curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz
-  cp curl-impersonate*/curl_chrome124 /usr/local/bin/
-  chmod +x /usr/local/bin/curl_chrome124
+  cp curl_chrome116 /usr/local/bin/
+  chmod +x /usr/local/bin/curl_chrome116
+  ln -sf /usr/local/bin/curl_chrome116 /usr/local/bin/curl_chrome124
   echo "✓ curl-impersonate 安装完成"
 else
   echo "✓ curl-impersonate 已安装"

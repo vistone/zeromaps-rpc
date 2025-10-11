@@ -52,18 +52,18 @@ if [ ! -f "/usr/local/bin/curl_chrome124" ]; then
   wget -q --show-progress https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz
   tar -xzf curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz
   
-  # 查找并复制文件
-  if [ -f "curl_chrome124" ]; then
-    cp curl_chrome124 /usr/local/bin/
-  elif [ -f "*/curl_chrome124" ]; then
-    find . -name "curl_chrome124" -exec cp {} /usr/local/bin/ \;
+  # 使用 curl_chrome116（最新可用版本）
+  if [ -f "curl_chrome116" ]; then
+    cp curl_chrome116 /usr/local/bin/curl_chrome116
+    chmod +x /usr/local/bin/curl_chrome116
+    # 创建符号链接
+    ln -sf /usr/local/bin/curl_chrome116 /usr/local/bin/curl_chrome124
+    echo -e "${GREEN}✓ 已安装 curl_chrome116${NC}"
   else
-    echo -e "${RED}✗ 找不到 curl_chrome124 文件${NC}"
-    echo "  尝试手动安装: https://github.com/lwthiker/curl-impersonate/releases"
+    echo -e "${RED}✗ 找不到 curl_chrome116 文件${NC}"
+    ls -la | grep curl
     exit 1
   fi
-  
-  chmod +x /usr/local/bin/curl_chrome124
   rm -rf curl-impersonate* *.tar.gz
   echo -e "${GREEN}✓ curl-impersonate 安装完成${NC}"
 else

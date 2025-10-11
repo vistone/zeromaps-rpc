@@ -35,7 +35,7 @@ export class RpcServer extends EventEmitter {
   constructor(
     private port: number,
     private ipv6BasePrefix: string,
-    private curlPath: string = '/usr/local/bin/curl_chrome124'
+    private curlPath: string = '/usr/local/bin/curl_chrome116'
   ) {
     super()
     

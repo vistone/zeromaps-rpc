@@ -6,8 +6,8 @@ import { RpcServer } from './rpc-server'
 
 // 配置
 const PORT = 9527
-const IPV6_PREFIX = '2607:8700:5500:2043' // 根据服务器实际配置修改
-const CURL_PATH = '/usr/local/bin/curl_chrome124'
+const IPV6_PREFIX = process.env.IPV6_PREFIX || '2607:8700:5500:2043' // 从环境变量读取或使用默认值
+const CURL_PATH = '/usr/local/bin/curl_chrome116' // 使用 curl_chrome116（v0.6.1 最新版本）
 
 // 创建并启动服务器
 async function main() {

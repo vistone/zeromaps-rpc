@@ -33,7 +33,7 @@ export class CurlFetcher {
    * @param curlPath curl-impersonate 可执行文件路径
    * @param ipv6Pool 可选的 IPv6 地址池
    */
-  constructor(curlPath: string = './curl_chrome124', ipv6Pool?: IPv6Pool) {
+  constructor(curlPath: string = '/usr/local/bin/curl_chrome116', ipv6Pool?: IPv6Pool) {
     this.curlPath = curlPath
     this.ipv6Pool = ipv6Pool || null
   }
