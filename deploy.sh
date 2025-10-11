@@ -129,12 +129,13 @@ echo -e "${YELLOW}[3/7] 配置IPv6地址池 (1000个地址)...${NC}"
 
 # 先检查是否已经配置过
 EXISTING_COUNT=$(ip -6 addr show dev $INTERFACE 2>/dev/null | grep "$IPV6_PREFIX" | wc -l)
-echo "检测到已有 $EXISTING_COUNT 个IPv6地址"
 
-if [ $EXISTING_COUNT -ge 1000 ]; then
-  echo -e "${GREEN}✓ IPv6地址池已完整配置，跳过${NC}"
+# 如果已经有900个以上，认为已配置完整（包含主地址::2 + 池地址）
+if [ $EXISTING_COUNT -ge 900 ]; then
+  echo -e "${GREEN}✓ IPv6地址池已配置完整（共 $EXISTING_COUNT 个），跳过配置${NC}"
 else
-  echo "开始添加IPv6地址池（大约需要1-2分钟，请耐心等待）..."
+  echo "检测到 $EXISTING_COUNT 个IPv6地址，开始添加到1000个..."
+  echo "（大约需要1-2分钟，请耐心等待）"
   ADDED_COUNT=0
   FAILED_COUNT=0
   START_TIME=$(date +%s)
@@ -166,10 +167,11 @@ else
   END_TIME=$(date +%s)
   DURATION=$((END_TIME - START_TIME))
   echo "  总耗时: ${DURATION}秒"
+  
+  # 最终统计
+  TOTAL_COUNT=$(ip -6 addr show dev $INTERFACE | grep "$IPV6_PREFIX" | wc -l)
+  echo -e "${GREEN}✓ 当前IPv6总数: $TOTAL_COUNT${NC}"
 fi
-
-TOTAL_COUNT=$(ip -6 addr show dev $INTERFACE | grep "$IPV6_PREFIX" | wc -l)
-echo -e "${GREEN}✓ 当前IPv6总数: $TOTAL_COUNT${NC}"
 
 if [ $TOTAL_COUNT -lt 100 ]; then
   echo -e "${RED}✗ 警告: IPv6地址池配置不完整${NC}"
