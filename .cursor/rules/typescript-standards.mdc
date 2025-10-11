@@ -1,0 +1,128 @@
+---
+globs: *.ts,*.tsx,*.vue
+description: TypeScript和Vue编码规范
+---
+
+# TypeScript & Vue 编码规范
+
+## 🎯 核心原则
+
+### 严格遵循TypeScript规范
+- 使用严格的类型检查
+- 避免使用 `any` 类型
+- 为所有函数参数和返回值定义类型
+- 使用接口(interface)定义对象结构
+
+### 面向对象编程
+- **必须使用类(Class)** 来组织代码
+- 使用访问修饰符：`private`、`public`、`protected`
+- 合理使用继承和组合
+- 单一职责原则：每个类只负责一件事
+
+### Vue规范
+- 遵循Vue 3组合式API规范
+- 遵循Vite构建工具的最佳实践
+- 组件采用面向对象的设计模式
+
+## 📝 编码示例
+
+### ✅ 正确的类定义
+```typescript
+export class IPv6Pool {
+  private addresses: string[]
+  private currentIndex: number = 0
+  
+  constructor(basePrefix: string, start: number, count: number) {
+    this.addresses = []
+    // 初始化逻辑
+  }
+  
+  public getNext(): string {
+    // 方法实现
+  }
+  
+  private validateAddress(addr: string): boolean {
+    // 私有方法
+  }
+}
+```
+
+### ❌ 错误的函数式写法
+```typescript
+// ❌ 不要使用纯函数式编程
+function getNextIPv6(pool: any) {
+  // ...
+}
+
+const ipv6Pool = {
+  addresses: [],
+  getNext: function() {}
+}
+```
+
+### ✅ 正确的类型定义
+```typescript
+interface FetchOptions {
+  url: string
+  method?: string
+  headers?: Record<string, string>
+  timeout?: number
+}
+
+export class CurlFetcher {
+  public async fetch(options: FetchOptions): Promise<FetchResult> {
+    // 实现
+  }
+}
+```
+
+## 🏗️ 架构要求
+
+### 服务器端代码组织
+- 每个功能模块使用独立的类
+- 类之间通过依赖注入或构造函数传递
+- 避免全局变量和函数
+
+### 示例架构
+```typescript
+// rpc-server.ts
+export class RpcServer extends EventEmitter {
+  private ipv6Pool: IPv6Pool
+  private curlFetcher: CurlFetcher
+  
+  constructor(port: number, ipv6Prefix: string) {
+    this.ipv6Pool = new IPv6Pool(ipv6Prefix, 1001, 100)
+    this.curlFetcher = new CurlFetcher(this.ipv6Pool)
+  }
+}
+```
+
+## 🔧 工具和配置
+
+### TSConfig设置
+- 启用 `strict` 模式
+- 使用 ES2022 或更新的目标
+- 配置路径别名便于导入
+
+### 代码风格
+- 使用分号结束语句
+- 使用2空格缩进
+- 类名使用 PascalCase
+- 方法名使用 camelCase
+- 常量使用 UPPER_SNAKE_CASE
+
+## ⚠️ 禁止事项
+
+❌ 不要使用全局函数（除非是工具函数）
+❌ 不要使用 `var`，使用 `const` 或 `let`
+❌ 不要忽略TypeScript错误
+❌ 不要混用面向对象和函数式编程风格
+❌ 不要创建过大的类（超过500行考虑拆分）
+
+## ✅ 最佳实践
+
+1. **单一职责**: 每个类只负责一个功能领域
+2. **封装性**: 使用私有属性保护内部状态
+3. **类型安全**: 充分利用TypeScript的类型系统
+4. **可测试性**: 设计易于测试的类和方法
+5. **文档注释**: 为公共API添加JSDoc注释

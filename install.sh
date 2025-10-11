@@ -72,9 +72,9 @@ fi
 
 # 步骤3: 配置 IPv6 地址池
 echo ""
-echo -e "${YELLOW}[3/8] 配置 IPv6 地址池 (100个地址)...${NC}"
+echo -e "${YELLOW}[3/8] 配置 IPv6 地址池 (1000个地址)...${NC}"
 ADDED_COUNT=0
-for i in {1001..1100}; do
+for i in {1001..2000}; do
   if ip -6 addr add ${IPV6_PREFIX}::$i/128 dev ipv6net 2>/dev/null; then
     ((ADDED_COUNT++))
   fi

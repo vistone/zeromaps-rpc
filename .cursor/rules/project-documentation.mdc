@@ -1,0 +1,108 @@
+---
+alwaysApply: true
+description: 项目文档管理规范
+---
+
+# 项目文档管理规范
+
+## 📄 文档规则
+
+### 只保留一个README文件
+- **唯一文档**: 项目根目录只允许有一个 [README.md](mdc:README.md)
+- **禁止创建**: 不要创建其他MD文件（如 DEPLOY.md, MONITOR.md, CONTRIBUTING.md等）
+- **集中管理**: 所有文档内容都必须整合到 [README.md](mdc:README.md) 中
+
+### 禁止的行为
+❌ 不要创建新的 .md 文件
+❌ 不要在子目录创建 README.md
+❌ 不要创建 CHANGELOG.md、TODO.md 等文件
+❌ 不要创建临时文档文件
+
+### 允许的行为
+✅ 更新 [README.md](mdc:README.md)
+✅ 在 README.md 中添加新章节
+✅ 在 README.md 中记录更新和修改
+
+## 📝 更新记录管理
+
+所有项目的更新、修改、变更都应该记录在 [README.md](mdc:README.md) 中，而不是单独创建文件。
+
+### 更新时的操作
+1. 直接编辑 [README.md](mdc:README.md)
+2. 在相应章节添加或更新内容
+3. 如有重大更新，可在README中添加"更新日志"章节
+
+### README.md 结构建议
+- 项目简介
+- 快速开始
+- 功能说明（如IPv6监控）
+- 使用指南
+- 部署指南
+- API文档
+- 故障排查
+- 更新日志（可选）
+
+## 🗂️ 文件组织规范
+
+### 代码文件位置
+- **服务器代码**: 必须放在 `server/` 目录
+- **客户端代码**: 必须放在 `client/` 目录
+- **测试文件**: 必须放在 `tests/` 目录
+- **示例代码**: 必须放在 `examples/` 目录
+- **工具脚本**: 可放在根目录（如 install.sh）
+
+### 禁止乱放文件
+❌ 不要在根目录创建临时文件
+❌ 不要创建 `tools/`、`scripts/`、`docs/` 等额外目录
+❌ 不要在错误的目录放置代码文件
+
+## 💡 示例
+
+### 错误做法
+```
+zeromaps-rpc/
+├── README.md
+├── MONITOR.md          ❌ 不要创建
+├── DEPLOY.md           ❌ 不要创建
+├── CHANGELOG.md        ❌ 不要创建
+├── docs/               ❌ 不要创建
+├── monitor-tool.ts     ❌ 不要放根目录
+└── tools/              ❌ 不要创建
+    └── export.ts
+```
+
+### 正确做法
+```
+zeromaps-rpc/
+├── README.md           ✅ 唯一文档，包含所有说明
+├── server/             ✅ 服务器代码
+│   ├── stats-exporter.ts
+│   └── ...
+├── tests/              ✅ 测试文件
+│   └── test-*.ts
+└── ...
+```
+
+## 🔄 当需要添加新功能文档时
+
+1. **不要**创建新的MD文件
+2. **直接**在 [README.md](mdc:README.md) 中添加相应章节
+3. 使用Markdown标题组织内容
+4. 使用目录链接方便导航
+
+例如添加监控功能文档：
+```markdown
+## IPv6流量监控
+
+### 实时监控
+...
+
+### 导出统计
+...
+```
+
+## ⚠️ 重要提醒
+
+- 任何时候需要创建文档时，都应该想到：这个内容能否加到README中？
+- 答案永远是：是的，加到README中
+- 保持项目整洁，避免文档碎片化

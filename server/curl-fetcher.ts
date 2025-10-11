@@ -28,6 +28,8 @@ export class CurlFetcher {
   private curlPath: string
   private ipv6Pool: IPv6Pool | null = null
   private requestCount = 0
+  private concurrentRequests = 0  // 当前并发请求数
+  private maxConcurrent = 0       // 最大并发请求数（用于统计）
 
   /**
    * @param curlPath curl-impersonate 可执行文件路径
@@ -44,11 +46,17 @@ export class CurlFetcher {
   public async fetch(options: FetchOptions): Promise<FetchResult> {
     const startTime = Date.now()
     this.requestCount++
+    this.concurrentRequests++
+    
+    // 记录最大并发数
+    if (this.concurrentRequests > this.maxConcurrent) {
+      this.maxConcurrent = this.concurrentRequests
+    }
+
+    // 选择 IPv6 地址
+    const ipv6 = options.ipv6 || (this.ipv6Pool ? this.ipv6Pool.getNext() : null)
 
     try {
-      // 选择 IPv6 地址
-      const ipv6 = options.ipv6 || (this.ipv6Pool ? this.ipv6Pool.getNext() : null)
-      
       // 构建 curl 命令
       const curlCmd = this.buildCurlCommand(options, ipv6)
       
@@ -66,16 +74,29 @@ export class CurlFetcher {
       // 解析响应
       const result = this.parseResponse(stdout as Buffer)
       
+      // 记录到IPv6池统计
+      if (ipv6 && this.ipv6Pool) {
+        const success = result.statusCode >= 200 && result.statusCode < 300
+        this.ipv6Pool.recordRequest(ipv6, success, duration)
+      }
+      
       // 只在非200时记录日志
       if (result.statusCode !== 200) {
         console.log(`[Curl] ${result.statusCode} (${duration}ms)`)
       }
       
+      this.concurrentRequests--
       return result
     } catch (error) {
       const duration = Date.now() - startTime
       console.error(`[Curl] Error (${duration}ms):`, (error as Error).message)
       
+      // 记录失败到IPv6池统计
+      if (ipv6 && this.ipv6Pool) {
+        this.ipv6Pool.recordRequest(ipv6, false, duration)
+      }
+      
+      this.concurrentRequests--
       return {
         statusCode: 0,
         headers: {},
@@ -202,6 +223,8 @@ export class CurlFetcher {
   public getStats() {
     return {
       totalRequests: this.requestCount,
+      concurrentRequests: this.concurrentRequests,
+      maxConcurrent: this.maxConcurrent,
       ipv6PoolStats: this.ipv6Pool ? this.ipv6Pool.getStats() : null
     }
   }
