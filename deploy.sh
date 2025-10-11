@@ -274,8 +274,15 @@ echo -e "${YELLOW}[5/7] 安装系统依赖...${NC}"
 # Node.js
 if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
   echo "安装Node.js 18..."
-  echo "  下载NodeSource安装脚本..."
   
+  # 先卸载旧版本Node.js
+  if dpkg -l | grep -q nodejs; then
+    echo "  卸载旧版本Node.js..."
+    apt remove -y nodejs libnode72 libnode-dev >/dev/null 2>&1 || true
+    apt autoremove -y >/dev/null 2>&1 || true
+  fi
+  
+  echo "  下载NodeSource安装脚本..."
   if curl -fsSL --max-time 30 https://deb.nodesource.com/setup_18.x -o /tmp/setup_nodejs.sh; then
     echo "  执行安装脚本..."
     bash /tmp/setup_nodejs.sh
