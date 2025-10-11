@@ -407,6 +407,12 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   # 配置Caddy（总是重新生成，确保最新）
   echo "配置Caddy..."
   
+  # 创建日志目录并设置权限
+  mkdir -p /var/log/caddy
+  chown -R caddy:caddy /var/log/caddy
+  chmod 755 /var/log/caddy
+  echo -e "${GREEN}✓ 日志目录已创建${NC}"
+  
   # 强制重新生成配置文件
   sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
   
