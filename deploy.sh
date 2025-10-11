@@ -368,18 +368,20 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   # 清理并重新安装Caddy
   echo "清理旧的Caddy..."
   
-  # 停止Caddy服务
-  systemctl stop caddy >/dev/null 2>&1
-  systemctl disable caddy >/dev/null 2>&1
+  # 停止Caddy服务（忽略错误）
+  systemctl stop caddy >/dev/null 2>&1 || true
+  systemctl disable caddy >/dev/null 2>&1 || true
   
-  # 卸载Caddy
+  # 卸载Caddy（如果存在）
   if command -v caddy &>/dev/null; then
-    apt remove --purge -y caddy >/dev/null 2>&1
+    apt remove --purge -y caddy >/dev/null 2>&1 || true
     echo -e "${GREEN}✓ 已卸载旧版Caddy${NC}"
+  else
+    echo -e "${GREEN}✓ 未检测到旧版Caddy${NC}"
   fi
   
-  # 清理配置
-  rm -f /etc/caddy/Caddyfile
+  # 清理配置（忽略错误）
+  rm -f /etc/caddy/Caddyfile 2>/dev/null || true
   
   # 重新安装Caddy
   echo "重新安装Caddy..."
