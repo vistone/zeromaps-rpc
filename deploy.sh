@@ -390,6 +390,17 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   apt install -y caddy >/dev/null 2>&1
   echo -e "${GREEN}✓ Caddy安装成功${NC}"
   
+  # 创建日志目录并设置权限（必须在Caddy安装后，caddy用户才存在）
+  echo "配置日志目录..."
+  mkdir -p /var/log/caddy
+  chown -R caddy:caddy /var/log/caddy
+  chmod 755 /var/log/caddy
+  # 预创建日志文件并设置权限
+  touch /var/log/caddy/zeromaps-rpc.log
+  chown caddy:caddy /var/log/caddy/zeromaps-rpc.log
+  chmod 644 /var/log/caddy/zeromaps-rpc.log
+  echo -e "${GREEN}✓ 日志目录已配置${NC}"
+  
   # 配置Caddy（使用当前VPS的域名）
   echo "配置Caddy..."
   if [ -n "$SERVER_DOMAIN" ]; then
@@ -405,13 +416,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   echo "配置自动HTTPS（Caddy会自动获取Let's Encrypt证书）..."
   
   # 配置Caddy（总是重新生成，确保最新）
-  echo "配置Caddy..."
-  
-  # 创建日志目录并设置权限
-  mkdir -p /var/log/caddy
-  chown -R caddy:caddy /var/log/caddy
-  chmod 755 /var/log/caddy
-  echo -e "${GREEN}✓ 日志目录已创建${NC}"
+  echo "生成Caddy配置..."
   
   # 强制重新生成配置文件
   sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
