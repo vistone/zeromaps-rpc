@@ -185,7 +185,13 @@ fi
 echo ""
 echo -e "${YELLOW}[4/7] 配置IPv6持久化...${NC}"
 
-cat > /root/setup-ipv6-pool.sh << SCRIPT_END
+# 检查是否已经配置过systemd服务
+if systemctl is-enabled ipv6-pool >/dev/null 2>&1; then
+  echo -e "${GREEN}✓ IPv6持久化已配置，跳过${NC}"
+else
+  echo "创建IPv6持久化配置..."
+  
+  cat > /root/setup-ipv6-pool.sh << SCRIPT_END
 #!/bin/bash
 # IPv6配置 - $SERVER_NAME
 LOCAL_IP="$LOCAL_IP"
@@ -205,9 +211,9 @@ for i in {1001..2000}; do
 done
 SCRIPT_END
 
-chmod +x /root/setup-ipv6-pool.sh
+  chmod +x /root/setup-ipv6-pool.sh
 
-cat > /etc/systemd/system/ipv6-pool.service << 'SERVICE_END'
+  cat > /etc/systemd/system/ipv6-pool.service << 'SERVICE_END'
 [Unit]
 Description=IPv6 Tunnel and Address Pool Setup
 After=network.target
@@ -221,9 +227,10 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 SERVICE_END
 
-systemctl daemon-reload
-systemctl enable ipv6-pool >/dev/null 2>&1
-echo -e "${GREEN}✓ IPv6持久化配置完成${NC}"
+  systemctl daemon-reload
+  systemctl enable ipv6-pool >/dev/null 2>&1
+  echo -e "${GREEN}✓ IPv6持久化配置完成${NC}"
+fi
 
 # ==========================================
 # 步骤5: 安装系统依赖
@@ -287,9 +294,14 @@ else
   echo -e "${YELLOW}代码目录不是git仓库，跳过更新${NC}"
 fi
 
-# 安装依赖
-echo "安装npm依赖..."
-npm install
+# 安装依赖（检查是否需要更新）
+if [ ! -d "node_modules" ]; then
+  echo "安装npm依赖..."
+  npm install
+else
+  echo "更新npm依赖..."
+  npm install
+fi
 
 # 配置pm2
 cat > $INSTALL_DIR/ecosystem.config.js << PM2_END
@@ -314,12 +326,18 @@ mkdir -p $INSTALL_DIR/logs
 
 # 启动服务
 echo "启动RPC服务..."
-pm2 delete zeromaps-rpc 2>/dev/null || true
-pm2 start ecosystem.config.js
-pm2 save
 
-# 设置开机启动（静默）
-pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
+# 检查服务是否已运行
+if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
+  echo "服务已存在，重启中..."
+  pm2 restart zeromaps-rpc
+else
+  echo "首次启动服务..."
+  pm2 start ecosystem.config.js
+  pm2 save
+  # 设置开机启动
+  pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
+fi
 
 echo ""
 echo "====================================="
