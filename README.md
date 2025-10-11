@@ -100,21 +100,19 @@ apt install caddy
 cd /opt/zeromaps-rpc
 git pull
 
-# 3. 复制Caddy配置
-cp Caddyfile /etc/caddy/Caddyfile
+# 3. 部署会自动配置Caddy（使用当前VPS的域名）
 
-# 4. 重启Caddy
-systemctl restart caddy
-
-# 5. 配置DNS
-# 将 monitor.zeromaps.cn 解析到当前VPS的IP
+# 4. 访问管理面板
+# 假设在www上部署
+https://www.zeromaps.com.cn
 ```
 
 #### 访问地址
 
-```
-https://monitor.zeromaps.cn
-```
+**根据部署的VPS而定**：
+- 部署在www: `https://www.zeromaps.com.cn`
+- 部署在tile0: `https://tile0.zeromaps.cn`
+- 部署在其他VPS: `https://对应域名`
 
 **功能特性**：
 - ✅ 纯静态HTML，无需后端服务器

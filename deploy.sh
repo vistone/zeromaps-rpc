@@ -378,9 +378,16 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}✓ Caddy已安装${NC}"
   fi
   
-  # 配置Caddy
+  # 配置Caddy（使用当前VPS的域名）
   echo "配置Caddy..."
-  cp $INSTALL_DIR/Caddyfile /etc/caddy/Caddyfile
+  if [ -n "$SERVER_DOMAIN" ]; then
+    # 替换域名占位符
+    sed "s/{DOMAIN}/$SERVER_DOMAIN/g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
+    echo -e "${GREEN}✓ 配置域名: $SERVER_DOMAIN${NC}"
+  else
+    echo -e "${RED}✗ 配置文件缺少域名，跳过Caddy配置${NC}"
+    exit 1
+  fi
   
   # 重启Caddy
   systemctl enable caddy >/dev/null 2>&1
@@ -388,11 +395,8 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
   
   echo -e "${GREEN}✓ 统一管理面板已部署${NC}"
   echo ""
-  echo -e "${YELLOW}请配置DNS:${NC}"
-  echo "  monitor.zeromaps.cn -> $LOCAL_IP"
-  echo ""
   echo -e "${GREEN}访问地址:${NC}"
-  echo "  https://monitor.zeromaps.cn"
+  echo "  https://$SERVER_DOMAIN"
   echo ""
 fi
 
@@ -416,10 +420,12 @@ echo "  单节点监控: 0.0.0.0:$MONITOR_PORT"
 echo ""
 echo "访问地址:"
 if [ -n "$SERVER_DOMAIN" ]; then
-  echo "  单节点: http://$SERVER_DOMAIN:$MONITOR_PORT"
-fi
-if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
-  echo "  统一管理: https://monitor.zeromaps.cn"
+  echo "  单节点监控: http://$SERVER_DOMAIN:$MONITOR_PORT"
+  
+  # 如果安装了Caddy，显示HTTPS管理面板地址
+  if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
+    echo "  统一管理面板: https://$SERVER_DOMAIN"
+  fi
 fi
 echo ""
 echo "常用命令:"

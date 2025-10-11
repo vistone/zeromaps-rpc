@@ -1,14 +1,12 @@
 # ZeroMaps RPC 统一管理面板 Caddy配置
-# 可以部署在任意一台VPS上
+# 使用当前VPS的域名托管管理面板
+# 将自动替换为实际域名
 
 # 监控管理面板（HTTPS）
-monitor.zeromaps.cn {
+{DOMAIN} {
     # 静态管理面板
     root * /opt/zeromaps-rpc/public
     file_server
-    
-    # 默认页面
-    try_files {path} /dashboard.html
     
     # 启用HTTPS
     tls {
@@ -17,13 +15,13 @@ monitor.zeromaps.cn {
     
     # 日志
     log {
-        output file /var/log/caddy/monitor.log
+        output file /var/log/caddy/zeromaps-rpc.log
         format json
     }
 }
 
 # HTTP重定向到HTTPS
-http://monitor.zeromaps.cn {
-    redir https://monitor.zeromaps.cn{uri} permanent
+http://{DOMAIN} {
+    redir https://{DOMAIN}{uri} permanent
 }
 
