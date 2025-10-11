@@ -174,13 +174,18 @@ export class RpcClient extends EventEmitter {
       // 使用 URI 作为 key
       const key = uri
       
+      console.log(`[Client] 发送请求: ${key.substring(0, 80)}`)
+      
       // 设置超时
       const timeout = setTimeout(() => {
+        console.warn(`[Client] 请求超时: ${key.substring(0, 80)}`)
         this.pendingRequests.delete(key)
         reject(new Error('请求超时'))
-      }, 15000) // 15秒超时
+      }, 30000) // 30秒超时（增加到30秒）
       
       this.pendingRequests.set(key, { resolve, reject, timeout })
+      
+      console.log(`[Client] 待处理请求数: ${this.pendingRequests.size}`)
       
       // 发送请求
       const encoded = DataRequest.encode(request).finish()
