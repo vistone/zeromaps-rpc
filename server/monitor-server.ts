@@ -4,7 +4,7 @@
  */
 
 import * as http from 'http'
-import { RpcServer } from './rpc-server.js'
+import { RpcServer } from './rpc-server'
 
 export class MonitorServer {
   private server: http.Server | null = null

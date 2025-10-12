@@ -8,7 +8,7 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import * as fastq from 'fastq'
 import type { queueAsPromised } from 'fastq'
-import { IPv6Pool } from './ipv6-pool.js'
+import { IPv6Pool } from './ipv6-pool'
 
 const execAsync = promisify(exec)
 

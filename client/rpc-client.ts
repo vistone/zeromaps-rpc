@@ -12,7 +12,7 @@ import {
   HandshakeResponse,
   DataRequest,
   DataResponse
-} from '../proto/proto/zeromaps-rpc.js'
+} from '../proto/proto/zeromaps-rpc'
 
 interface PendingRequest {
   resolve: (response: DataResponse) => void

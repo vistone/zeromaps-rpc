@@ -2,9 +2,9 @@
  * ZeroMaps RPC 服务器启动文件
  */
 
-import { RpcServer } from './rpc-server.js'
-import { StatsExporter } from './stats-exporter.js'
-import { MonitorServer } from './monitor-server.js'
+import { RpcServer } from './rpc-server'
+import { StatsExporter } from './stats-exporter'
+import { MonitorServer } from './monitor-server'
 
 // 配置
 const PORT = 9527

@@ -5,8 +5,8 @@
 
 import * as net from 'net'
 import { EventEmitter } from 'events'
-import { IPv6Pool } from './ipv6-pool.js'
-import { CurlFetcher } from './curl-fetcher.js'
+import { IPv6Pool } from './ipv6-pool'
+import { CurlFetcher } from './curl-fetcher'
 import {
   FrameType,
   DataType,
@@ -14,7 +14,7 @@ import {
   HandshakeResponse,
   DataRequest,
   DataResponse
-} from '../proto/proto/zeromaps-rpc.js'
+} from '../proto/proto/zeromaps-rpc'
 
 interface ClientSession {
   id: number

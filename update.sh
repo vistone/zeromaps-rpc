@@ -30,25 +30,19 @@ fi
 cd $INSTALL_DIR
 
 # 1. 更新代码
-echo "[1/5] 更新代码..."
+echo "[1/3] 更新代码..."
 git pull
 echo -e "${GREEN}✓ 代码更新完成${NC}"
 
 # 2. 更新依赖
 echo ""
-echo "[2/5] 更新npm依赖..."
+echo "[2/3] 更新npm依赖..."
 npm install
 echo -e "${GREEN}✓ 依赖更新完成${NC}"
 
-# 3. 编译代码
+# 3. 重启pm2服务
 echo ""
-echo "[3/5] 编译代码..."
-npm run build
-echo -e "${GREEN}✓ 编译完成${NC}"
-
-# 4. 重启pm2服务
-echo ""
-echo "[4/5] 重启服务..."
+echo "[3/3] 重启服务..."
 
 # 清理可能冲突的systemd服务
 if systemctl list-units --full --all 2>/dev/null | grep -q "zeromaps-rpc.service"; then
@@ -83,9 +77,9 @@ fi
 sleep 2
 pm2 list
 
-# 5. 更新Caddy配置（如果已安装）
+# 更新Caddy配置（如果已安装）
 echo ""
-echo "[5/5] 更新Caddy配置..."
+echo "更新Caddy配置..."
 
 if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
   # 检测本地IP并加载配置
