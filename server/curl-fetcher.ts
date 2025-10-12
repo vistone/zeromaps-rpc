@@ -28,8 +28,10 @@ export interface FetchResult {
 }
 
 interface CurlTask {
+  requestId: number
   options: FetchOptions
   ipv6: string | null
+  queuedAt: number
 }
 
 export class CurlFetcher {
@@ -55,44 +57,77 @@ export class CurlFetcher {
    * 发起 HTTP 请求（加入 fastq 队列）
    */
   public async fetch(options: FetchOptions): Promise<FetchResult> {
-    this.requestCount++
+    const requestId = ++this.requestCount
+    const queuedAt = Date.now()
     const ipv6 = options.ipv6 || (this.ipv6Pool ? this.ipv6Pool.getNext() : null)
-    return this.queue.push({ options, ipv6 })
+    
+    console.log(`[Req#${requestId}] 📥 接收请求: ${options.url.substring(0, 80)}`)
+    
+    const result = await this.queue.push({ requestId, options, ipv6, queuedAt })
+    
+    const totalTime = Date.now() - queuedAt
+    console.log(`[Req#${requestId}] ✅ 总耗时: ${totalTime}ms\n`)
+    
+    return result
   }
 
   /**
-   * Worker：实际执行 curl
+   * Worker：实际执行 curl（添加详细性能日志）
    */
   private async worker(task: CurlTask): Promise<FetchResult> {
-    const startTime = Date.now()
-    const { options, ipv6 } = task
-
+    const { requestId, options, ipv6, queuedAt } = task
+    
+    const t1 = Date.now()
+    const waitTime = t1 - queuedAt
+    
     this.concurrentRequests++
     if (this.concurrentRequests > this.maxConcurrent) {
       this.maxConcurrent = this.concurrentRequests
     }
 
-    try {
-      const curlCmd = this.buildCurlCommand(options, ipv6)
+    console.log(`[Req#${requestId}] ⏱️  队列等待: ${waitTime}ms, 当前并发: ${this.concurrentRequests}`)
 
+    try {
+      // 1. 构建命令
+      const t2 = Date.now()
+      const curlCmd = this.buildCurlCommand(options, ipv6)
+      const buildTime = Date.now() - t2
+      console.log(`[Req#${requestId}]   ├─ 构建命令: ${buildTime}ms`)
+
+      // 2. 执行 curl
+      const t3 = Date.now()
+      console.log(`[Req#${requestId}]   ├─ 开始执行 curl via ${ipv6?.substring(0, 30)}...`)
+      
       const { stdout } = await execAsync(curlCmd, {
         encoding: 'buffer',
         maxBuffer: 50 * 1024 * 1024,
         timeout: options.timeout || 10000
       })
+      
+      const curlTime = Date.now() - t3
+      console.log(`[Req#${requestId}]   ├─ curl 执行: ${curlTime}ms ⭐`)
 
-      const duration = Date.now() - startTime
+      // 3. 解析响应
+      const t4 = Date.now()
       const result = this.parseResponse(stdout as Buffer)
+      const parseTime = Date.now() - t4
+      console.log(`[Req#${requestId}]   ├─ 解析响应: ${parseTime}ms, 状态码: ${result.statusCode}, 数据: ${result.body.length} bytes`)
 
+      // 4. 记录统计
+      const totalDuration = Date.now() - queuedAt
       if (ipv6 && this.ipv6Pool) {
         const success = result.statusCode >= 200 && result.statusCode < 300
-        this.ipv6Pool.recordRequest(ipv6, success, duration)
+        this.ipv6Pool.recordRequest(ipv6, success, totalDuration)
       }
+
+      console.log(`[Req#${requestId}]   └─ 分解: 等待${waitTime}ms + 构建${buildTime}ms + curl${curlTime}ms + 解析${parseTime}ms = ${totalDuration}ms`)
 
       this.concurrentRequests--
       return result
+      
     } catch (error) {
-      const duration = Date.now() - startTime
+      const duration = Date.now() - queuedAt
+      console.error(`[Req#${requestId}] ❌ 错误 (${duration}ms):`, (error as Error).message)
 
       if (ipv6 && this.ipv6Pool) {
         this.ipv6Pool.recordRequest(ipv6, false, duration)
