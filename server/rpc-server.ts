@@ -5,8 +5,8 @@
 
 import * as net from 'net'
 import { EventEmitter } from 'events'
-import { IPv6Pool } from './ipv6-pool'
-import { CurlFetcher } from './curl-fetcher'
+import { IPv6Pool } from './ipv6-pool.js'
+import { CurlFetcher } from './curl-fetcher.js'
 import {
   FrameType,
   DataType,

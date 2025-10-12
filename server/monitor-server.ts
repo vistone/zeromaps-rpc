@@ -4,7 +4,7 @@
  */
 
 import * as http from 'http'
-import { RpcServer } from './rpc-server'
+import { RpcServer } from './rpc-server.js'
 
 export class MonitorServer {
   private server: http.Server | null = null
@@ -38,14 +38,14 @@ export class MonitorServer {
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-    
+
     // OPTIONS 预检
     if (req.method === 'OPTIONS') {
       res.writeHead(200)
       res.end()
       return
     }
-    
+
     const url = req.url || '/'
 
     if (url === '/' || url === '/index.html') {
