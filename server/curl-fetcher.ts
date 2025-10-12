@@ -50,8 +50,8 @@ export class CurlFetcher {
   constructor(curlPath: string = '/usr/local/bin/curl-impersonate-chrome', ipv6Pool?: IPv6Pool) {
     this.curlPath = curlPath
     this.ipv6Pool = ipv6Pool || null
-    // fastq 队列，管理请求分发
-    this.queue = fastq.promise(this.worker.bind(this), Infinity)
+    // fastq 队列，管理请求分发（限制并发数为3，防止内存耗尽）
+    this.queue = fastq.promise(this.worker.bind(this), 3)
   }
 
   /**
