@@ -14,7 +14,7 @@ import {
   HandshakeResponse,
   DataRequest,
   DataResponse
-} from '../proto/proto/zeromaps-rpc'
+} from '../proto/proto/zeromaps-rpc.js'
 
 interface ClientSession {
   id: number

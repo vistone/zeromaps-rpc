@@ -2,8 +2,8 @@
  * ZeroMaps RPC 基本使用示例
  */
 
-import { RpcClient } from '../client/rpc-client'
-import { DataType } from '../proto/proto/zeromaps-rpc'
+import { RpcClient } from '../client/rpc-client.js'
+import { DataType } from '../proto/proto/zeromaps-rpc.js'
 
 async function main() {
   console.log('=== ZeroMaps RPC 客户端示例 ===\n')
