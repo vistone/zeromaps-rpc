@@ -30,7 +30,7 @@ fi
 cd $INSTALL_DIR
 
 # 1. 更新代码
-echo "[1/4] 更新代码..."
+echo "[1/5] 更新代码..."
 git pull
 echo -e "${GREEN}✓ 代码更新完成${NC}"
 
@@ -48,7 +48,7 @@ echo -e "${GREEN}✓ 编译完成${NC}"
 
 # 4. 重启pm2服务
 echo ""
-echo "[3/4] 重启服务..."
+echo "[4/5] 重启服务..."
 
 # 清理可能冲突的systemd服务
 if systemctl list-units --full --all 2>/dev/null | grep -q "zeromaps-rpc.service"; then
