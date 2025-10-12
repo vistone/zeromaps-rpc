@@ -389,6 +389,16 @@ if ! command -v tsx &>/dev/null; then
 fi
 echo -e "${GREEN}✓ tsx已安装${NC}"
 
+# 编译 TypeScript 代码
+echo "编译 TypeScript 代码..."
+npm run build
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓ 代码编译成功${NC}"
+else
+  echo -e "${RED}✗ 代码编译失败${NC}"
+  exit 1
+fi
+
 # 配置pm2（使用.cjs后缀，因为package.json是type:module）
 cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
 module.exports = {
