@@ -36,11 +36,17 @@ echo -e "${GREEN}✓ 代码更新完成${NC}"
 
 # 2. 更新依赖
 echo ""
-echo "[2/4] 更新npm依赖..."
+echo "[2/5] 更新npm依赖..."
 npm install
 echo -e "${GREEN}✓ 依赖更新完成${NC}"
 
-# 3. 重启pm2服务
+# 3. 编译代码
+echo ""
+echo "[3/5] 编译代码..."
+npm run build
+echo -e "${GREEN}✓ 编译完成${NC}"
+
+# 4. 重启pm2服务
 echo ""
 echo "[3/4] 重启服务..."
 
@@ -77,9 +83,9 @@ fi
 sleep 2
 pm2 list
 
-# 4. 更新Caddy配置（如果已安装）
+# 5. 更新Caddy配置（如果已安装）
 echo ""
-echo "[4/4] 更新Caddy配置..."
+echo "[5/5] 更新Caddy配置..."
 
 if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
   # 检测本地IP并加载配置
