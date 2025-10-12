@@ -33,7 +33,7 @@ export class MonitorServer {
   /**
    * 处理HTTP请求
    */
-  private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+  private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     // CORS 支持（浏览器直连需要）
     res.setHeader('Access-Control-Allow-Origin', '*')
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -55,7 +55,7 @@ export class MonitorServer {
     } else if (url === '/api/ipv6') {
       this.serveIPv6Stats(res)
     } else if (url.startsWith('/api/fetch')) {
-      this.serveFetch(req, res, url)
+      await this.serveFetch(req, res, url)
     } else {
       res.writeHead(404)
       res.end('Not Found')
