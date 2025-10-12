@@ -34,18 +34,6 @@ export class MonitorServer {
    * 处理HTTP请求
    */
   private async handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    // CORS 支持（浏览器直连需要）
-    res.setHeader('Access-Control-Allow-Origin', '*')
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-    // OPTIONS 预检
-    if (req.method === 'OPTIONS') {
-      res.writeHead(200)
-      res.end()
-      return
-    }
-
     const url = req.url || '/'
 
     if (url === '/' || url === '/index.html') {
