@@ -76,7 +76,7 @@ export class RpcClient extends EventEmitter {
       // 监听握手响应
       const timeout = setTimeout(() => {
         reject(new Error('握手超时'))
-      }, 5000)
+      }, 15000) // 增加到15秒，适应网络延迟
 
       const handler = (response: HandshakeResponse) => {
         clearTimeout(timeout)
