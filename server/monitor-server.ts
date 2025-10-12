@@ -155,6 +155,13 @@ export class MonitorServer {
         timeout: 10000
       })
 
+      // 处理错误情况
+      if (result.statusCode === 0 || result.error) {
+        res.writeHead(500, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: result.error || 'Request failed' }))
+        return
+      }
+
       // 返回数据
       res.writeHead(result.statusCode, {
         'Content-Type': 'application/octet-stream',
