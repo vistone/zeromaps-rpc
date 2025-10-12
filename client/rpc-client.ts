@@ -43,18 +43,18 @@ export class RpcClient extends EventEmitter {
         console.log(`✓ 已连接到 RPC 服务器: ${this.host}:${this.port}`)
         this.performHandshake().then(resolve).catch(reject)
       })
-      
+
       this.socket.on('data', (chunk) => {
         this.buffer = Buffer.concat([this.buffer, chunk])
         this.processBuffer()
       })
-      
+
       this.socket.on('close', () => {
         this.connected = false
         console.log('✗ 与服务器断开连接')
         this.emit('close')
       })
-      
+
       this.socket.on('error', (err) => {
         console.error('Socket 错误:', err)
         reject(err)
@@ -70,14 +70,14 @@ export class RpcClient extends EventEmitter {
       const request = HandshakeRequest.encode({
         clientInfo: 'taskcli v1.0.0'
       }).finish()
-      
+
       this.sendFrame(FrameType.HANDSHAKE_REQUEST, Buffer.from(request))
-      
+
       // 监听握手响应
       const timeout = setTimeout(() => {
         reject(new Error('握手超时'))
       }, 5000)
-      
+
       const handler = (response: HandshakeResponse) => {
         clearTimeout(timeout)
         if (response.success) {
@@ -89,7 +89,7 @@ export class RpcClient extends EventEmitter {
           reject(new Error(`握手失败: ${response.message}`))
         }
       }
-      
+
       this.once('handshake', handler)
     })
   }
@@ -101,14 +101,14 @@ export class RpcClient extends EventEmitter {
     while (this.buffer.length >= 5) {
       const payloadLength = this.buffer.readUInt32BE(0)
       const frameType = this.buffer.readUInt8(4)
-      
+
       if (this.buffer.length < 5 + payloadLength) {
         break
       }
-      
+
       const payload = this.buffer.slice(5, 5 + payloadLength)
       this.buffer = this.buffer.slice(5 + payloadLength)
-      
+
       this.handleFrame(frameType, payload)
     }
   }
@@ -124,13 +124,13 @@ export class RpcClient extends EventEmitter {
           this.emit('handshake', response)
           break
         }
-        
+
         case FrameType.DATA_RESPONSE: {
           const response = DataResponse.decode(payload)
           this.handleDataResponse(response)
           break
         }
-        
+
         default:
           console.warn(`未知帧类型: ${frameType}`)
       }
@@ -145,7 +145,7 @@ export class RpcClient extends EventEmitter {
   private handleDataResponse(response: DataResponse): void {
     // 使用 URI 作为 key 匹配
     const key = response.uri
-    
+
     const pending = this.pendingRequests.get(key)
     if (pending) {
       clearTimeout(pending.timeout)
@@ -164,43 +164,43 @@ export class RpcClient extends EventEmitter {
     if (!this.connected) {
       throw new Error('未连接到服务器')
     }
-    
+
     const t0 = Date.now()
     console.log(`[Client] 📤 发起请求: ${uri.substring(0, 80)}`)
-    
+
     const request: DataRequest = {
       clientID: this.clientID,
       uri
     }
-    
+
     return new Promise((resolve, reject) => {
       const key = uri
-      
+
       const timeout = setTimeout(() => {
         console.warn(`[Client] ⏰ 超时: ${key.substring(0, 60)}`)
         this.pendingRequests.delete(key)
         reject(new Error('请求超时'))
       }, 30000)
-      
-      this.pendingRequests.set(key, { 
+
+      this.pendingRequests.set(key, {
         resolve: (response) => {
           const totalTime = Date.now() - t0
           console.log(`[Client] 📥 收到响应: ${totalTime}ms, 状态码: ${response.statusCode}, 数据: ${response.data.length} bytes`)
           resolve(response)
-        }, 
-        reject, 
-        timeout 
+        },
+        reject,
+        timeout
       })
-      
+
       // 发送请求
       const t1 = Date.now()
       const encoded = DataRequest.encode(request).finish()
       const encodeTime = Date.now() - t1
-      
+
       const t2 = Date.now()
       this.sendFrame(FrameType.DATA_REQUEST, Buffer.from(encoded))
       const sendTime = Date.now() - t2
-      
+
       console.log(`[Client]   ├─ 编码: ${encodeTime}ms, 发送: ${sendTime}ms`)
     })
   }
@@ -212,14 +212,14 @@ export class RpcClient extends EventEmitter {
     if (!this.socket || this.socket.destroyed) {
       return
     }
-    
+
     const frameLength = 5 + payload.length
     const frame = Buffer.allocUnsafe(frameLength)
-    
+
     frame.writeUInt32BE(payload.length, 0)
     frame.writeUInt8(frameType, 4)
     payload.copy(frame, 5)
-    
+
     this.socket.write(frame)
   }
 

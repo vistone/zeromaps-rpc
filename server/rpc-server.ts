@@ -280,5 +280,12 @@ export class RpcServer extends EventEmitter {
   public getIPv6Pool(): IPv6Pool {
     return this.ipv6Pool
   }
+
+  /**
+   * 获取 CurlFetcher 对象（用于 HTTP API）
+   */
+  public getCurlFetcher() {
+    return this.curlFetcher
+  }
 }
 

@@ -34,8 +34,17 @@ export class MonitorServer {
    * 处理HTTP请求
    */
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
-    // CORS在Caddy层统一处理，这里不再设置
-    // 避免CORS头重复
+    // CORS 支持（浏览器直连需要）
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
+    
+    // OPTIONS 预检
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200)
+      res.end()
+      return
+    }
     
     const url = req.url || '/'
 
@@ -45,6 +54,8 @@ export class MonitorServer {
       this.serveStats(res)
     } else if (url === '/api/ipv6') {
       this.serveIPv6Stats(res)
+    } else if (url.startsWith('/api/fetch')) {
+      this.serveFetch(req, res, url)
     } else {
       res.writeHead(404)
       res.end('Not Found')
@@ -117,6 +128,44 @@ export class MonitorServer {
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(data, null, 2))
+  }
+
+  /**
+   * 处理数据获取请求（浏览器直连 API）
+   */
+  private async serveFetch(req: http.IncomingMessage, res: http.ServerResponse, url: string): Promise<void> {
+    try {
+      // 解析 URI 参数
+      const urlObj = new URL(url, 'http://localhost')
+      const uri = urlObj.searchParams.get('uri')
+
+      if (!uri) {
+        res.writeHead(400, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Missing uri parameter' }))
+        return
+      }
+
+      // 构建完整 URL
+      const fullUrl = `https://kh.google.com/rt/earth/${uri}`
+
+      // 使用 curl-impersonate 获取数据
+      const curlFetcher = this.rpcServer.getCurlFetcher()
+      const result = await curlFetcher.fetch({
+        url: fullUrl,
+        timeout: 10000
+      })
+
+      // 返回数据
+      res.writeHead(result.statusCode, {
+        'Content-Type': 'application/octet-stream'
+      })
+      res.end(result.body)
+
+    } catch (error) {
+      console.error('[HTTP API] 错误:', error)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: (error as Error).message }))
+    }
   }
 
   /**
