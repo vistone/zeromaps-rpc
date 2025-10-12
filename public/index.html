@@ -217,7 +217,7 @@
         const response = await fetch('https://' + node.domain + '/api/stats', {
           signal: AbortSignal.timeout(5000)
         });
-        
+
         if (!response.ok) {
           console.error(`${node.name} HTTP ${response.status}`);
           return {
@@ -226,7 +226,7 @@
             error: `HTTP ${response.status}`
           };
         }
-        
+
         const stats = await response.json();
         console.log(`✓ ${node.name} 在线`);
         return {
@@ -356,8 +356,15 @@
     // 初始加载
     fetchAllStats();
 
-    // 每5秒自动刷新
-    setInterval(fetchAllStats, 5000);
+    // 自动刷新：确保上一轮完成后再开始新一轮
+    let isRefreshing = false;
+    setInterval(async () => {
+      if (!isRefreshing) {
+        isRefreshing = true;
+        await fetchAllStats();
+        isRefreshing = false;
+      }
+    }, 5000);
   </script>
 </body>
 
