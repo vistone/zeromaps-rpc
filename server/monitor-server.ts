@@ -157,7 +157,8 @@ export class MonitorServer {
 
       // 返回数据
       res.writeHead(result.statusCode, {
-        'Content-Type': 'application/octet-stream'
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': result.body.length
       })
       res.end(result.body)
 
