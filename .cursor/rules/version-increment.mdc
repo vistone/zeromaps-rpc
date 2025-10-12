@@ -26,11 +26,13 @@ description: GitHub 提交版本号管理规范
    }
    ```
 
-2. **提交到 GitHub**
+2. **提交到 GitHub（包括 git tag）**
    ```bash
    git add -A
    git commit -m "feat: 功能描述 (v1.2.50)"
+   git tag v1.2.50
    git push
+   git push --tags
    ```
 
 ### 提交信息格式
