@@ -5,7 +5,7 @@
 
 import * as fs from 'fs'
 import * as path from 'path'
-import { IPv6Pool } from './ipv6-pool'
+import { IPv6Pool } from './ipv6-pool.js'
 
 /**
  * 导出统计数据类

@@ -2,8 +2,8 @@
  * ZeroMaps RPC 基本使用示例
  */
 
-import { RpcClient } from '../client/rpc-client'
-import { DataType } from '../proto/proto/zeromaps-rpc'
+import { RpcClient } from '../client/rpc-client.js'
+import { DataType } from '../proto/proto/zeromaps-rpc.js'
 
 async function main() {
   console.log('=== ZeroMaps RPC 客户端示例 ===\n')
@@ -44,8 +44,8 @@ async function main() {
 
     const results = await Promise.all(promises)
 
-    const successCount = results.filter((r) => r.statusCode === 200).length
-    const totalBytes = results.reduce((sum, r) => sum + r.data.length, 0)
+    const successCount = results.filter((r: any) => r.statusCode === 200).length
+    const totalBytes = results.reduce((sum: number, r: any) => sum + r.data.length, 0)
 
     console.log(`   成功: ${successCount}/${results.length}`)
     console.log(`   总数据: ${totalBytes} bytes\n`)
