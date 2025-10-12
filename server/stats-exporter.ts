@@ -18,10 +18,10 @@ export class StatsExporter {
     const filename = outputPath || `ipv6-stats-${Date.now()}.json`
     const data = ipv6Pool.exportJSON()
     const content = JSON.stringify(data, null, 2)
-    
+
     fs.writeFileSync(filename, content, 'utf-8')
     console.log(`✅ 统计数据已导出到: ${filename}`)
-    
+
     return filename
   }
 
@@ -31,10 +31,10 @@ export class StatsExporter {
   public static exportCSV(ipv6Pool: IPv6Pool, outputPath?: string): string {
     const filename = outputPath || `ipv6-stats-${Date.now()}.csv`
     const content = ipv6Pool.exportCSV()
-    
+
     fs.writeFileSync(filename, content, 'utf-8')
     console.log(`✅ CSV数据已导出到: ${filename}`)
-    
+
     return filename
   }
 
@@ -56,7 +56,7 @@ export class StatsExporter {
    */
   public static showSummary(ipv6Pool: IPv6Pool): void {
     const stats = ipv6Pool.getDetailedStats()
-    
+
     console.log('\n' + '='.repeat(70))
     console.log('📊 IPv6 统计数据摘要')
     console.log('='.repeat(70))
@@ -77,15 +77,15 @@ export class StatsExporter {
    */
   public static showTopIPs(ipv6Pool: IPv6Pool, limit: number = 20): void {
     const perIPStats = ipv6Pool.getPerIPStats()
-    
+
     // 按请求数排序
     const sorted = perIPStats.sort((a, b) => b.totalRequests - a.totalRequests)
     const top = sorted.slice(0, limit)
-    
+
     console.log('\n' + '='.repeat(120))
     console.log(`📊 使用最多的 Top ${limit} IPv6 地址`)
     console.log('='.repeat(120))
-    
+
     // 表头
     console.log(
       this.padRight('IPv6地址', 40) + ' | ' +
@@ -97,7 +97,7 @@ export class StatsExporter {
       this.padLeft('最后使用', 12)
     )
     console.log('-'.repeat(120))
-    
+
     // 数据行
     for (const stat of top) {
       console.log(
@@ -110,7 +110,7 @@ export class StatsExporter {
         this.padLeft(stat.lastUsedAgo, 12)
       )
     }
-    
+
     console.log('='.repeat(120) + '\n')
   }
 
@@ -119,11 +119,11 @@ export class StatsExporter {
    */
   public static showDetailedStats(ipv6Pool: IPv6Pool): void {
     const perIPStats = ipv6Pool.getPerIPStats()
-    
+
     console.log('\n' + '='.repeat(120))
     console.log('📊 所有 IPv6 地址详细统计')
     console.log('='.repeat(120))
-    
+
     // 表头
     console.log(
       this.padRight('IPv6地址', 40) + ' | ' +
@@ -137,7 +137,7 @@ export class StatsExporter {
       this.padLeft('最后使用', 12)
     )
     console.log('-'.repeat(120))
-    
+
     // 数据行
     for (const stat of perIPStats) {
       console.log(
@@ -152,7 +152,7 @@ export class StatsExporter {
         this.padLeft(stat.lastUsedAgo, 12)
       )
     }
-    
+
     console.log('='.repeat(120) + '\n')
   }
 
@@ -164,7 +164,7 @@ export class StatsExporter {
     const hours = Math.floor((seconds % 86400) / 3600)
     const mins = Math.floor((seconds % 3600) / 60)
     const secs = seconds % 60
-    
+
     if (days > 0) return `${days}天${hours}小时${mins}分钟`
     if (hours > 0) return `${hours}小时${mins}分钟${secs}秒`
     if (mins > 0) return `${mins}分钟${secs}秒`

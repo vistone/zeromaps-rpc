@@ -17,16 +17,16 @@ async function main() {
   console.log('='.repeat(50))
   console.log('ZeroMaps RPC 服务器')
   console.log('='.repeat(50))
-  
+
   const server = new RpcServer(PORT, IPV6_PREFIX, CURL_PATH)
-  
+
   try {
     await server.start()
-    
+
     // 启动Web监控服务器
     const monitorServer = new MonitorServer(MONITOR_PORT, server)
     monitorServer.start()
-    
+
     // 定期打印统计信息
     setInterval(() => {
       const stats = server.getStats()
@@ -37,7 +37,7 @@ async function main() {
       console.log(`📦 总请求数: ${stats.curlStats.totalRequests}`)
       console.log(`⚡ 当前并发: ${stats.curlStats.concurrentRequests}`)
       console.log(`📈 最大并发: ${stats.curlStats.maxConcurrent}`)
-      
+
       if (stats.ipv6Stats) {
         console.log(`\n🌐 IPv6 池统计:`)
         console.log(`  ├─ 总地址数: ${stats.ipv6Stats.totalAddresses}`)
@@ -52,53 +52,53 @@ async function main() {
       }
       console.log('='.repeat(50) + '\n')
     }, 60000) // 每分钟打印一次
-    
+
     // 格式化运行时间
     function formatUptime(seconds: number): string {
       const days = Math.floor(seconds / 86400)
       const hours = Math.floor((seconds % 86400) / 3600)
       const mins = Math.floor((seconds % 3600) / 60)
       const secs = seconds % 60
-      
+
       if (days > 0) return `${days}天${hours}小时${mins}分钟`
       if (hours > 0) return `${hours}小时${mins}分钟${secs}秒`
       if (mins > 0) return `${mins}分钟${secs}秒`
       return `${secs}秒`
     }
-    
+
     // 定期导出统计数据到临时文件（用于外部监控工具）
     setInterval(() => {
       const ipv6Pool = server.getIPv6Pool()
       StatsExporter.exportToTemp(ipv6Pool)
     }, 10000) // 每10秒更新一次
-    
+
     // 手动导出命令（发送 SIGUSR1 信号触发）
     // 使用方法: kill -SIGUSR1 <进程ID>
     process.on('SIGUSR1', () => {
       console.log('\n📤 收到导出信号，正在导出统计数据...')
-      
+
       try {
         const ipv6Pool = server.getIPv6Pool()
-        
+
         // 导出JSON和CSV文件
         StatsExporter.exportJSON(ipv6Pool)
         StatsExporter.exportCSV(ipv6Pool)
-        
+
         // 显示摘要
         StatsExporter.showSummary(ipv6Pool)
-        
+
         // 显示Top 20
         StatsExporter.showTopIPs(ipv6Pool, 20)
       } catch (error) {
         console.error('❌ 导出失败:', (error as Error).message)
       }
     })
-    
+
     // 显示详细统计（发送 SIGUSR2 信号触发）
     // 使用方法: kill -SIGUSR2 <进程ID>
     process.on('SIGUSR2', () => {
       console.log('\n📊 收到详细统计信号...')
-      
+
       try {
         const ipv6Pool = server.getIPv6Pool()
         StatsExporter.showDetailedStats(ipv6Pool)
@@ -106,20 +106,20 @@ async function main() {
         console.error('❌ 显示失败:', (error as Error).message)
       }
     })
-    
+
     // 优雅退出
     process.on('SIGINT', async () => {
       console.log('\n收到退出信号，正在关闭服务器...')
       await server.stop()
       process.exit(0)
     })
-    
+
     process.on('SIGTERM', async () => {
       console.log('\n收到退出信号，正在关闭服务器...')
       await server.stop()
       process.exit(0)
     })
-    
+
   } catch (error) {
     console.error('服务器启动失败:', error)
     process.exit(1)
