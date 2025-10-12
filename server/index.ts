@@ -5,12 +5,54 @@
 import { RpcServer } from './rpc-server.js'
 import { StatsExporter } from './stats-exporter.js'
 import { MonitorServer } from './monitor-server.js'
+import * as fs from 'fs'
+import { execSync } from 'child_process'
 
 // 配置
 const PORT = 9527
 const MONITOR_PORT = 9528  // Web监控端口
-const IPV6_PREFIX = process.env.IPV6_PREFIX || '2607:8700:5500:2043' // 从环境变量读取或使用默认值
 const CURL_PATH = '/usr/local/bin/curl-impersonate-chrome' // 直接使用底层二进制，避免脚本覆盖 headers
+
+/**
+ * 自动检测本机IP并加载配置
+ */
+function loadConfig(): string {
+  // 优先使用环境变量
+  if (process.env.IPV6_PREFIX) {
+    console.log(`✓ 使用环境变量 IPV6_PREFIX: ${process.env.IPV6_PREFIX}`)
+    return process.env.IPV6_PREFIX
+  }
+
+  try {
+    // 检测本机公网IP
+    const localIP = execSync("ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \\K\\S+' || curl -s ifconfig.me", { encoding: 'utf-8' }).trim()
+    console.log(`🔍 检测到本机IP: ${localIP}`)
+
+    // 加载对应配置文件
+    const configFile = `./configs/vps-${localIP}.conf`
+    if (fs.existsSync(configFile)) {
+      const config = fs.readFileSync(configFile, 'utf-8')
+      const match = config.match(/IPV6_PREFIX="([^"]+)"/)
+      if (match) {
+        const prefix = match[1]
+        console.log(`✓ 从配置文件加载 IPv6 前缀: ${prefix}`)
+        return prefix
+      }
+    } else {
+      console.warn(`⚠️  未找到配置文件: ${configFile}`)
+    }
+  } catch (error) {
+    console.warn(`⚠️  自动检测IP失败:`, (error as Error).message)
+  }
+
+  // 无法自动检测，报错退出
+  console.error('❌ 错误: 无法确定 IPv6 前缀')
+  console.error('   请设置环境变量: export IPV6_PREFIX="your_ipv6_prefix"')
+  console.error('   或确保配置文件存在: configs/vps-<IP>.conf')
+  process.exit(1)
+}
+
+const IPV6_PREFIX = loadConfig()
 
 // 创建并启动服务器
 async function main() {
