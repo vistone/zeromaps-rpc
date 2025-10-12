@@ -1,6 +1,6 @@
 {
   "name": "zeromaps-rpc",
-  "version": "1.2.49",
+  "version": "1.2.50",
   "description": "ZeroMaps RPC Protocol - 基于 IPv6 池和 curl-impersonate 的高性能数据获取系统",
   "type": "module",
   "scripts": {
@@ -20,6 +20,7 @@
   "author": "Stone",
   "license": "MIT",
   "dependencies": {
+    "fastq": "^1.19.1",
     "protobufjs": "^7.4.0",
     "uuid": "^10.0.0"
   },
