@@ -438,14 +438,43 @@ done
 
 # 检查服务是否已运行
 if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
-  echo "服务已存在，重启中..."
-  pm2 restart zeromaps-rpc
+  echo "检测到已有服务，清理旧配置..."
+  
+  # 停止并删除旧服务
+  pm2 stop zeromaps-rpc >/dev/null 2>&1 || true
+  pm2 delete zeromaps-rpc >/dev/null 2>&1 || true
+  
+  # 等待进程完全退出
+  sleep 2
+  
+  echo "使用新配置重新启动..."
+  pm2 start ecosystem.config.cjs
+  pm2 save
 else
   echo "首次启动服务..."
   pm2 start ecosystem.config.cjs
   pm2 save
   # 设置开机启动
   pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
+fi
+
+# 验证服务启动
+echo "验证服务启动状态..."
+sleep 3
+
+# 检查 9527 端口
+if netstat -tlnp 2>/dev/null | grep -q ":9527.*LISTEN"; then
+  echo -e "${GREEN}✓ RPC 服务端口 9527 已启动${NC}"
+else
+  echo -e "${RED}✗ RPC 服务端口 9527 未启动${NC}"
+fi
+
+# 检查 9528 端口
+if netstat -tlnp 2>/dev/null | grep -q ":9528.*LISTEN"; then
+  echo -e "${GREEN}✓ 监控服务端口 9528 已启动${NC}"
+else
+  echo -e "${RED}✗ 监控服务端口 9528 未启动${NC}"
+  echo "  查看错误日志: pm2 logs zeromaps-rpc --err --lines 20"
 fi
 
 # ==========================================
