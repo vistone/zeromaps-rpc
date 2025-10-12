@@ -8,18 +8,9 @@ import { MonitorServer } from './monitor-server'
 
 // 配置
 const PORT = 9527
-const MONITOR_PORT = 9528  // Web监控端口
-const CURL_PATH = '/usr/local/bin/curl-impersonate-chrome' // 直接使用底层二进制，避免脚本覆盖 headers
-
-// 从环境变量读取 IPv6 前缀（由 pm2 ecosystem.config.cjs 设置）
-if (!process.env.IPV6_PREFIX) {
-  console.error('❌ 错误: 缺少环境变量 IPV6_PREFIX')
-  console.error('   请使用 pm2 ecosystem.config.cjs 启动服务')
-  console.error('   或执行: sudo ./deploy.sh')
-  process.exit(1)
-}
-
-const IPV6_PREFIX = process.env.IPV6_PREFIX
+const MONITOR_PORT = 9528
+const IPV6_PREFIX = process.env.IPV6_PREFIX || '2607:8700:5500:2043'
+const CURL_PATH = '/usr/local/bin/curl-impersonate-chrome'
 
 // 创建并启动服务器
 async function main() {
