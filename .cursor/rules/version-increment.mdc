@@ -1,0 +1,66 @@
+---
+description: GitHub 提交版本号管理规范
+---
+
+# GitHub 提交版本号规范
+
+## 版本号递增规则
+
+每次提交代码到 GitHub 时，必须将 [package.json](mdc:package.json) 中的版本号小版本号（patch version）加 1。
+
+### 版本号格式
+
+版本号格式：`major.minor.patch`
+- major: 主版本号（重大更新）
+- minor: 次版本号（功能更新）
+- **patch: 修订号（每次提交 +1）** ⬅️ 每次提交递增
+
+### 操作步骤
+
+1. **修改版本号**
+   ```json
+   // package.json
+   {
+     "version": "1.2.49"  // 修改为
+     "version": "1.2.50"  // +1
+   }
+   ```
+
+2. **提交到 GitHub**
+   ```bash
+   git add -A
+   git commit -m "feat: 功能描述 (v1.2.50)"
+   git push
+   ```
+
+### 提交信息格式
+
+```
+<type>: <description> (v<version>)
+
+<详细说明>
+```
+
+**Type 类型：**
+- `feat`: 新功能
+- `fix`: 修复 bug
+- `perf`: 性能优化
+- `refactor`: 代码重构
+- `docs`: 文档更新
+- `chore`: 构建/工具更新
+
+### 示例
+
+```bash
+git commit -m "feat: 添加 fastq 队列管理 (v1.2.50)
+
+- 使用 fastq 管理请求队列
+- 优化并发处理性能
+- 非阻塞 Socket 处理"
+```
+
+## 重要提醒
+
+⚠️ **每次 `git push` 前必须检查版本号是否已递增！**
+
+当前版本：查看 [package.json](mdc:package.json) 中的 `version` 字段
