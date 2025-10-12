@@ -41,6 +41,7 @@ export class CurlFetcher {
   private concurrentRequests = 0  // 当前并发请求数
   private maxConcurrent = 0       // 最大并发请求数（用于统计）
   private queue: queueAsPromised<CurlTask, FetchResult>
+  private useFallbackCurl = false  // 是否使用普通 curl 作为回退
 
   /**
    * @param curlPath curl-impersonate 可执行文件路径
@@ -90,19 +91,41 @@ export class CurlFetcher {
     try {
       // 1. 构建命令
       const t2 = Date.now()
-      const curlCmd = this.buildCurlCommand(options, ipv6)
+      const curlCmd = this.useFallbackCurl 
+        ? this.buildFallbackCurlCommand(options, ipv6)
+        : this.buildCurlCommand(options, ipv6)
       const buildTime = Date.now() - t2
-      console.log(`[Req#${requestId}]   ├─ 构建命令: ${buildTime}ms`)
+      console.log(`[Req#${requestId}]   ├─ 构建命令: ${buildTime}ms (${this.useFallbackCurl ? 'fallback curl' : 'curl-impersonate'})`)
 
       // 2. 执行 curl
       const t3 = Date.now()
       console.log(`[Req#${requestId}]   ├─ 开始执行 curl via ${ipv6?.substring(0, 30)}...`)
 
-      const { stdout } = await execAsync(curlCmd, {
-        encoding: 'buffer',
-        maxBuffer: 50 * 1024 * 1024,
-        timeout: options.timeout || 10000
-      })
+      let stdout: Buffer
+      try {
+        const result = await execAsync(curlCmd, {
+          encoding: 'buffer',
+          maxBuffer: 50 * 1024 * 1024,
+          timeout: options.timeout || 10000
+        })
+        stdout = result.stdout as Buffer
+      } catch (curlError) {
+        // 如果是 Killed 错误且还没使用回退，尝试普通 curl
+        const errorMsg = (curlError as Error).message
+        if (!this.useFallbackCurl && errorMsg.includes('Killed')) {
+          console.warn(`[Req#${requestId}]   ⚠️  curl-impersonate 被杀死，切换到普通 curl`)
+          this.useFallbackCurl = true
+          const fallbackCmd = this.buildFallbackCurlCommand(options, ipv6)
+          const fallbackResult = await execAsync(fallbackCmd, {
+            encoding: 'buffer',
+            maxBuffer: 50 * 1024 * 1024,
+            timeout: options.timeout || 10000
+          })
+          stdout = fallbackResult.stdout as Buffer
+        } else {
+          throw curlError
+        }
+      }
 
       const curlTime = Date.now() - t3
       console.log(`[Req#${requestId}]   ├─ curl 执行: ${curlTime}ms ⭐`)
@@ -144,7 +167,56 @@ export class CurlFetcher {
   }
 
   /**
-   * 构建 curl 命令
+   * 构建普通 curl 命令（回退方案）
+   */
+  private buildFallbackCurlCommand(options: FetchOptions, ipv6: string | null): string {
+    const parts = ['curl']
+
+    // IPv6 接口
+    if (ipv6) {
+      parts.push(`--interface "${ipv6}"`)
+    }
+    parts.push('-6')
+
+    // 基本参数
+    parts.push('--http2')
+    parts.push('--compressed')
+
+    // 方法
+    if (options.method && options.method !== 'GET') {
+      parts.push(`-X ${options.method}`)
+    }
+
+    // 基本 Headers
+    parts.push(`-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'`)
+    parts.push(`-H 'Accept: */*'`)
+    parts.push(`-H 'Accept-Encoding: gzip, deflate, br'`)
+    parts.push(`-H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8'`)
+
+    // 自定义 Headers
+    if (options.headers) {
+      for (const [key, value] of Object.entries(options.headers)) {
+        parts.push(`-H "${key}: ${value}"`)
+      }
+    }
+
+    // 超时
+    parts.push(`--max-time ${Math.floor((options.timeout || 10000) / 1000)}`)
+
+    // 包含响应头
+    parts.push('-i')
+
+    // 禁用进度条
+    parts.push('-s')
+
+    // URL
+    parts.push(`"${options.url}"`)
+
+    return parts.join(' ')
+  }
+
+  /**
+   * 构建 curl-impersonate 命令
    */
   private buildCurlCommand(options: FetchOptions, ipv6: string | null): string {
     const parts = [this.curlPath]
