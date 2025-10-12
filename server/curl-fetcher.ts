@@ -60,14 +60,14 @@ export class CurlFetcher {
     const requestId = ++this.requestCount
     const queuedAt = Date.now()
     const ipv6 = options.ipv6 || (this.ipv6Pool ? this.ipv6Pool.getNext() : null)
-    
+
     console.log(`[Req#${requestId}] 📥 接收请求: ${options.url.substring(0, 80)}`)
-    
+
     const result = await this.queue.push({ requestId, options, ipv6, queuedAt })
-    
+
     const totalTime = Date.now() - queuedAt
     console.log(`[Req#${requestId}] ✅ 总耗时: ${totalTime}ms\n`)
-    
+
     return result
   }
 
@@ -76,10 +76,10 @@ export class CurlFetcher {
    */
   private async worker(task: CurlTask): Promise<FetchResult> {
     const { requestId, options, ipv6, queuedAt } = task
-    
+
     const t1 = Date.now()
     const waitTime = t1 - queuedAt
-    
+
     this.concurrentRequests++
     if (this.concurrentRequests > this.maxConcurrent) {
       this.maxConcurrent = this.concurrentRequests
@@ -97,13 +97,13 @@ export class CurlFetcher {
       // 2. 执行 curl
       const t3 = Date.now()
       console.log(`[Req#${requestId}]   ├─ 开始执行 curl via ${ipv6?.substring(0, 30)}...`)
-      
+
       const { stdout } = await execAsync(curlCmd, {
         encoding: 'buffer',
         maxBuffer: 50 * 1024 * 1024,
         timeout: options.timeout || 10000
       })
-      
+
       const curlTime = Date.now() - t3
       console.log(`[Req#${requestId}]   ├─ curl 执行: ${curlTime}ms ⭐`)
 
@@ -124,7 +124,7 @@ export class CurlFetcher {
 
       this.concurrentRequests--
       return result
-      
+
     } catch (error) {
       const duration = Date.now() - queuedAt
       console.error(`[Req#${requestId}] ❌ 错误 (${duration}ms):`, (error as Error).message)

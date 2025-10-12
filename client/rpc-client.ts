@@ -157,7 +157,7 @@ export class RpcClient extends EventEmitter {
   }
 
   /**
-   * 发起数据请求
+   * 发起数据请求（添加性能日志）
    * @param uri URI 路径，如 "PlanetoidMetadata" 或 "BulkMetadata/pb=!1m2!1s04!2u2699"
    */
   public async fetchData(uri: string): Promise<DataResponse> {
@@ -165,27 +165,43 @@ export class RpcClient extends EventEmitter {
       throw new Error('未连接到服务器')
     }
     
+    const t0 = Date.now()
+    console.log(`[Client] 📤 发起请求: ${uri.substring(0, 80)}`)
+    
     const request: DataRequest = {
       clientID: this.clientID,
       uri
     }
     
     return new Promise((resolve, reject) => {
-      // 使用 URI 作为 key
       const key = uri
       
-      // 设置超时
       const timeout = setTimeout(() => {
-        console.warn(`[Client] 超时: ${key.substring(0, 60)}`)
+        console.warn(`[Client] ⏰ 超时: ${key.substring(0, 60)}`)
         this.pendingRequests.delete(key)
         reject(new Error('请求超时'))
-      }, 30000) // 30秒超时
+      }, 30000)
       
-      this.pendingRequests.set(key, { resolve, reject, timeout })
+      this.pendingRequests.set(key, { 
+        resolve: (response) => {
+          const totalTime = Date.now() - t0
+          console.log(`[Client] 📥 收到响应: ${totalTime}ms, 状态码: ${response.statusCode}, 数据: ${response.data.length} bytes`)
+          resolve(response)
+        }, 
+        reject, 
+        timeout 
+      })
       
       // 发送请求
+      const t1 = Date.now()
       const encoded = DataRequest.encode(request).finish()
+      const encodeTime = Date.now() - t1
+      
+      const t2 = Date.now()
       this.sendFrame(FrameType.DATA_REQUEST, Buffer.from(encoded))
+      const sendTime = Date.now() - t2
+      
+      console.log(`[Client]   ├─ 编码: ${encodeTime}ms, 发送: ${sendTime}ms`)
     })
   }
 
