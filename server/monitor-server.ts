@@ -203,7 +203,9 @@ export class MonitorServer {
         avgResponseTime: detailedStats.avgResponseTime,
         uptime: detailedStats.uptime,
         qps: parseFloat(detailedStats.requestsPerSecond)
-      }
+      },
+      system: stats.system,
+      health: stats.health
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
