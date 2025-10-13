@@ -4,7 +4,7 @@
 {DOMAIN} {
     # GitHub Webhook 端点（用于自动更新）
     handle /webhook {
-        reverse_proxy [::1]:9530
+        reverse_proxy 127.0.0.1:9530
     }
     
     # WebSocket 代理（/ws 路径）
@@ -12,11 +12,10 @@
         path /ws
     }
     handle @websocket {
-        reverse_proxy [::1]:9528
+        reverse_proxy 127.0.0.1:9528
     }
     
     # API反向代理（解决混合内容问题）
-    # 使用[::1]（IPv6 localhost）而不是127.0.0.1
     handle /api/* {
         # 添加CORS头（允许跨域访问）
         header Access-Control-Allow-Origin "*"
@@ -30,7 +29,7 @@
         respond @options 200
         
         # 反向代理到监控服务
-        reverse_proxy [::1]:9528
+        reverse_proxy 127.0.0.1:9528
     }
     
     # 静态管理面板

@@ -213,21 +213,30 @@ log ""
 log "[5/5] 更新 Caddy 配置..."
 
 if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
-    LOCAL_IP=$(curl -s -4 ifconfig.me 2>/dev/null)
-    CONFIG_FILE="$INSTALL_DIR/configs/vps-$LOCAL_IP.conf"
+    # 获取当前域名（从现有 Caddyfile 中提取）
+    CURRENT_DOMAIN=$(grep -oP '^[a-z0-9.-]+\.zeromaps\.(cn|com\.cn)' /etc/caddy/Caddyfile | head -1)
     
-    if [ -f "$CONFIG_FILE" ]; then
-        source $CONFIG_FILE
-        sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
+    if [ -n "$CURRENT_DOMAIN" ] && [ -f "$INSTALL_DIR/Caddyfile" ]; then
+        log "   检测到域名: $CURRENT_DOMAIN"
+        log "   使用新的 Caddyfile 模板..."
         
+        # 备份旧配置
+        cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.backup 2>/dev/null || true
+        
+        # 替换 {DOMAIN} 占位符
+        sed "s|{DOMAIN}|$CURRENT_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
+        
+        # 验证配置
         if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
+            log "   配置验证成功，重新加载..."
             systemctl reload caddy >/dev/null 2>&1 || systemctl restart caddy
-            log "✅ Caddy 配置已更新"
+            log "✅ Caddy 配置已更新（127.0.0.1 代理）"
         else
-            log "⚠️  Caddy 配置验证失败，跳过"
+            log "⚠️  Caddy 配置验证失败，恢复备份"
+            cp /etc/caddy/Caddyfile.backup /etc/caddy/Caddyfile 2>/dev/null || true
         fi
     else
-        log "⚠️  未找到配置文件，跳过 Caddy 更新"
+        log "⚠️  未找到域名或 Caddyfile 模板，跳过 Caddy 更新"
     fi
 else
     log "ℹ️  Caddy 未安装或未运行，跳过"

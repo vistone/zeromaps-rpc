@@ -365,7 +365,7 @@
         }
 
         const stats = node.stats;
-        
+
         // 兼容新旧 API 格式
         const clients = stats.totalClients || stats.clients || 0;
         const totalReqs = stats.curlStats?.totalRequests || stats.requests?.total || 0;
@@ -376,7 +376,7 @@
         const avgRT = ipv6Data.avgResponseTime || 0;
         const total = ipv6Data.totalAddresses || ipv6Data.total || 0;
         const balance = ipv6Data.balance || 0;
-        
+
         const successClass = successRate >= 99 ? 'good' : (successRate >= 95 ? 'warning' : 'bad');
 
         return '<div class="node-card online">' +
