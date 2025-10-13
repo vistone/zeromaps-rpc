@@ -400,6 +400,7 @@ else
 fi
 
 # 配置pm2（使用.cjs后缀，因为package.json是type:module）
+# 自动配置所有必要的环境变量，无需手动配置
 cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
 module.exports = {
   apps: [{
@@ -408,7 +409,11 @@ module.exports = {
     interpreter: 'tsx',
     env: {
       NODE_ENV: 'production',
-      IPV6_PREFIX: '$IPV6_PREFIX'
+      IPV6_PREFIX: '$IPV6_PREFIX',
+      // 可选：Webhook 密钥（留空则跳过签名验证）
+      // WEBHOOK_SECRET: 'your-secret-key',
+      // 可选：curl 并发数（默认自动计算）
+      // CURL_CONCURRENCY: '10'
     },
     max_memory_restart: '500M',
     error_file: './logs/error.log',
