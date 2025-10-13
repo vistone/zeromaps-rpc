@@ -127,25 +127,36 @@ log "✅ 依赖已安装"
 log ""
 log "[3/5] 编译代码..."
 
-# 检查 tsc 是否可用
-if ! npx tsc --version >/dev/null 2>&1; then
-    log "❌ TypeScript 编译器未安装"
-    log "   正在安装 TypeScript..."
-    npm install --save-dev typescript 2>&1 | tee -a $LOG_FILE
-fi
+# 删除旧的编译输出（确保编译真的成功）
+rm -rf dist/ 2>/dev/null || true
 
 # 执行编译
-if npm run build 2>&1 | tee -a $LOG_FILE; then
-    # 验证编译输出
-    if [ -f "dist/server/index.js" ]; then
-        log "✅ 编译成功"
-    else
-        log "❌ 编译失败：未生成 dist 文件"
-        exit 1
-    fi
+BUILD_OUTPUT=$(npm run build 2>&1)
+BUILD_EXIT=$?
+
+# 检查编译是否成功
+if [ $BUILD_EXIT -eq 0 ] && [ -d "dist" ] && [ -f "dist/server/index.js" ]; then
+    log "✅ 编译成功"
 else
     log "❌ 编译失败"
-    exit 1
+    echo "$BUILD_OUTPUT" | tee -a $LOG_FILE
+    
+    # 检查是否是 tsc 找不到
+    if echo "$BUILD_OUTPUT" | grep -q "tsc: not found"; then
+        log "   TypeScript 编译器未安装，重新安装依赖..."
+        npm install --include=dev 2>&1 | tee -a $LOG_FILE
+        
+        # 重试编译
+        log "   重试编译..."
+        if npm run build 2>&1 | tee -a $LOG_FILE && [ -f "dist/server/index.js" ]; then
+            log "✅ 重试编译成功"
+        else
+            log "❌ 重试编译仍然失败"
+            exit 1
+        fi
+    else
+        exit 1
+    fi
 fi
 
 # 6.4 重启服务
