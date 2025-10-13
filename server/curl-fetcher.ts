@@ -9,6 +9,7 @@ import { promisify } from 'util'
 import * as os from 'os'
 import * as fastq from 'fastq'
 import type { queueAsPromised } from 'fastq'
+import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 
 const execAsync = promisify(exec)
@@ -35,7 +36,7 @@ interface CurlTask {
   queuedAt: number
 }
 
-export class CurlFetcher {
+export class CurlFetcher extends EventEmitter {
   private curlPath: string
   private ipv6Pool: IPv6Pool | null = null
   private requestCount = 0
@@ -55,6 +56,7 @@ export class CurlFetcher {
     ipv6Pool?: IPv6Pool,
     concurrency?: number
   ) {
+    super()
     this.curlPath = curlPath
     this.ipv6Pool = ipv6Pool || null
     
@@ -181,12 +183,26 @@ export class CurlFetcher {
 
       // 4. 记录统计
       const totalDuration = Date.now() - queuedAt
+      const success = result.statusCode >= 200 && result.statusCode < 300
       if (ipv6 && this.ipv6Pool) {
-        const success = result.statusCode >= 200 && result.statusCode < 300
         this.ipv6Pool.recordRequest(ipv6, success, totalDuration)
       }
 
       console.log(`[Req#${requestId}]   └─ 分解: 等待${waitTime}ms + 构建${buildTime}ms + curl${curlTime}ms + 解析${parseTime}ms = ${totalDuration}ms`)
+
+      // 发出请求完成事件
+      this.emit('request', {
+        requestId,
+        url: options.url,
+        ipv6: ipv6?.substring(0, 30),
+        statusCode: result.statusCode,
+        success,
+        duration: totalDuration,
+        size: result.body.length,
+        waitTime,
+        curlTime,
+        timestamp: Date.now()
+      })
 
       this.concurrentRequests--
       return result
@@ -198,6 +214,21 @@ export class CurlFetcher {
       if (ipv6 && this.ipv6Pool) {
         this.ipv6Pool.recordRequest(ipv6, false, duration)
       }
+
+      // 发出请求错误事件
+      this.emit('request', {
+        requestId,
+        url: options.url,
+        ipv6: ipv6?.substring(0, 30),
+        statusCode: 0,
+        success: false,
+        duration,
+        size: 0,
+        waitTime,
+        curlTime: 0,
+        error: (error as Error).message,
+        timestamp: Date.now()
+      })
 
       this.concurrentRequests--
       return {

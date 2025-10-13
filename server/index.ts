@@ -73,7 +73,7 @@ async function main() {
       }
       console.log('='.repeat(50) + '\n')
     }, 60000) // 每分钟打印一次
-    
+
     // 格式化字节数
     function formatBytes(bytes: number): string {
       if (bytes === 0) return '0 B'

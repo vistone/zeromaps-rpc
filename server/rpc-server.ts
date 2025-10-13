@@ -33,6 +33,8 @@ export class RpcServer extends EventEmitter {
   private ipv6Pool: IPv6Pool
   private curlFetcher: CurlFetcher
   private systemMonitor: SystemMonitor
+  private requestLogs: any[] = []  // 最近的请求日志
+  private maxLogs = 100  // 保留最近100条
 
   constructor(
     private port: number,
@@ -46,6 +48,16 @@ export class RpcServer extends EventEmitter {
 
     // 初始化 curl 执行器
     this.curlFetcher = new CurlFetcher(curlPath, this.ipv6Pool)
+
+    // 监听请求事件
+    this.curlFetcher.on('request', (log) => {
+      this.requestLogs.unshift(log)  // 添加到开头
+      if (this.requestLogs.length > this.maxLogs) {
+        this.requestLogs.pop()  // 移除最旧的
+      }
+      // 转发事件
+      this.emit('requestLog', log)
+    })
 
     // 初始化系统监控
     this.systemMonitor = new SystemMonitor()
@@ -273,7 +285,7 @@ export class RpcServer extends EventEmitter {
    */
   public async getStats() {
     const systemStats = await this.systemMonitor.getStats()
-    
+
     return {
       totalClients: this.clients.size,
       curlStats: this.curlFetcher.getStats(),
@@ -294,6 +306,13 @@ export class RpcServer extends EventEmitter {
    */
   public getCurlFetcher() {
     return this.curlFetcher
+  }
+
+  /**
+   * 获取请求日志
+   */
+  public getRequestLogs(): any[] {
+    return this.requestLogs
   }
 }
 

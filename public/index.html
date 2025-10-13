@@ -173,6 +173,97 @@
     .node-link:hover {
       background: #5568d3;
     }
+
+    /* 请求日志区域 */
+    .logs-container {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      max-height: 500px;
+      overflow-y: auto;
+    }
+
+    .logs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #f0f0f0;
+    }
+
+    .logs-title {
+      font-size: 1.5em;
+      font-weight: bold;
+      color: #667eea;
+    }
+
+    .log-item {
+      padding: 10px;
+      margin-bottom: 8px;
+      border-radius: 6px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 0.9em;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-left: 3px solid #667eea;
+      background: #f8f9fa;
+    }
+
+    .log-item.success {
+      border-left-color: #10b981;
+      background: #ecfdf5;
+    }
+
+    .log-item.error {
+      border-left-color: #ef4444;
+      background: #fef2f2;
+    }
+
+    .log-info {
+      flex: 1;
+    }
+
+    .log-meta {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      font-size: 0.85em;
+    }
+
+    .log-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 0.85em;
+    }
+
+    .log-badge.success {
+      background: #10b981;
+      color: white;
+    }
+
+    .log-badge.error {
+      background: #ef4444;
+      color: white;
+    }
+
+    .log-duration {
+      color: #667eea;
+      font-weight: bold;
+    }
+
+    .log-size {
+      color: #666;
+    }
+
+    .log-time {
+      color: #999;
+      font-size: 0.85em;
+    }
   </style>
 </head>
 
@@ -187,6 +278,17 @@
 
     <div id="nodesGrid" class="grid">
       <div class="loading">正在加载节点数据...</div>
+    </div>
+
+    <!-- 请求日志区域 -->
+    <div class="logs-container">
+      <div class="logs-header">
+        <div class="logs-title">📋 实时请求日志</div>
+        <button onclick="clearLogs()" style="padding: 5px 15px; border-radius: 6px; border: none; background: #667eea; color: white; cursor: pointer;">清空</button>
+      </div>
+      <div id="logsContent">
+        <div style="text-align: center; color: #999; padding: 20px;">等待请求...</div>
+      </div>
     </div>
 
     <div class="refresh-info">
@@ -259,6 +361,9 @@
                 stats: msg.data
               });
               updateDisplay();
+            } else if (msg.type === 'requestLog') {
+              // 收到请求日志
+              addRequestLog(node.name, msg.data);
             }
           } catch (e) {
             console.error(`${node.name} 消息解析失败:`, e);
@@ -406,19 +511,19 @@
         const avgRT = Number(ipv6Data.avgResponseTime || 0) || 0;
         const total = Number(ipv6Data.totalAddresses || ipv6Data.total || 0) || 0;
         const balance = Number(ipv6Data.balance || 0) || 0;
-        
+
         // 系统资源
         const system = stats.system || {};
         const cpu = system.cpu || {};
         const mem = system.memory || {};
         const net = system.network || {};
-        
+
         const cpuUsage = Number(cpu.usage || 0) || 0;
         const memUsage = Number(mem.usage || 0) || 0;
         const cpuClass = cpuUsage >= 80 ? 'bad' : (cpuUsage >= 60 ? 'warning' : 'good');
         const memClass = memUsage >= 80 ? 'bad' : (memUsage >= 60 ? 'warning' : 'good');
         const successClass = successRate >= 99 ? 'good' : (successRate >= 95 ? 'warning' : 'bad');
-        
+
         function formatBytes(bytes) {
           if (bytes === 0) return '0 B';
           const k = 1024;
@@ -436,7 +541,7 @@
           node.domain + '<br>' +
           node.ip +
           '</div>' +
-          
+
           // 系统资源
           '<div style="margin: 15px 0; padding-top: 10px; border-top: 1px solid #eee;">' +
           '<div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">💻 系统资源</div>' +
@@ -459,7 +564,7 @@
           '</div>' +
           '</div>' +
           '</div>' +
-          
+
           // 请求统计
           '<div style="margin: 15px 0; padding-top: 10px; border-top: 1px solid #eee;">' +
           '<div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">📊 请求统计</div>' +
@@ -490,7 +595,7 @@
           '</div>' +
           '</div>' +
           '</div>' +
-          
+
           // IPv6 池
           '<div style="margin: 15px 0; padding-top: 10px; border-top: 1px solid #eee;">' +
           '<div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">🌐 IPv6 池</div>' +
@@ -505,10 +610,76 @@
           '</div>' +
           '</div>' +
           '</div>' +
-          
+
           '<a href="http://' + node.ip + ':9528" target="_blank" class="node-link">查看详情 →</a>' +
           '</div>';
       }).join('');
+    }
+
+    // 请求日志管理
+    const requestLogs = [];
+    const maxLogs = 50;  // 最多保留50条
+
+    function addRequestLog(nodeName, log) {
+      requestLogs.unshift({ nodeName, ...log });
+      if (requestLogs.length > maxLogs) {
+        requestLogs.pop();
+      }
+      renderLogs();
+    }
+
+    function renderLogs() {
+      const logsContent = document.getElementById('logsContent');
+      if (requestLogs.length === 0) {
+        logsContent.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无请求</div>';
+        return;
+      }
+
+      logsContent.innerHTML = requestLogs.map(log => {
+        const className = log.success ? 'success' : 'error';
+        const statusBadge = log.success ? 'success' : 'error';
+        const statusText = log.statusCode || '失败';
+        const time = new Date(log.timestamp).toLocaleTimeString('zh-CN');
+        
+        // 格式化URL（只显示关键部分）
+        let urlDisplay = log.url;
+        try {
+          const url = new URL(log.url);
+          urlDisplay = url.pathname.substring(0, 80);
+        } catch (e) {
+          // 如果URL解析失败，显示原始URL的前80个字符
+          urlDisplay = log.url.substring(0, 80);
+        }
+        
+        function formatBytes(bytes) {
+          if (bytes === 0) return '0 B';
+          const k = 1024;
+          const sizes = ['B', 'KB', 'MB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        return `<div class="log-item ${className}">
+          <div class="log-info">
+            <div><strong>${log.nodeName}</strong> | ${urlDisplay}</div>
+            <div style="font-size: 0.8em; color: #666; margin-top: 3px;">
+              IPv6: ${log.ipv6 || 'N/A'} | 等待${log.waitTime}ms + 执行${log.curlTime}ms
+              ${log.error ? ' | ' + log.error : ''}
+            </div>
+          </div>
+          <div class="log-meta">
+            <span class="log-badge ${statusBadge}">${statusText}</span>
+            <span class="log-duration">${log.duration}ms</span>
+            <span class="log-size">${formatBytes(log.size || 0)}</span>
+            <span class="log-time">${time}</span>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function clearLogs() {
+      requestLogs.length = 0;
+      renderLogs();
     }
 
     // 初始化：连接所有节点的 WebSocket

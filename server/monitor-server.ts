@@ -41,7 +41,7 @@ export class MonitorServer {
     })
 
     // 创建 WebSocket 服务器（在同一个 HTTP 服务器上）
-    this.wss = new WebSocketServer({ 
+    this.wss = new WebSocketServer({
       server: this.server,
       path: '/ws'
     })
@@ -63,6 +63,17 @@ export class MonitorServer {
         }
       }, 1000)
 
+      // 监听请求日志事件
+      const requestLogHandler = (log: any) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'requestLog',
+            data: log
+          }))
+        }
+      }
+      this.rpcServer.on('requestLog', requestLogHandler)
+
       // 处理消息
       ws.on('message', async (data: Buffer) => {
         try {
@@ -81,14 +92,14 @@ export class MonitorServer {
 
             try {
               const t1 = Date.now()
-              
+
               // 构建完整 URL
               const url = `https://kh.google.com/rt/earth/${msg.uri}`
-              
+
               // 通过 CurlFetcher 获取数据
               const curlFetcher = this.rpcServer.getCurlFetcher()
               const result = await curlFetcher.fetch({ url, timeout: 10000 })
-              
+
               const duration = Date.now() - t1
               console.log(`📥 [WS] 请求完成: ${duration}ms, 状态=${result.statusCode}, 大小=${result.body.length}`)
 
@@ -122,6 +133,7 @@ export class MonitorServer {
       ws.on('close', () => {
         console.log(`🔌 WebSocket 客户端断开: ${clientIP}`)
         clearInterval(statsInterval)  // 清理统计推送定时器
+        this.rpcServer.off('requestLog', requestLogHandler)  // 移除请求日志监听器
       })
 
       ws.on('error', (error) => {
