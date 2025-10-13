@@ -327,13 +327,16 @@
 
       results.forEach(node => {
         if (node.status === 'online' && node.stats) {
-          totalRequests += node.stats.requests?.total || node.stats.curlStats?.totalRequests || 0;
-          totalQPS += node.stats.ipv6?.qps || node.stats.ipv6Stats?.requestsPerSecond || 0;
+          const requests = node.stats.requests?.total || node.stats.curlStats?.totalRequests || 0;
+          const qps = node.stats.ipv6?.qps || node.stats.ipv6Stats?.requestsPerSecond || 0;
+          
+          totalRequests += Number(requests) || 0;
+          totalQPS += Number(qps) || 0;
         }
       });
 
       document.getElementById('totalRequests').textContent = formatNumber(totalRequests);
-      document.getElementById('totalQPS').textContent = totalQPS.toFixed(2);
+      document.getElementById('totalQPS').textContent = (totalQPS || 0).toFixed(2);
 
       // 渲染节点卡片
       renderNodes(results);
