@@ -30,6 +30,26 @@ if [ ! -d "$INSTALL_DIR" ]; then
     exit 1
 fi
 
+# 进入目录
+cd $INSTALL_DIR
+
+# 清理本地修改，确保后续自动更新能正常工作
+echo ""
+echo -e "${YELLOW}清理本地修改...${NC}"
+git diff > /tmp/zeromaps-install-backup-$(date +%s).patch 2>/dev/null || true
+git reset --hard origin/master >/dev/null 2>&1 || git reset --hard HEAD >/dev/null 2>&1
+git clean -fd >/dev/null 2>&1
+echo -e "${GREEN}✓ 本地修改已清理${NC}"
+
+# 拉取最新代码
+echo "拉取最新代码..."
+git pull origin master || {
+    echo -e "${RED}✗ git pull 失败${NC}"
+    exit 1
+}
+echo -e "${GREEN}✓ 代码已更新到最新版本${NC}"
+echo ""
+
 # 选择更新间隔
 echo "请选择自动更新间隔:"
 echo "  1) 每 5 分钟检查一次（开发环境）"
