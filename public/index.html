@@ -329,7 +329,7 @@
         if (node.status === 'online' && node.stats) {
           const requests = node.stats.requests?.total || node.stats.curlStats?.totalRequests || 0;
           const qps = node.stats.ipv6?.qps || node.stats.ipv6Stats?.requestsPerSecond || 0;
-          
+
           totalRequests += Number(requests) || 0;
           totalQPS += Number(qps) || 0;
         }
@@ -368,18 +368,18 @@
         }
 
         const stats = node.stats;
-
-        // 兼容新旧 API 格式
-        const clients = stats.totalClients || stats.clients || 0;
-        const totalReqs = stats.curlStats?.totalRequests || stats.requests?.total || 0;
-        const concurrent = stats.curlStats?.concurrentRequests || stats.requests?.concurrent || 0;
+        
+        // 兼容新旧 API 格式，确保所有数值类型正确
+        const clients = Number(stats.totalClients || stats.clients || 0) || 0;
+        const totalReqs = Number(stats.curlStats?.totalRequests || stats.requests?.total || 0) || 0;
+        const concurrent = Number(stats.curlStats?.concurrentRequests || stats.requests?.concurrent || 0) || 0;
         const ipv6Data = stats.ipv6Stats || stats.ipv6 || {};
-        const successRate = ipv6Data.successRate || 0;
-        const qps = ipv6Data.requestsPerSecond || ipv6Data.qps || 0;
-        const avgRT = ipv6Data.avgResponseTime || 0;
-        const total = ipv6Data.totalAddresses || ipv6Data.total || 0;
-        const balance = ipv6Data.balance || 0;
-
+        const successRate = Number(ipv6Data.successRate || 0) || 0;
+        const qps = Number(ipv6Data.requestsPerSecond || ipv6Data.qps || 0) || 0;
+        const avgRT = Number(ipv6Data.avgResponseTime || 0) || 0;
+        const total = Number(ipv6Data.totalAddresses || ipv6Data.total || 0) || 0;
+        const balance = Number(ipv6Data.balance || 0) || 0;
+        
         const successClass = successRate >= 99 ? 'good' : (successRate >= 95 ? 'warning' : 'bad');
 
         return '<div class="node-card online">' +
