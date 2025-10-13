@@ -404,6 +404,92 @@ export class MonitorServer {
       border-radius: 2px 2px 0 0;
       transition: height 0.3s;
     }
+    .logs-container {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .logs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #f0f0f0;
+    }
+    .logs-title {
+      font-size: 1.3em;
+      font-weight: bold;
+      color: #667eea;
+    }
+    .log-item {
+      padding: 10px;
+      margin-bottom: 8px;
+      border-radius: 6px;
+      font-family: 'Monaco', 'Courier New', monospace;
+      font-size: 0.85em;
+      border-left: 3px solid #667eea;
+      background: #f8f9fa;
+    }
+    .log-item.success {
+      border-left-color: #10b981;
+      background: #ecfdf5;
+    }
+    .log-item.error {
+      border-left-color: #ef4444;
+      background: #fef2f2;
+    }
+    .log-main {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 5px;
+    }
+    .log-url {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .log-metrics {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .log-badge {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 0.85em;
+    }
+    .log-badge.success {
+      background: #10b981;
+      color: white;
+    }
+    .log-badge.error {
+      background: #ef4444;
+      color: white;
+    }
+    .log-detail {
+      font-size: 0.8em;
+      color: #666;
+    }
+    .clear-btn {
+      padding: 5px 15px;
+      border-radius: 6px;
+      border: none;
+      background: #667eea;
+      color: white;
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    .clear-btn:hover {
+      background: #5568d3;
+    }
   </style>
 </head>
 <body>
@@ -457,6 +543,16 @@ export class MonitorServer {
         <div class="card-title">负载平衡度</div>
         <div class="card-value" id="balance">-</div>
         <div class="card-subtitle">差值越小越均衡</div>
+      </div>
+    </div>
+
+    <div class="logs-container">
+      <div class="logs-header">
+        <div class="logs-title">📋 实时请求日志</div>
+        <button class="clear-btn" onclick="clearLogs()">清空</button>
+      </div>
+      <div id="logsContent">
+        <div style="text-align: center; color: #999; padding: 20px;">等待请求...</div>
       </div>
     </div>
 
@@ -555,6 +651,102 @@ export class MonitorServer {
 
     // 每3秒自动刷新
     setInterval(fetchStats, 3000);
+
+    // WebSocket 连接，接收实时请求日志
+    const requestLogs = [];
+    const maxLogs = 50;
+
+    function connectWebSocket() {
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(\`\${protocol}//\${location.host}/ws\`);
+
+      ws.onopen = () => {
+        console.log('✓ WebSocket 已连接');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'requestLog') {
+            addRequestLog(msg.data);
+          }
+        } catch (e) {
+          console.error('解析消息失败:', e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket 错误:', error);
+      };
+
+      ws.onclose = () => {
+        console.log('✗ WebSocket 断开，5秒后重连...');
+        setTimeout(connectWebSocket, 5000);
+      };
+    }
+
+    function addRequestLog(log) {
+      requestLogs.unshift(log);
+      if (requestLogs.length > maxLogs) {
+        requestLogs.pop();
+      }
+      renderLogs();
+    }
+
+    function renderLogs() {
+      const logsContent = document.getElementById('logsContent');
+      if (requestLogs.length === 0) {
+        logsContent.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无请求</div>';
+        return;
+      }
+
+      function formatBytes(bytes) {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+      }
+
+      logsContent.innerHTML = requestLogs.map(log => {
+        const className = log.success ? 'success' : 'error';
+        const badgeClass = log.success ? 'success' : 'error';
+        const statusText = log.statusCode || 'ERR';
+        const time = new Date(log.timestamp).toLocaleTimeString('zh-CN', { hour12: false });
+        
+        let urlDisplay = log.url || '';
+        try {
+          const url = new URL(log.url);
+          urlDisplay = url.pathname.substring(0, 100);
+        } catch (e) {
+          urlDisplay = log.url.substring(0, 100);
+        }
+
+        return \`<div class="log-item \${className}">
+          <div class="log-main">
+            <div class="log-url" title="\${log.url}">\${urlDisplay}</div>
+            <div class="log-metrics">
+              <span class="log-badge \${badgeClass}">\${statusText}</span>
+              <span style="color: #667eea; font-weight: bold;">\${log.duration}ms</span>
+              <span style="color: #666;">\${formatBytes(log.size)}</span>
+              <span style="color: #999;">\${time}</span>
+            </div>
+          </div>
+          <div class="log-detail">
+            IPv6: \${log.ipv6 || 'N/A'} | 等待: \${log.waitTime}ms | 执行: \${log.curlTime}ms
+            \${log.error ? ' | 错误: ' + log.error : ''}
+          </div>
+        </div>\`;
+      }).join('');
+    }
+
+    function clearLogs() {
+      requestLogs.length = 0;
+      renderLogs();
+    }
+
+    // 连接 WebSocket
+    connectWebSocket();
   </script>
 </body>
 </html>`;
