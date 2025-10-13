@@ -55,6 +55,13 @@ ORIGINAL_VERSION=$(grep '"version"' package.json 2>/dev/null | head -1 | sed 's/
 log "📦 当前版本: v$ORIGINAL_VERSION"
 log "📝 当前 commit: ${ORIGINAL_COMMIT:0:8}"
 
+# ⚠️ 重要：先清理本地修改，确保 fetch 和 pull 能成功
+log "🧹 清理本地修改..."
+git diff > /tmp/zeromaps-pre-clean-$(date +%s).patch 2>/dev/null || true
+git reset --hard HEAD >/dev/null 2>&1
+git clean -fd >/dev/null 2>&1
+log "✅ 本地已清理"
+
 # Fetch 远程更新
 log "🔄 检查远程仓库..."
 git fetch origin master 2>&1 | tee -a $LOG_FILE || {
