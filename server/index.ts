@@ -5,10 +5,12 @@
 import { RpcServer } from './rpc-server.js'
 import { StatsExporter } from './stats-exporter.js'
 import { MonitorServer } from './monitor-server.js'
+import { WebhookServer } from './webhook-server.js'
 
 // 配置
 const PORT = 9527
 const MONITOR_PORT = 9528
+const WEBHOOK_PORT = 9530
 const CURL_PATH = '/usr/local/bin/curl-impersonate-chrome'
 
 // IPv6 前缀（必须通过环境变量设置）
@@ -34,6 +36,10 @@ async function main() {
     // 启动Web监控服务器（包含 HTTP API 和 WebSocket）
     const monitorServer = new MonitorServer(MONITOR_PORT, server)
     monitorServer.start()
+
+    // 启动 GitHub Webhook 服务器（用于自动更新）
+    const webhookServer = new WebhookServer(WEBHOOK_PORT)
+    webhookServer.start()
 
     // 定期打印统计信息
     setInterval(() => {
