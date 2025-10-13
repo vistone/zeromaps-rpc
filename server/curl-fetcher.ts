@@ -42,6 +42,7 @@ export class CurlFetcher {
   private maxConcurrent = 0       // 最大并发请求数（用于统计）
   private queue: queueAsPromised<CurlTask, FetchResult>
   private useFallbackCurl = false  // 是否使用普通 curl 作为回退
+  private cookieFiles = new Map<string, string>()  // 域名 -> Cookie 文件路径
 
   /**
    * @param curlPath curl-impersonate 可执行文件路径
@@ -216,10 +217,34 @@ export class CurlFetcher {
   }
 
   /**
+   * 获取域名对应的 Cookie 文件路径
+   */
+  private getCookieFile(url: string): string {
+    try {
+      const domain = new URL(url).hostname
+      if (!this.cookieFiles.has(domain)) {
+        const cookieFile = `/tmp/curl-cookies-${domain}.txt`
+        this.cookieFiles.set(domain, cookieFile)
+      }
+      return this.cookieFiles.get(domain)!
+    } catch {
+      return '/tmp/curl-cookies-default.txt'
+    }
+  }
+
+  /**
    * 构建 curl-impersonate 命令
    */
   private buildCurlCommand(options: FetchOptions, ipv6: string | null): string {
     const parts = [this.curlPath]
+
+    // Cookie 文件（用于会话复用）
+    const cookieFile = this.getCookieFile(options.url)
+    parts.push(`-b "${cookieFile}"`)  // 读取 Cookie
+    parts.push(`-c "${cookieFile}"`)  // 保存 Cookie
+
+    // 连接保持
+    parts.push('--keepalive-time 30')  // 30秒保持连接
 
     // Chrome 116 TLS 参数
     parts.push('--ciphers TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305,ECDHE-RSA-AES128-SHA,ECDHE-RSA-AES256-SHA,AES128-GCM-SHA256,AES256-GCM-SHA384,AES128-SHA,AES256-SHA')
