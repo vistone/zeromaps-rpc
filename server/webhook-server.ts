@@ -125,11 +125,11 @@ export class WebhookServer {
       // 获取推送信息
       const commits = data.commits || []
       const pusher = data.pusher?.name || 'unknown'
-      
+
       console.log(`📦 检测到 master 分支推送`)
       console.log(`   推送者: ${pusher}`)
       console.log(`   提交数: ${commits.length}`)
-      
+
       if (commits.length > 0) {
         const lastCommit = commits[commits.length - 1]
         console.log(`   最新提交: ${lastCommit.message}`)
@@ -168,17 +168,17 @@ export class WebhookServer {
     try {
       // 异步执行更新脚本（使用 spawn 实现实时日志）
       const { spawn } = await import('child_process')
-      
+
       const child = spawn('bash', [this.updateScript])
-      
+
       child.stdout.on('data', (data) => {
         console.log(`[更新] ${data.toString().trim()}`)
       })
-      
+
       child.stderr.on('data', (data) => {
         console.error(`[更新错误] ${data.toString().trim()}`)
       })
-      
+
       child.on('close', (code) => {
         if (code === 0) {
           console.log('✅ 自动更新完成')
@@ -187,7 +187,7 @@ export class WebhookServer {
         }
         this.updating = false
       })
-      
+
       child.on('error', (error) => {
         console.error('❌ 自动更新执行失败:', error)
         this.updating = false
