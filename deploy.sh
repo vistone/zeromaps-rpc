@@ -436,8 +436,8 @@ if systemctl list-units --full --all 2>/dev/null | grep -q "zeromaps-rpc.service
   echo -e "${GREEN}✓ 已停止冲突的systemd服务${NC}"
 fi
 
-# 检查并释放9527和9528端口
-for port in 9527 9528; do
+# 检查并释放9527、9528和9530端口
+for port in 9527 9528 9530; do
   if netstat -tlnp 2>/dev/null | grep -q ":$port.*LISTEN"; then
     echo "端口 $port 被占用，正在释放..."
     PIDS=$(netstat -tlnp 2>/dev/null | grep ":$port.*LISTEN" | awk '{print $7}' | cut -d'/' -f1 | grep -E "^[0-9]+$")
@@ -477,18 +477,32 @@ fi
 echo "验证服务启动状态..."
 sleep 3
 
-# 检查 9527 端口
+# 检查 9527 端口（RPC 服务）
 if netstat -tlnp 2>/dev/null | grep -q ":9527.*LISTEN"; then
   echo -e "${GREEN}✓ RPC 服务端口 9527 已启动${NC}"
 else
   echo -e "${RED}✗ RPC 服务端口 9527 未启动${NC}"
 fi
 
-# 检查 9528 端口
+# 检查 9528 端口（监控服务 + WebSocket）
 if netstat -tlnp 2>/dev/null | grep -q ":9528.*LISTEN"; then
   echo -e "${GREEN}✓ 监控服务端口 9528 已启动${NC}"
 else
   echo -e "${RED}✗ 监控服务端口 9528 未启动，查看日志: pm2 logs zeromaps-rpc --err${NC}"
+fi
+
+# 检查 9530 端口（Webhook 服务）
+if netstat -tlnp 2>/dev/null | grep -q ":9530.*LISTEN"; then
+  echo -e "${GREEN}✓ Webhook 服务端口 9530 已启动${NC}"
+  
+  # 测试 Webhook 健康检查
+  if curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:9530/health | grep -q "200"; then
+    echo -e "${GREEN}✓ Webhook 服务健康检查通过${NC}"
+  else
+    echo -e "${YELLOW}⚠ Webhook 服务可能未完全就绪${NC}"
+  fi
+else
+  echo -e "${RED}✗ Webhook 服务端口 9530 未启动${NC}"
 fi
 
 # ==========================================
@@ -697,8 +711,9 @@ echo "  IPv6前缀: $IPV6_PREFIX"
 echo "  IPv6池: ::1001 ~ ::1100 (100个地址)"
 echo ""
 echo "服务端口:"
-echo "  RPC服务: 0.0.0.0:$RPC_PORT"
-echo "  单节点监控: 0.0.0.0:$MONITOR_PORT"
+echo "  RPC服务: 0.0.0.0:$RPC_PORT (TCP)"
+echo "  监控服务: 0.0.0.0:$MONITOR_PORT (HTTP API + WebSocket)"
+echo "  Webhook服务: 0.0.0.0:9530 (GitHub 自动更新)"
 echo ""
 echo "访问地址:"
 if [ -n "$SERVER_DOMAIN" ]; then
@@ -718,6 +733,13 @@ if command -v caddy &>/dev/null; then
   echo "  systemctl status caddy  - 查看Caddy状态"
 fi
 echo ""
-echo "测试IPv6:"
+echo "测试命令:"
+echo "  # 测试 IPv6 地址池"
 echo "  curl -6 --interface ${IPV6_PREFIX}::1001 https://api64.ipify.org"
+echo ""
+echo "  # 测试 Webhook 健康检查"
+echo "  curl http://127.0.0.1:9530/health"
+if [ -n "$SERVER_DOMAIN" ] && command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
+  echo "  curl https://$SERVER_DOMAIN/webhook -X POST -H 'X-GitHub-Event: ping' -d '{}'"
+fi
 echo ""
