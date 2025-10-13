@@ -72,8 +72,28 @@ REMOTE_VERSION=$(git show origin/master:package.json 2>/dev/null | grep '"versio
 log "📡 远程版本: v$REMOTE_VERSION (commit: ${REMOTE_COMMIT:0:8})"
 
 # 5. 比较版本
+NEED_UPDATE=false
+
 if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
-    log "✅ 已是最新版本，无需更新"
+    log "✅ 代码已是最新版本"
+    
+    # 检查 auto-update.sh 是否刚被修改（可能是旧脚本更新的）
+    SCRIPT_MTIME=$(stat -c %Y "$INSTALL_DIR/auto-update.sh" 2>/dev/null || echo 0)
+    CURRENT_TIME=$(date +%s)
+    TIME_DIFF=$((CURRENT_TIME - SCRIPT_MTIME))
+    
+    if [ $TIME_DIFF -lt 60 ]; then
+        log "⚠️  脚本刚被更新（${TIME_DIFF}秒前），强制执行完整更新流程"
+        NEED_UPDATE=true
+    else
+        log "✅ 无需更新"
+        exit 0
+    fi
+else
+    NEED_UPDATE=true
+fi
+
+if [ "$NEED_UPDATE" = false ]; then
     exit 0
 fi
 
@@ -81,7 +101,7 @@ log ""
 log "🆕 发现新版本！"
 log "   v$CURRENT_VERSION (${CURRENT_COMMIT:0:8}) → v$REMOTE_VERSION (${REMOTE_COMMIT:0:8})"
 
-# 6. 执行更新
+# 执行更新
 log ""
 log "======================================"
 log "🚀 开始自动更新..."
