@@ -1,5 +1,10 @@
 # ZeroMaps RPC 统一管理面板 Caddy配置
-# Caddy会自动获取Let's Encrypt证书
+# 使用 ZeroSSL（避免 Let's Encrypt 速率限制）
+
+{
+    email vistone868@gmail.com
+    acme_ca https://acme.zerossl.com/v2/DV90
+}
 
 {DOMAIN} {
     # GitHub Webhook 端点（用于自动更新）
