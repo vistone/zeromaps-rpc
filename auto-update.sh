@@ -48,27 +48,51 @@ fi
 
 cd $INSTALL_DIR
 
-# 获取原始版本
+# 获取原始版本（在任何修改之前）
 ORIGINAL_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 ORIGINAL_VERSION=$(grep '"version"' package.json 2>/dev/null | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/' || echo "unknown")
 
 log "📦 当前版本: v$ORIGINAL_VERSION"
 log "📝 当前 commit: ${ORIGINAL_COMMIT:0:8}"
 
-# ⚠️ 重要：先清理本地修改，确保 fetch 和 pull 能成功
+# ⚠️ 核心步骤：立即清理并同步（这样旧脚本也能更新到新脚本）
 log "🧹 清理本地修改..."
-git diff > /tmp/zeromaps-pre-clean-$(date +%s).patch 2>/dev/null || true
+git diff > /tmp/zeromaps-backup-$(date +%s).patch 2>/dev/null || true
 git reset --hard HEAD >/dev/null 2>&1
 git clean -fd >/dev/null 2>&1
 log "✅ 本地已清理"
 
-# Fetch 远程更新
-log "🔄 检查远程仓库..."
+log "🔄 同步远程最新版本..."
 git fetch origin master 2>&1 | tee -a $LOG_FILE || {
     log "❌ git fetch 失败"
     exit 1
 }
 
+# 强制更新到远程版本（包括脚本自己）
+git reset --hard origin/master 2>&1 | tee -a $LOG_FILE
+git clean -fd >/dev/null 2>&1
+
+CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+log "✅ 已同步到: ${CURRENT_COMMIT:0:8}"
+
+# 如果代码被更新了（包括脚本自己），重新执行新版本脚本
+if [ "$CURRENT_COMMIT" != "$ORIGINAL_COMMIT" ]; then
+    log "🔄 检测到更新（${ORIGINAL_COMMIT:0:8} → ${CURRENT_COMMIT:0:8}），重新执行新版本脚本..."
+    log ""
+    
+    # 删除锁文件，允许新脚本创建
+    rm -f "$LOCK_FILE"
+    
+    # 重新执行新版本脚本
+    exec bash "$INSTALL_DIR/auto-update.sh"
+    exit 0
+fi
+
+# 没有更新，退出
+log "✅ 已是最新版本，无需更新"
+exit 0
+
+# 下面的代码只有在新版本的脚本中才会执行（因为旧版本会 exec 重新运行）
 REMOTE_COMMIT=$(git rev-parse origin/master 2>/dev/null || echo "unknown")
 log "📝 远程 commit: ${REMOTE_COMMIT:0:8}"
 
