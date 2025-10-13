@@ -496,6 +496,11 @@ export class MonitorServer {
   <div class="container">
     <h1>🚀 ZeroMaps RPC 监控面板</h1>
     
+    <!-- 健康状态横幅 -->
+    <div id="healthBanner" style="margin-bottom: 20px; padding: 15px; border-radius: 8px; text-align: center; font-size: 1.1em; font-weight: bold;">
+      检测中...
+    </div>
+    
     <div class="grid">
       <div class="card">
         <div class="card-title">在线客户端</div>
@@ -609,6 +614,28 @@ export class MonitorServer {
 
         const stats = await statsRes.json();
         const ipv6Data = await ipv6Res.json();
+
+        // 更新健康状态横幅
+        const healthBanner = document.getElementById('healthBanner');
+        if (stats.health) {
+          const status = stats.health.status;
+          const message = stats.health.message;
+          const lastCheck = new Date(stats.health.lastCheck).toLocaleTimeString('zh-CN');
+          
+          if (status === 200) {
+            healthBanner.style.background = '#10b981';
+            healthBanner.style.color = 'white';
+            healthBanner.innerHTML = '✅ 节点状态正常 - Google Earth 可访问 (上次检测: ' + lastCheck + ')';
+          } else if (status === 403) {
+            healthBanner.style.background = '#ef4444';
+            healthBanner.style.color = 'white';
+            healthBanner.innerHTML = '⚠️ 节点被拉黑 - Google 返回 403 禁止访问 (上次检测: ' + lastCheck + ')';
+          } else {
+            healthBanner.style.background = '#f59e0b';
+            healthBanner.style.color = 'white';
+            healthBanner.innerHTML = '⚠️ 健康检查异常: ' + message + ' (上次检测: ' + lastCheck + ')';
+          }
+        }
 
         // 更新基本统计
         document.getElementById('clients').textContent = stats.clients;

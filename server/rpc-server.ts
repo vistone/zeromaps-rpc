@@ -35,6 +35,7 @@ export class RpcServer extends EventEmitter {
   private systemMonitor: SystemMonitor
   private requestLogs: any[] = []  // 最近的请求日志
   private maxLogs = 100  // 保留最近100条
+  private healthStatus: { status: number; message: string; lastCheck: number } = { status: 0, message: '未检测', lastCheck: 0 }
 
   constructor(
     private port: number,
@@ -61,6 +62,9 @@ export class RpcServer extends EventEmitter {
 
     // 初始化系统监控
     this.systemMonitor = new SystemMonitor()
+
+    // 启动健康检查（每5分钟检查一次）
+    this.startHealthCheck()
   }
 
   /**
@@ -285,12 +289,13 @@ export class RpcServer extends EventEmitter {
    */
   public async getStats() {
     const systemStats = await this.systemMonitor.getStats()
-
+    
     return {
       totalClients: this.clients.size,
       curlStats: this.curlFetcher.getStats(),
       ipv6Stats: this.ipv6Pool.getDetailedStats(),
-      system: systemStats
+      system: systemStats,
+      health: this.healthStatus
     }
   }
 
@@ -313,6 +318,59 @@ export class RpcServer extends EventEmitter {
    */
   public getRequestLogs(): any[] {
     return this.requestLogs
+  }
+
+  /**
+   * 启动健康检查
+   */
+  private startHealthCheck(): void {
+    // 立即执行一次
+    this.checkHealth()
+
+    // 每5分钟检查一次
+    setInterval(() => {
+      this.checkHealth()
+    }, 5 * 60 * 1000)
+  }
+
+  /**
+   * 检查节点健康状态（测试是否能访问 Google Earth）
+   */
+  private async checkHealth(): Promise<void> {
+    try {
+      const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
+      const result = await this.curlFetcher.fetch({ url: testUrl, timeout: 10000 })
+
+      this.healthStatus = {
+        status: result.statusCode,
+        message: result.statusCode === 200 ? '正常' : 
+                 result.statusCode === 403 ? '节点被拉黑' :
+                 result.error || `HTTP ${result.statusCode}`,
+        lastCheck: Date.now()
+      }
+
+      if (result.statusCode === 403) {
+        console.warn('⚠️  健康检查: 节点被 Google 拉黑 (403)')
+      } else if (result.statusCode === 200) {
+        console.log('✓ 健康检查: 节点正常')
+      } else {
+        console.warn(`⚠️  健康检查: ${this.healthStatus.message}`)
+      }
+    } catch (error) {
+      this.healthStatus = {
+        status: 0,
+        message: (error as Error).message,
+        lastCheck: Date.now()
+      }
+      console.error('❌ 健康检查失败:', error)
+    }
+  }
+
+  /**
+   * 获取健康状态
+   */
+  public getHealthStatus() {
+    return this.healthStatus
   }
 }
 
