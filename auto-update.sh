@@ -116,18 +116,37 @@ log "✅ 代码已更新"
 # 6.2 安装依赖
 log ""
 log "[2/5] 安装依赖..."
-npm install 2>&1 | tee -a $LOG_FILE
+npm install --include=dev 2>&1 | tee -a $LOG_FILE
+if [ $? -ne 0 ]; then
+    log "❌ 依赖安装失败"
+    exit 1
+fi
 log "✅ 依赖已安装"
 
 # 6.3 编译代码
 log ""
 log "[3/5] 编译代码..."
-npm run build 2>&1 | tee -a $LOG_FILE
-if [ $? -ne 0 ]; then
+
+# 检查 tsc 是否可用
+if ! npx tsc --version >/dev/null 2>&1; then
+    log "❌ TypeScript 编译器未安装"
+    log "   正在安装 TypeScript..."
+    npm install --save-dev typescript 2>&1 | tee -a $LOG_FILE
+fi
+
+# 执行编译
+if npm run build 2>&1 | tee -a $LOG_FILE; then
+    # 验证编译输出
+    if [ -f "dist/server/index.js" ]; then
+        log "✅ 编译成功"
+    else
+        log "❌ 编译失败：未生成 dist 文件"
+        exit 1
+    fi
+else
     log "❌ 编译失败"
     exit 1
 fi
-log "✅ 编译成功"
 
 # 6.4 重启服务
 log ""
