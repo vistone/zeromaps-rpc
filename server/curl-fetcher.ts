@@ -6,6 +6,7 @@
 
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import * as os from 'os'
 import * as fastq from 'fastq'
 import type { queueAsPromised } from 'fastq'
 import { IPv6Pool } from './ipv6-pool.js'
@@ -47,12 +48,53 @@ export class CurlFetcher {
   /**
    * @param curlPath curl-impersonate 可执行文件路径
    * @param ipv6Pool 可选的 IPv6 地址池
+   * @param concurrency 并发数（默认通过环境变量或自动计算）
    */
-  constructor(curlPath: string = '/usr/local/bin/curl-impersonate-chrome', ipv6Pool?: IPv6Pool) {
+  constructor(
+    curlPath: string = '/usr/local/bin/curl-impersonate-chrome', 
+    ipv6Pool?: IPv6Pool,
+    concurrency?: number
+  ) {
     this.curlPath = curlPath
     this.ipv6Pool = ipv6Pool || null
-    // fastq 队列，管理请求分发（限制并发数为3，防止内存耗尽）
-    this.queue = fastq.promise(this.worker.bind(this), 3)
+    
+    // 并发数优先级：参数 > 环境变量 > 默认值
+    const finalConcurrency = concurrency 
+      || parseInt(process.env.CURL_CONCURRENCY || '0') 
+      || this.calculateOptimalConcurrency()
+    
+    console.log(`🚀 CurlFetcher 初始化: 并发数=${finalConcurrency}`)
+    
+    // fastq 队列，管理请求分发
+    this.queue = fastq.promise(this.worker.bind(this), finalConcurrency)
+  }
+  
+  /**
+   * 根据可用内存计算最佳并发数
+   */
+  private calculateOptimalConcurrency(): number {
+    try {
+      const totalMem = os.totalmem() / 1024 / 1024 // MB
+      const freeMem = os.freemem() / 1024 / 1024   // MB
+      
+      // 保守策略：
+      // - 每个 curl-impersonate 占用约 100MB
+      // - 保留 300MB 给系统和 Node.js
+      const reservedMem = 300
+      const perProcessMem = 100
+      const optimal = Math.floor((totalMem - reservedMem) / perProcessMem)
+      
+      // 限制范围：1-20
+      const concurrency = Math.max(1, Math.min(20, optimal))
+      
+      console.log(`📊 内存情况: 总内存=${totalMem.toFixed(0)}MB, 空闲=${freeMem.toFixed(0)}MB`)
+      console.log(`📊 计算得出最佳并发数: ${concurrency}`)
+      
+      return concurrency
+    } catch (error) {
+      console.warn('⚠️ 无法计算最佳并发数，使用默认值 5')
+      return 5  // 默认值
+    }
   }
 
   /**
