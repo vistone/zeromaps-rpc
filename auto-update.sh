@@ -111,7 +111,23 @@ log "======================================"
 
 # 1. 拉取代码
 log "[1/5] 拉取最新代码..."
+
+# 保存本地修改（如果有）
+log "   检查本地修改..."
+if ! git diff-index --quiet HEAD --; then
+    log "   发现本地修改，暂存..."
+    git stash push -m "Auto-update stash $(date '+%Y-%m-%d %H:%M:%S')" 2>&1 | tee -a $LOG_FILE
+fi
+
+# 拉取代码
 git pull origin master 2>&1 | tee -a $LOG_FILE
+PULL_EXIT=$?
+
+if [ $PULL_EXIT -ne 0 ]; then
+    log "❌ git pull 失败，退出码: $PULL_EXIT"
+    exit 1
+fi
+
 log "✅ 代码拉取完成"
 
 # 2. 更新依赖
