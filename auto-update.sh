@@ -75,7 +75,7 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
         log "✓ PM2 重启完成"
     fi
     
-    # 检查并重载 Caddy
+    # 检查并重启 Caddy
     if systemctl is-active caddy >/dev/null 2>&1; then
         if [ -f "/etc/caddy/Caddyfile" ]; then
             CURRENT_DOMAIN=$(grep -E '^[a-z0-9.-]+\.(zeromaps\.cn|zeromaps\.com\.cn)' /etc/caddy/Caddyfile | head -1 | awk '{print $1}')
@@ -86,8 +86,14 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
                 
                 if caddy validate --config /etc/caddy/Caddyfile.new 2>&1 | tee -a $LOG_FILE; then
                     mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
-                    systemctl reload caddy 2>&1 | tee -a $LOG_FILE
-                    log "✓ Caddy 已重载"
+                    # 重启 Caddy（而不是 reload）以确保配置完全生效
+                    systemctl restart caddy 2>&1 | tee -a $LOG_FILE
+                    sleep 2
+                    if systemctl is-active caddy >/dev/null 2>&1; then
+                        log "✓ Caddy 已重启"
+                    else
+                        log "❌ Caddy 重启失败"
+                    fi
                 else
                     log "⚠️  Caddy 配置验证失败，保持原配置"
                     rm -f /etc/caddy/Caddyfile.new
@@ -195,8 +201,14 @@ if systemctl is-active caddy >/dev/null 2>&1; then
                 # 验证新配置
                 if caddy validate --config /etc/caddy/Caddyfile.new 2>&1 | tee -a $LOG_FILE; then
                     mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
-                    systemctl reload caddy 2>&1 | tee -a $LOG_FILE
-                    log "✓ Caddy配置已更新"
+                    # 重启 Caddy（而不是 reload）以确保配置完全生效
+                    systemctl restart caddy 2>&1 | tee -a $LOG_FILE
+                    sleep 2
+                    if systemctl is-active caddy >/dev/null 2>&1; then
+                        log "✓ Caddy 已重启，配置已更新"
+                    else
+                        log "❌ Caddy 重启失败"
+                    fi
                 else
                     log "⚠️  Caddy配置验证失败，保持原配置"
                     rm -f /etc/caddy/Caddyfile.new

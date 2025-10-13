@@ -284,7 +284,8 @@
     <div class="logs-container">
       <div class="logs-header">
         <div class="logs-title">📋 实时请求日志</div>
-        <button onclick="clearLogs()" style="padding: 5px 15px; border-radius: 6px; border: none; background: #667eea; color: white; cursor: pointer;">清空</button>
+        <button onclick="clearLogs()"
+          style="padding: 5px 15px; border-radius: 6px; border: none; background: #667eea; color: white; cursor: pointer;">清空</button>
       </div>
       <div id="logsContent">
         <div style="text-align: center; color: #999; padding: 20px;">等待请求...</div>
@@ -640,7 +641,7 @@
         const statusBadge = log.success ? 'success' : 'error';
         const statusText = log.statusCode || '失败';
         const time = new Date(log.timestamp).toLocaleTimeString('zh-CN');
-        
+
         // 格式化URL（只显示关键部分）
         let urlDisplay = log.url;
         try {
@@ -650,7 +651,7 @@
           // 如果URL解析失败，显示原始URL的前80个字符
           urlDisplay = log.url.substring(0, 80);
         }
-        
+
         function formatBytes(bytes) {
           if (bytes === 0) return '0 B';
           const k = 1024;
