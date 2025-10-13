@@ -72,7 +72,28 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
         log "重启所有 PM2 进程..."
         pm2 restart all 2>&1 | tee -a $LOG_FILE
         pm2 save >/dev/null 2>&1
-        log "✓ 服务重启完成"
+        log "✓ PM2 重启完成"
+    fi
+    
+    # 检查并重载 Caddy
+    if systemctl is-active caddy >/dev/null 2>&1; then
+        if [ -f "/etc/caddy/Caddyfile" ]; then
+            CURRENT_DOMAIN=$(grep -E '^[a-z0-9.-]+\.(zeromaps\.cn|zeromaps\.com\.cn)' /etc/caddy/Caddyfile | head -1 | awk '{print $1}')
+            if [ -n "$CURRENT_DOMAIN" ]; then
+                log "当前域名: $CURRENT_DOMAIN"
+                log "更新 Caddy 配置..."
+                sed "s|{DOMAIN}|$CURRENT_DOMAIN|g" Caddyfile > /etc/caddy/Caddyfile.new
+                
+                if caddy validate --config /etc/caddy/Caddyfile.new 2>&1 | tee -a $LOG_FILE; then
+                    mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
+                    systemctl reload caddy 2>&1 | tee -a $LOG_FILE
+                    log "✓ Caddy 已重载"
+                else
+                    log "⚠️  Caddy 配置验证失败，保持原配置"
+                    rm -f /etc/caddy/Caddyfile.new
+                fi
+            fi
+        fi
     fi
     
     exit 0
