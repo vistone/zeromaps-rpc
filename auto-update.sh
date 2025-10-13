@@ -109,6 +109,33 @@ log "======================================"
 log "🚀 开始自动更新..."
 log "======================================"
 
+# 0. 先更新脚本自己（解决"鸡生蛋"问题）
+log "[0/5] 更新脚本自身..."
+log "   保存本地修改..."
+git diff > /tmp/zeromaps-local-changes-$(date +%s).patch 2>/dev/null || true
+log "   强制重置到远程版本..."
+git reset --hard origin/master 2>&1 | tee -a $LOG_FILE
+git clean -fd 2>&1 | tee -a $LOG_FILE
+
+SCRIPT_UPDATED_COMMIT=$(git rev-parse HEAD 2>/dev/null)
+log "   脚本已更新到: ${SCRIPT_UPDATED_COMMIT:0:8}"
+
+# 如果脚本被更新了，重新执行新版本脚本
+if [ "$SCRIPT_UPDATED_COMMIT" != "$LOCAL_COMMIT" ]; then
+    log "🔄 脚本已更新，重新执行新版本..."
+    log ""
+    
+    # 删除锁文件（允许新脚本创建）
+    rm -f "$LOCK_FILE"
+    
+    # 重新执行新版本的脚本
+    exec bash "$INSTALL_DIR/auto-update.sh"
+    exit 0
+fi
+
+log "✅ 脚本已是最新版本"
+log ""
+
 # 1. 拉取代码（强制同步，丢弃本地所有修改）
 log "[1/5] 拉取最新代码..."
 
