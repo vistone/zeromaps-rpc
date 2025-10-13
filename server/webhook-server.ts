@@ -163,64 +163,32 @@ export class WebhookServer {
 
     this.updating = true
     console.log('🚀 触发自动更新...')
+    console.log(`   执行: ${this.updateScript}`)
 
     try {
       const { spawn } = await import('child_process')
 
-      // 第一步：先 git pull 更新代码（包括脚本本身）
-      console.log('📥 [1/2] 拉取最新代码...')
-      const gitPull = spawn('git', ['pull', 'origin', 'master'], {
-        cwd: '/opt/zeromaps-rpc'
+      const child = spawn('bash', [this.updateScript])
+
+      child.stdout.on('data', (data) => {
+        console.log(`[更新] ${data.toString().trim()}`)
       })
 
-      gitPull.stdout.on('data', (data) => {
-        console.log(`[git] ${data.toString().trim()}`)
+      child.stderr.on('data', (data) => {
+        console.error(`[更新错误] ${data.toString().trim()}`)
       })
 
-      gitPull.stderr.on('data', (data) => {
-        console.log(`[git] ${data.toString().trim()}`)
-      })
-
-      gitPull.on('close', (code) => {
-        if (code !== 0) {
-          console.error(`❌ git pull 失败，退出码: ${code}`)
-          this.updating = false
-          return
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log('✅ 自动更新完成')
+        } else {
+          console.error(`❌ 自动更新失败，退出码: ${code}`)
         }
-
-        console.log('✅ 代码已更新')
-
-        // 第二步：执行更新后的脚本
-        console.log('🔧 [2/2] 执行更新脚本...')
-        console.log(`   执行: ${this.updateScript}`)
-
-        const child = spawn('bash', [this.updateScript])
-
-        child.stdout.on('data', (data) => {
-          console.log(`[更新] ${data.toString().trim()}`)
-        })
-
-        child.stderr.on('data', (data) => {
-          console.error(`[更新错误] ${data.toString().trim()}`)
-        })
-
-        child.on('close', (code) => {
-          if (code === 0) {
-            console.log('✅ 自动更新完成')
-          } else {
-            console.error(`❌ 自动更新失败，退出码: ${code}`)
-          }
-          this.updating = false
-        })
-
-        child.on('error', (error) => {
-          console.error('❌ 自动更新执行失败:', error)
-          this.updating = false
-        })
+        this.updating = false
       })
 
-      gitPull.on('error', (error) => {
-        console.error('❌ git pull 执行失败:', error)
+      child.on('error', (error) => {
+        console.error('❌ 自动更新执行失败:', error)
         this.updating = false
       })
 

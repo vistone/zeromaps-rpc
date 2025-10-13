@@ -65,7 +65,16 @@ log "远程: ${REMOTE_COMMIT:0:8}"
 
 # 比较
 if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
-    log "✅ 已是最新版本"
+    log "✅ 已是最新版本，但仍然重启服务以确保代码生效"
+    
+    # 即使是最新版本，也重启PM2（因为可能代码已被外部更新）
+    if pm2 list | grep -q "online\|stopped"; then
+        log "重启所有 PM2 进程..."
+        pm2 restart all 2>&1 | tee -a $LOG_FILE
+        pm2 save >/dev/null 2>&1
+        log "✓ 服务重启完成"
+    fi
+    
     exit 0
 fi
 
