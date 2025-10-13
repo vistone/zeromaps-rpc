@@ -7,6 +7,19 @@ import { StatsExporter } from './stats-exporter.js'
 import { MonitorServer } from './monitor-server.js'
 import { WebhookServer } from './webhook-server.js'
 
+// 全局错误处理，防止未捕获的异常导致进程崩溃
+process.on('uncaughtException', (error) => {
+  console.error('❌ 未捕获的异常:', error)
+  console.error('堆栈:', error.stack)
+  // 不退出进程，继续运行
+})
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ 未处理的 Promise 拒绝:', reason)
+  console.error('Promise:', promise)
+  // 不退出进程，继续运行
+})
+
 // 配置
 const PORT = 9527
 const MONITOR_PORT = 9528

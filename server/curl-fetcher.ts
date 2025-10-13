@@ -125,6 +125,8 @@ export class CurlFetcher extends EventEmitter {
 
     const t1 = Date.now()
     const waitTime = t1 - queuedAt
+    let buildTime = 0
+    let curlTime = 0
 
     this.concurrentRequests++
     if (this.concurrentRequests > this.maxConcurrent) {
@@ -139,7 +141,7 @@ export class CurlFetcher extends EventEmitter {
       const curlCmd = this.useFallbackCurl 
         ? this.buildFallbackCurlCommand(options, ipv6)
         : this.buildCurlCommand(options, ipv6)
-      const buildTime = Date.now() - t2
+      buildTime = Date.now() - t2
       console.log(`[Req#${requestId}]   ├─ 构建命令: ${buildTime}ms (${this.useFallbackCurl ? 'fallback curl' : 'curl-impersonate'})`)
 
       // 2. 执行 curl
@@ -172,7 +174,7 @@ export class CurlFetcher extends EventEmitter {
         }
       }
 
-      const curlTime = Date.now() - t3
+      curlTime = Date.now() - t3
       console.log(`[Req#${requestId}]   ├─ curl 执行: ${curlTime}ms ⭐`)
 
       // 3. 解析响应
@@ -190,19 +192,23 @@ export class CurlFetcher extends EventEmitter {
 
       console.log(`[Req#${requestId}]   └─ 分解: 等待${waitTime}ms + 构建${buildTime}ms + curl${curlTime}ms + 解析${parseTime}ms = ${totalDuration}ms`)
 
-      // 发出请求完成事件
-      this.emit('request', {
-        requestId,
-        url: options.url,
-        ipv6: ipv6?.substring(0, 30),
-        statusCode: result.statusCode,
-        success,
-        duration: totalDuration,
-        size: result.body.length,
-        waitTime,
-        curlTime,
-        timestamp: Date.now()
-      })
+      // 发出请求完成事件（捕获事件监听器中的错误）
+      try {
+        this.emit('request', {
+          requestId,
+          url: options.url,
+          ipv6: ipv6?.substring(0, 30),
+          statusCode: result.statusCode,
+          success,
+          duration: totalDuration,
+          size: result.body.length,
+          waitTime,
+          curlTime,
+          timestamp: Date.now()
+        })
+      } catch (emitError) {
+        console.error(`[Req#${requestId}] ⚠️  事件发送失败:`, emitError)
+      }
 
       this.concurrentRequests--
       return result
@@ -215,20 +221,24 @@ export class CurlFetcher extends EventEmitter {
         this.ipv6Pool.recordRequest(ipv6, false, duration)
       }
 
-      // 发出请求错误事件
-      this.emit('request', {
-        requestId,
-        url: options.url,
-        ipv6: ipv6?.substring(0, 30),
-        statusCode: 0,
-        success: false,
-        duration,
-        size: 0,
-        waitTime,
-        curlTime: 0,
-        error: (error as Error).message,
-        timestamp: Date.now()
-      })
+      // 发出请求错误事件（捕获事件监听器中的错误）
+      try {
+        this.emit('request', {
+          requestId,
+          url: options.url,
+          ipv6: ipv6?.substring(0, 30),
+          statusCode: 0,
+          success: false,
+          duration,
+          size: 0,
+          waitTime,
+          curlTime,
+          error: (error as Error).message,
+          timestamp: Date.now()
+        })
+      } catch (emitError) {
+        console.error(`[Req#${requestId}] ⚠️  事件发送失败:`, emitError)
+      }
 
       this.concurrentRequests--
       return {
