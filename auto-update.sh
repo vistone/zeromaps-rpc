@@ -112,23 +112,50 @@ log "======================================"
 # 1. 拉取代码
 log "[1/5] 拉取最新代码..."
 
-# 保存本地修改（如果有）
+# 检查本地修改
 log "   检查本地修改..."
-if ! git diff-index --quiet HEAD --; then
-    log "   发现本地修改，暂存..."
-    git stash push -m "Auto-update stash $(date '+%Y-%m-%d %H:%M:%S')" 2>&1 | tee -a $LOG_FILE
+if git diff --quiet && git diff --cached --quiet; then
+    log "   无本地修改"
+else
+    log "   发现本地修改，强制重置..."
+    
+    # 记录被丢弃的修改（用于调试）
+    git diff > /tmp/zeromaps-discarded-changes-$(date +%s).patch 2>/dev/null || true
+    
+    # 强制重置到远程版本
+    git reset --hard origin/master 2>&1 | tee -a $LOG_FILE
+    git clean -fd 2>&1 | tee -a $LOG_FILE
+    
+    log "   ✓ 已重置到远程版本"
 fi
 
 # 拉取代码
+log "   执行 git pull..."
 git pull origin master 2>&1 | tee -a $LOG_FILE
 PULL_EXIT=$?
 
 if [ $PULL_EXIT -ne 0 ]; then
     log "❌ git pull 失败，退出码: $PULL_EXIT"
-    exit 1
+    log "   尝试强制重置..."
+    git fetch origin master 2>&1 | tee -a $LOG_FILE
+    git reset --hard origin/master 2>&1 | tee -a $LOG_FILE
+    
+    if [ $? -ne 0 ]; then
+        log "❌ 强制重置也失败"
+        exit 1
+    fi
+    log "   ✓ 强制重置成功"
 fi
 
-log "✅ 代码拉取完成"
+# 验证代码已更新
+UPDATED_COMMIT=$(git rev-parse HEAD 2>/dev/null)
+if [ "$UPDATED_COMMIT" != "$REMOTE_COMMIT" ]; then
+    log "⚠️  警告: 本地 commit ($UPDATED_COMMIT) 与远程 ($REMOTE_COMMIT) 不一致"
+    log "   尝试再次同步..."
+    git reset --hard origin/master 2>&1 | tee -a $LOG_FILE
+fi
+
+log "✅ 代码拉取完成 (commit: ${UPDATED_COMMIT:0:8})"
 
 # 2. 更新依赖
 log ""
