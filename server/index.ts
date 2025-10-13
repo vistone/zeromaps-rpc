@@ -9,8 +9,16 @@ import { MonitorServer } from './monitor-server.js'
 // 配置
 const PORT = 9527
 const MONITOR_PORT = 9528
-const IPV6_PREFIX = process.env.IPV6_PREFIX || '2607:8700:5500:2043'
 const CURL_PATH = '/usr/local/bin/curl-impersonate-chrome'
+
+// IPv6 前缀（必须通过环境变量设置）
+if (!process.env.IPV6_PREFIX) {
+  console.error('❌ 错误: 未设置 IPV6_PREFIX 环境变量')
+  console.error('   请在 ecosystem.config.cjs 中配置正确的 IPv6 前缀')
+  console.error('   或通过环境变量设置: export IPV6_PREFIX="2607:8700:5500:xxxx"')
+  process.exit(1)
+}
+const IPV6_PREFIX: string = process.env.IPV6_PREFIX
 
 // 创建并启动服务器
 async function main() {
@@ -23,7 +31,7 @@ async function main() {
   try {
     await server.start()
 
-    // 启动Web监控服务器
+    // 启动Web监控服务器（包含 HTTP API 和 WebSocket）
     const monitorServer = new MonitorServer(MONITOR_PORT, server)
     monitorServer.start()
 

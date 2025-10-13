@@ -1,13 +1,28 @@
 /**
  * Web监控服务器
- * 提供HTTP接口和Web界面查看服务器运行状态
+ * 提供HTTP接口、WebSocket接口和Web界面查看服务器运行状态
  */
 
 import * as http from 'http'
+import WebSocket, { WebSocketServer } from 'ws'
 import { RpcServer } from './rpc-server.js'
+
+interface WsMessage {
+  type: 'fetch' | 'ping'
+  id?: string
+  uri?: string
+}
+
+interface WsResponse {
+  type: 'response' | 'error' | 'pong' | 'stats'
+  id?: string
+  data?: any
+  error?: string
+}
 
 export class MonitorServer {
   private server: http.Server | null = null
+  private wss: WebSocketServer | null = null
   private rpcServer: RpcServer
 
   constructor(
@@ -18,15 +33,93 @@ export class MonitorServer {
   }
 
   /**
-   * 启动监控服务器
+   * 启动监控服务器（HTTP + WebSocket）
    */
   public start(): void {
     this.server = http.createServer((req, res) => {
       this.handleRequest(req, res)
     })
 
+    // 创建 WebSocket 服务器（在同一个 HTTP 服务器上）
+    this.wss = new WebSocketServer({ 
+      server: this.server,
+      path: '/ws'
+    })
+
+    // 处理 WebSocket 连接
+    this.wss.on('connection', (ws: WebSocket, req) => {
+      const clientIP = req.socket.remoteAddress
+      console.log(`🔗 WebSocket 客户端连接: ${clientIP}`)
+
+      // 处理消息
+      ws.on('message', async (data: Buffer) => {
+        try {
+          const msg: WsMessage = JSON.parse(data.toString())
+
+          // Ping-Pong 心跳
+          if (msg.type === 'ping') {
+            const response: WsResponse = { type: 'pong' }
+            ws.send(JSON.stringify(response))
+            return
+          }
+
+          // 数据请求
+          if (msg.type === 'fetch' && msg.uri && msg.id) {
+            console.log(`📤 [WS] 收到请求: ${msg.uri.substring(0, 80)} (id=${msg.id})`)
+
+            try {
+              const t1 = Date.now()
+              
+              // 构建完整 URL
+              const url = `https://kh.google.com/rt/earth/${msg.uri}`
+              
+              // 通过 CurlFetcher 获取数据
+              const curlFetcher = this.rpcServer.getCurlFetcher()
+              const result = await curlFetcher.fetch({ url, timeout: 10000 })
+              
+              const duration = Date.now() - t1
+              console.log(`📥 [WS] 请求完成: ${duration}ms, 状态=${result.statusCode}, 大小=${result.body.length}`)
+
+              const response: WsResponse = {
+                type: 'response',
+                id: msg.id,
+                data: {
+                  statusCode: result.statusCode,
+                  data: Array.from(result.body),  // curlFetcher 返回 body 字段
+                  headers: result.headers
+                }
+              }
+
+              ws.send(JSON.stringify(response))
+            } catch (error) {
+              console.error(`❌ [WS] 请求失败:`, error)
+
+              const response: WsResponse = {
+                type: 'error',
+                id: msg.id,
+                error: (error as Error).message
+              }
+              ws.send(JSON.stringify(response))
+            }
+          }
+        } catch (error) {
+          console.error('❌ 处理 WebSocket 消息失败:', error)
+        }
+      })
+
+      ws.on('close', () => {
+        console.log(`🔌 WebSocket 客户端断开: ${clientIP}`)
+      })
+
+      ws.on('error', (error) => {
+        console.error('❌ WebSocket 错误:', error)
+      })
+    })
+
     this.server.listen(this.port, () => {
       console.log(`📊 监控服务器启动: http://0.0.0.0:${this.port}`)
+      console.log(`   HTTP API: http://0.0.0.0:${this.port}/api/*`)
+      console.log(`   WebSocket: ws://0.0.0.0:${this.port}/ws`)
     })
   }
 
