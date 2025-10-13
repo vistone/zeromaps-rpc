@@ -63,17 +63,42 @@ git clean -fd >/dev/null 2>&1
 log "✅ 本地已清理"
 
 log "🔄 同步远程最新版本..."
-git fetch origin master 2>&1 | tee -a $LOG_FILE || {
-    log "❌ git fetch 失败"
-    exit 1
-}
 
-# 强制更新到远程版本（包括脚本自己）
+# 使用 timeout 命令限制 git fetch 时间（最多30秒）
+if timeout 30 git fetch origin master 2>&1 | tee -a $LOG_FILE; then
+    log "✅ git fetch 成功"
+else
+    FETCH_EXIT=$?
+    if [ $FETCH_EXIT -eq 124 ]; then
+        log "❌ git fetch 超时（30秒）"
+    else
+        log "❌ git fetch 失败，退出码: $FETCH_EXIT"
+    fi
+    
+    # 尝试使用备用方式
+    log "   尝试使用 --depth=1（浅克隆）..."
+    if timeout 30 git fetch origin master --depth=1 2>&1 | tee -a $LOG_FILE; then
+        log "✅ 浅克隆 fetch 成功"
+    else
+        log "❌ 所有 fetch 方式都失败，退出"
+        exit 1
+    fi
+fi
+
+# 获取远程 master 分支的最新版本信息
+REMOTE_COMMIT=$(git rev-parse origin/master 2>/dev/null)
+REMOTE_VERSION=$(git show origin/master:package.json 2>/dev/null | grep '"version"' | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/' || echo "unknown")
+log "   远程最新: ${REMOTE_COMMIT:0:8} (v$REMOTE_VERSION)"
+
+# 强制更新到 origin/master（master 分支的最新 commit）
+log "   执行: git reset --hard origin/master"
 git reset --hard origin/master 2>&1 | tee -a $LOG_FILE
 git clean -fd >/dev/null 2>&1
 
 CURRENT_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-log "✅ 已同步到: ${CURRENT_COMMIT:0:8}"
+CURRENT_VERSION=$(grep '"version"' package.json 2>/dev/null | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/' || echo "unknown")
+
+log "✅ 已更新到: ${CURRENT_COMMIT:0:8} (v$CURRENT_VERSION)"
 
 # 如果代码被更新了（包括脚本自己），重新执行新版本脚本
 if [ "$CURRENT_COMMIT" != "$ORIGINAL_COMMIT" ]; then
