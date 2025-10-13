@@ -43,7 +43,7 @@ export class CurlFetcher extends EventEmitter {
   private concurrentRequests = 0  // 当前并发请求数
   private maxConcurrent = 0       // 最大并发请求数（用于统计）
   private queue: queueAsPromised<CurlTask, FetchResult>
-  private useFallbackCurl = false  // 是否使用普通 curl 作为回退
+  private useFallbackCurl = true  // 临时使用普通 curl 测试
   private cookieFiles = new Map<string, string>()  // 域名 -> Cookie 文件路径
 
   /**
