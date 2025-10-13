@@ -52,9 +52,9 @@ export class MonitorServer {
       console.log(`🔗 WebSocket 客户端连接: ${clientIP}`)
 
       // 定时推送统计数据（每秒一次）
-      const statsInterval = setInterval(() => {
+      const statsInterval = setInterval(async () => {
         if (ws.readyState === WebSocket.OPEN) {
-          const stats = this.rpcServer.getStats()
+          const stats = await this.rpcServer.getStats()
           const statsResponse: WsResponse = {
             type: 'stats',
             data: stats
@@ -145,7 +145,7 @@ export class MonitorServer {
     if (url === '/' || url === '/index.html') {
       this.serveHTML(res)
     } else if (url === '/api/stats') {
-      this.serveStats(res)
+      await this.serveStats(res)
     } else if (url === '/api/ipv6') {
       this.serveIPv6Stats(res)
     } else if (url.startsWith('/api/fetch')) {
@@ -167,8 +167,8 @@ export class MonitorServer {
   /**
    * 返回统计数据JSON
    */
-  private serveStats(res: http.ServerResponse): void {
-    const stats = this.rpcServer.getStats()
+  private async serveStats(res: http.ServerResponse): Promise<void> {
+    const stats = await this.rpcServer.getStats()
     const ipv6Pool = this.rpcServer.getIPv6Pool()
     const detailedStats = ipv6Pool.getDetailedStats()
 

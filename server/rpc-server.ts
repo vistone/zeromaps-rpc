@@ -7,6 +7,7 @@ import * as net from 'net'
 import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 import { CurlFetcher } from './curl-fetcher.js'
+import { SystemMonitor } from './system-monitor.js'
 import {
   FrameType,
   DataType,
@@ -31,6 +32,7 @@ export class RpcServer extends EventEmitter {
   private nextClientID = 1
   private ipv6Pool: IPv6Pool
   private curlFetcher: CurlFetcher
+  private systemMonitor: SystemMonitor
 
   constructor(
     private port: number,
@@ -44,6 +46,9 @@ export class RpcServer extends EventEmitter {
 
     // 初始化 curl 执行器
     this.curlFetcher = new CurlFetcher(curlPath, this.ipv6Pool)
+
+    // 初始化系统监控
+    this.systemMonitor = new SystemMonitor()
   }
 
   /**
@@ -266,11 +271,14 @@ export class RpcServer extends EventEmitter {
   /**
    * 获取服务器统计
    */
-  public getStats() {
+  public async getStats() {
+    const systemStats = await this.systemMonitor.getStats()
+    
     return {
       totalClients: this.clients.size,
       curlStats: this.curlFetcher.getStats(),
-      ipv6Stats: this.ipv6Pool.getDetailedStats()
+      ipv6Stats: this.ipv6Pool.getDetailedStats(),
+      system: systemStats
     }
   }
 

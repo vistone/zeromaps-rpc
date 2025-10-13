@@ -42,8 +42,8 @@ async function main() {
     webhookServer.start()
 
     // 定期打印统计信息
-    setInterval(() => {
-      const stats = server.getStats()
+    setInterval(async () => {
+      const stats = await server.getStats()
       console.log('\n' + '='.repeat(50))
       console.log('📊 服务器统计')
       console.log('='.repeat(50))
@@ -51,6 +51,13 @@ async function main() {
       console.log(`📦 总请求数: ${stats.curlStats.totalRequests}`)
       console.log(`⚡ 当前并发: ${stats.curlStats.concurrentRequests}`)
       console.log(`📈 最大并发: ${stats.curlStats.maxConcurrent}`)
+
+      if (stats.system) {
+        console.log(`\n💻 系统资源:`)
+        console.log(`  ├─ CPU: ${stats.system.cpu.usage}% (${stats.system.cpu.cores} 核心)`)
+        console.log(`  ├─ 内存: ${stats.system.memory.used}MB / ${stats.system.memory.total}MB (${stats.system.memory.usage}%)`)
+        console.log(`  └─ 网络: ↓${formatBytes(stats.system.network.rx)}/s ↑${formatBytes(stats.system.network.tx)}/s`)
+      }
 
       if (stats.ipv6Stats) {
         console.log(`\n🌐 IPv6 池统计:`)
@@ -66,6 +73,15 @@ async function main() {
       }
       console.log('='.repeat(50) + '\n')
     }, 60000) // 每分钟打印一次
+    
+    // 格式化字节数
+    function formatBytes(bytes: number): string {
+      if (bytes === 0) return '0 B'
+      const k = 1024
+      const sizes = ['B', 'KB', 'MB', 'GB']
+      const i = Math.floor(Math.log(bytes) / Math.log(k))
+      return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+    }
 
     // 格式化运行时间
     function formatUptime(seconds: number): string {

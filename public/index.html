@@ -399,14 +399,33 @@
         const clients = Number(stats.totalClients || stats.clients || 0) || 0;
         const totalReqs = Number(stats.curlStats?.totalRequests || stats.requests?.total || 0) || 0;
         const concurrent = Number(stats.curlStats?.concurrentRequests || stats.requests?.concurrent || 0) || 0;
+        const maxConcurrent = Number(stats.curlStats?.maxConcurrent || 0) || 0;
         const ipv6Data = stats.ipv6Stats || stats.ipv6 || {};
         const successRate = Number(ipv6Data.successRate || 0) || 0;
         const qps = Number(ipv6Data.requestsPerSecond || ipv6Data.qps || 0) || 0;
         const avgRT = Number(ipv6Data.avgResponseTime || 0) || 0;
         const total = Number(ipv6Data.totalAddresses || ipv6Data.total || 0) || 0;
         const balance = Number(ipv6Data.balance || 0) || 0;
-
+        
+        // 系统资源
+        const system = stats.system || {};
+        const cpu = system.cpu || {};
+        const mem = system.memory || {};
+        const net = system.network || {};
+        
+        const cpuUsage = Number(cpu.usage || 0) || 0;
+        const memUsage = Number(mem.usage || 0) || 0;
+        const cpuClass = cpuUsage >= 80 ? 'bad' : (cpuUsage >= 60 ? 'warning' : 'good');
+        const memClass = memUsage >= 80 ? 'bad' : (memUsage >= 60 ? 'warning' : 'good');
         const successClass = successRate >= 99 ? 'good' : (successRate >= 95 ? 'warning' : 'bad');
+        
+        function formatBytes(bytes) {
+          if (bytes === 0) return '0 B';
+          const k = 1024;
+          const sizes = ['B', 'KB', 'MB', 'GB'];
+          const i = Math.floor(Math.log(bytes) / Math.log(k));
+          return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
 
         return '<div class="node-card online">' +
           '<div class="node-header">' +
@@ -417,6 +436,33 @@
           node.domain + '<br>' +
           node.ip +
           '</div>' +
+          
+          // 系统资源
+          '<div style="margin: 15px 0; padding-top: 10px; border-top: 1px solid #eee;">' +
+          '<div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">💻 系统资源</div>' +
+          '<div class="stats-grid">' +
+          '<div class="stat-item">' +
+          '<div class="stat-label">CPU 使用率</div>' +
+          '<div class="stat-value ' + cpuClass + '">' + cpuUsage + '%</div>' +
+          '</div>' +
+          '<div class="stat-item">' +
+          '<div class="stat-label">内存使用率</div>' +
+          '<div class="stat-value ' + memClass + '">' + memUsage + '%</div>' +
+          '</div>' +
+          '<div class="stat-item">' +
+          '<div class="stat-label">网络接收</div>' +
+          '<div class="stat-value">' + formatBytes(net.rx || 0) + '/s</div>' +
+          '</div>' +
+          '<div class="stat-item">' +
+          '<div class="stat-label">网络发送</div>' +
+          '<div class="stat-value">' + formatBytes(net.tx || 0) + '/s</div>' +
+          '</div>' +
+          '</div>' +
+          '</div>' +
+          
+          // 请求统计
+          '<div style="margin: 15px 0; padding-top: 10px; border-top: 1px solid #eee;">' +
+          '<div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">📊 请求统计</div>' +
           '<div class="stats-grid">' +
           '<div class="stat-item">' +
           '<div class="stat-label">客户端</div>' +
@@ -428,7 +474,7 @@
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">当前并发</div>' +
-          '<div class="stat-value">' + concurrent + '</div>' +
+          '<div class="stat-value">' + concurrent + ' / ' + maxConcurrent + '</div>' +
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">QPS</div>' +
@@ -439,18 +485,27 @@
           '<div class="stat-value ' + successClass + '">' + successRate.toFixed(2) + '%</div>' +
           '</div>' +
           '<div class="stat-item">' +
-          '<div class="stat-label">平均RT</div>' +
+          '<div class="stat-label">平均响应时间</div>' +
           '<div class="stat-value">' + avgRT + 'ms</div>' +
           '</div>' +
+          '</div>' +
+          '</div>' +
+          
+          // IPv6 池
+          '<div style="margin: 15px 0; padding-top: 10px; border-top: 1px solid #eee;">' +
+          '<div style="font-weight: bold; margin-bottom: 8px; color: #667eea;">🌐 IPv6 池</div>' +
+          '<div class="stats-grid">' +
           '<div class="stat-item">' +
-          '<div class="stat-label">IPv6池</div>' +
+          '<div class="stat-label">总地址数</div>' +
           '<div class="stat-value">' + total + '</div>' +
           '</div>' +
           '<div class="stat-item">' +
-          '<div class="stat-label">平衡度</div>' +
+          '<div class="stat-label">负载平衡度</div>' +
           '<div class="stat-value">' + balance + '</div>' +
           '</div>' +
           '</div>' +
+          '</div>' +
+          
           '<a href="http://' + node.ip + ':9528" target="_blank" class="node-link">查看详情 →</a>' +
           '</div>';
       }).join('');
