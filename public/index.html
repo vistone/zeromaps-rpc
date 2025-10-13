@@ -216,22 +216,34 @@
     }
 
     // 使用 WebSocket 连接节点（优先），失败则降级到 HTTP
-    function connectNodeWebSocket(node) {
+    function connectNodeWebSocket(node, retryCount = 0) {
       const wsUrl = 'wss://' + node.domain + '/ws';
+      const maxRetries = 3;
+      const retryDelay = 5000; // 5秒后重试
 
       try {
         const ws = new WebSocket(wsUrl);
+        let heartbeatInterval = null;
+
+        // 连接超时检测（10秒）
+        const connectTimeout = setTimeout(() => {
+          if (ws.readyState !== WebSocket.OPEN) {
+            console.warn(`⏱️ ${node.name} WebSocket 连接超时`);
+            ws.close();
+          }
+        }, 10000);
 
         ws.onopen = () => {
+          clearTimeout(connectTimeout);
           console.log(`✓ ${node.name} WebSocket 连接成功`);
-          nodeConnections.set(node.name, { type: 'ws', ws, status: 'connected' });
+          nodeConnections.set(node.name, { type: 'ws', ws, status: 'connected', retryCount: 0 });
 
           // 发送心跳
-          const heartbeat = setInterval(() => {
+          heartbeatInterval = setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: 'ping' }));
             } else {
-              clearInterval(heartbeat);
+              clearInterval(heartbeatInterval);
             }
           }, 30000);
         };
@@ -254,15 +266,29 @@
         };
 
         ws.onerror = (error) => {
+          clearTimeout(connectTimeout);
           console.error(`✗ ${node.name} WebSocket 错误`);
         };
 
         ws.onclose = () => {
-          console.log(`🔌 ${node.name} WebSocket 断开，降级到 HTTP`);
+          clearTimeout(connectTimeout);
+          if (heartbeatInterval) {
+            clearInterval(heartbeatInterval);
+          }
+
           nodeConnections.delete(node.name);
 
-          // 降级到 HTTP 轮询
-          useHttpPolling(node);
+          // 重试机制
+          if (retryCount < maxRetries) {
+            console.log(`🔄 ${node.name} WebSocket 断开，${retryDelay / 1000}秒后重试 (${retryCount + 1}/${maxRetries})`);
+            setTimeout(() => {
+              connectNodeWebSocket(node, retryCount + 1);
+            }, retryDelay);
+          } else {
+            console.log(`🔌 ${node.name} WebSocket 重试失败，降级到 HTTP`);
+            // 降级到 HTTP 轮询
+            useHttpPolling(node);
+          }
         };
 
       } catch (error) {
