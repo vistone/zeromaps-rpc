@@ -5,10 +5,6 @@
 
 import * as http from 'http'
 import * as crypto from 'crypto'
-import { exec } from 'child_process'
-import { promisify } from 'util'
-
-const execAsync = promisify(exec)
 
 export class WebhookServer {
   private server: http.Server | null = null
@@ -143,8 +139,11 @@ export class WebhookServer {
       res.writeHead(200)
       res.end('Update triggered')
 
-      // 在后台执行更新
-      this.triggerUpdate()
+      // 在后台执行更新（不要 await，立即返回）
+      console.log(`🚀 准备触发自动更新...`)
+      this.triggerUpdate().catch(err => {
+        console.error('❌ 触发更新异常:', err)
+      })
 
     } catch (error) {
       console.error('❌ 处理 Webhook 失败:', error)
@@ -163,25 +162,39 @@ export class WebhookServer {
     }
 
     this.updating = true
+    console.log('🚀 触发自动更新...')
+    console.log(`   执行: ${this.updateScript}`)
 
     try {
-      console.log('🚀 触发自动更新...')
-      console.log(`   执行: ${this.updateScript}`)
-
-      // 异步执行更新脚本
-      const { stdout, stderr } = await execAsync(`bash ${this.updateScript}`)
-
-      console.log('✅ 自动更新完成')
-      if (stdout) {
-        console.log('输出:', stdout.substring(0, 500))
-      }
-      if (stderr) {
-        console.warn('错误:', stderr.substring(0, 500))
-      }
+      // 异步执行更新脚本（使用 spawn 实现实时日志）
+      const { spawn } = await import('child_process')
+      
+      const child = spawn('bash', [this.updateScript])
+      
+      child.stdout.on('data', (data) => {
+        console.log(`[更新] ${data.toString().trim()}`)
+      })
+      
+      child.stderr.on('data', (data) => {
+        console.error(`[更新错误] ${data.toString().trim()}`)
+      })
+      
+      child.on('close', (code) => {
+        if (code === 0) {
+          console.log('✅ 自动更新完成')
+        } else {
+          console.error(`❌ 自动更新失败，退出码: ${code}`)
+        }
+        this.updating = false
+      })
+      
+      child.on('error', (error) => {
+        console.error('❌ 自动更新执行失败:', error)
+        this.updating = false
+      })
 
     } catch (error) {
-      console.error('❌ 自动更新失败:', error)
-    } finally {
+      console.error('❌ 自动更新启动失败:', error)
       this.updating = false
     }
   }
