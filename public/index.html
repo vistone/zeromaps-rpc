@@ -206,76 +206,139 @@
       { name: 'www', domain: 'www.zeromaps.com.cn', ip: '45.78.5.252', ipv6: '2607:8700:5500:d197' }
     ];
 
+    // 存储所有节点的连接状态
+    const nodeConnections = new Map();
+    const nodeStats = new Map();
+
     function formatNumber(num) {
       if (!num && num !== 0) return '-';
       return num.toLocaleString('zh-CN');
     }
 
-    async function fetchNodeStats(node) {
+    // 使用 WebSocket 连接节点（优先），失败则降级到 HTTP
+    function connectNodeWebSocket(node) {
+      const wsUrl = 'wss://' + node.domain + '/ws';
+
       try {
-        console.log(`正在获取 ${node.name} 的统计数据...`);
-        const response = await fetch('https://' + node.domain + '/api/stats', {
-          signal: AbortSignal.timeout(5000)
-        });
+        const ws = new WebSocket(wsUrl);
 
-        if (!response.ok) {
-          console.error(`${node.name} HTTP ${response.status}`);
-          return {
-            ...node,
-            status: 'offline',
-            error: `HTTP ${response.status}`
-          };
-        }
+        ws.onopen = () => {
+          console.log(`✓ ${node.name} WebSocket 连接成功`);
+          nodeConnections.set(node.name, { type: 'ws', ws, status: 'connected' });
 
-        const stats = await response.json();
-        console.log(`✓ ${node.name} 在线`);
-        return {
-          ...node,
-          status: 'online',
-          stats
+          // 发送心跳
+          const heartbeat = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: 'ping' }));
+            } else {
+              clearInterval(heartbeat);
+            }
+          }, 30000);
         };
+
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'stats') {
+              // 收到实时统计数据
+              nodeStats.set(node.name, {
+                ...node,
+                status: 'online',
+                stats: msg.data
+              });
+              updateDisplay();
+            }
+          } catch (e) {
+            console.error(`${node.name} 消息解析失败:`, e);
+          }
+        };
+
+        ws.onerror = (error) => {
+          console.error(`✗ ${node.name} WebSocket 错误`);
+        };
+
+        ws.onclose = () => {
+          console.log(`🔌 ${node.name} WebSocket 断开，降级到 HTTP`);
+          nodeConnections.delete(node.name);
+
+          // 降级到 HTTP 轮询
+          useHttpPolling(node);
+        };
+
       } catch (error) {
-        console.error(`✗ ${node.name} 错误:`, error.message);
-        return {
-          ...node,
-          status: 'offline',
-          error: error.message || '无法连接'
-        };
+        console.error(`${node.name} WebSocket 连接失败，使用 HTTP:`, error);
+        useHttpPolling(node);
       }
     }
 
-    async function fetchAllStats() {
-      try {
-        console.log('开始获取所有节点统计数据...');
-        const promises = NODES.map(node => fetchNodeStats(node));
-        const results = await Promise.all(promises);
-        console.log('所有节点数据获取完成:', results);
+    // 降级到 HTTP 轮询
+    function useHttpPolling(node) {
+      nodeConnections.set(node.name, { type: 'http', status: 'polling' });
 
-        // 更新摘要
-        const online = results.filter(r => r.status === 'online').length;
-        document.getElementById('onlineCount').textContent = online;
-        document.getElementById('totalCount').textContent = results.length;
+      const poll = async () => {
+        try {
+          const response = await fetch('https://' + node.domain + '/api/stats', {
+            signal: AbortSignal.timeout(5000)
+          });
 
-        let totalRequests = 0;
-        let totalQPS = 0;
-
-        results.forEach(node => {
-          if (node.status === 'online' && node.stats) {
-            totalRequests += node.stats.requests.total || 0;
-            totalQPS += node.stats.ipv6.qps || 0;
+          if (response.ok) {
+            const stats = await response.json();
+            nodeStats.set(node.name, {
+              ...node,
+              status: 'online',
+              stats
+            });
+          } else {
+            nodeStats.set(node.name, {
+              ...node,
+              status: 'offline',
+              error: `HTTP ${response.status}`
+            });
           }
-        });
+        } catch (error) {
+          nodeStats.set(node.name, {
+            ...node,
+            status: 'offline',
+            error: error.message || '连接失败'
+          });
+        }
 
-        document.getElementById('totalRequests').textContent = formatNumber(totalRequests);
-        document.getElementById('totalQPS').textContent = totalQPS.toFixed(2);
+        updateDisplay();
+      };
 
-        // 渲染节点卡片
-        renderNodes(results);
+      // 立即执行一次
+      poll();
 
-        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-CN');
-      } catch (error) {
-        console.error('获取统计数据失败:', error);
-      }
+      // 每5秒轮询一次
+      setInterval(poll, 5000);
+    }
+
+    // 更新显示
+    function updateDisplay() {
+      const results = Array.from(nodeStats.values());
+
+      // 更新摘要
+      const online = results.filter(r => r.status === 'online').length;
+      document.getElementById('onlineCount').textContent = online;
+      document.getElementById('totalCount').textContent = results.length;
+
+      let totalRequests = 0;
+      let totalQPS = 0;
+
+      results.forEach(node => {
+        if (node.status === 'online' && node.stats) {
+          totalRequests += node.stats.requests?.total || node.stats.curlStats?.totalRequests || 0;
+          totalQPS += node.stats.ipv6?.qps || node.stats.ipv6Stats?.requestsPerSecond || 0;
+        }
+      });
+
+      document.getElementById('totalRequests').textContent = formatNumber(totalRequests);
+      document.getElementById('totalQPS').textContent = totalQPS.toFixed(2);
+
+      // 渲染节点卡片
+      renderNodes(results);
+
+      document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-CN');
     }
 
     function renderNodes(nodes) {
@@ -302,7 +365,18 @@
         }
 
         const stats = node.stats;
-        const successRate = stats.ipv6.successRate || 0;
+        
+        // 兼容新旧 API 格式
+        const clients = stats.totalClients || stats.clients || 0;
+        const totalReqs = stats.curlStats?.totalRequests || stats.requests?.total || 0;
+        const concurrent = stats.curlStats?.concurrentRequests || stats.requests?.concurrent || 0;
+        const ipv6Data = stats.ipv6Stats || stats.ipv6 || {};
+        const successRate = ipv6Data.successRate || 0;
+        const qps = ipv6Data.requestsPerSecond || ipv6Data.qps || 0;
+        const avgRT = ipv6Data.avgResponseTime || 0;
+        const total = ipv6Data.totalAddresses || ipv6Data.total || 0;
+        const balance = ipv6Data.balance || 0;
+        
         const successClass = successRate >= 99 ? 'good' : (successRate >= 95 ? 'warning' : 'bad');
 
         return '<div class="node-card online">' +
@@ -317,19 +391,19 @@
           '<div class="stats-grid">' +
           '<div class="stat-item">' +
           '<div class="stat-label">客户端</div>' +
-          '<div class="stat-value">' + formatNumber(stats.clients) + '</div>' +
+          '<div class="stat-value">' + formatNumber(clients) + '</div>' +
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">总请求</div>' +
-          '<div class="stat-value">' + formatNumber(stats.requests.total) + '</div>' +
+          '<div class="stat-value">' + formatNumber(totalReqs) + '</div>' +
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">当前并发</div>' +
-          '<div class="stat-value">' + stats.requests.concurrent + '</div>' +
+          '<div class="stat-value">' + concurrent + '</div>' +
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">QPS</div>' +
-          '<div class="stat-value">' + stats.ipv6.qps.toFixed(2) + '</div>' +
+          '<div class="stat-value">' + qps.toFixed(2) + '</div>' +
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">成功率</div>' +
@@ -337,15 +411,15 @@
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">平均RT</div>' +
-          '<div class="stat-value">' + stats.ipv6.avgResponseTime + 'ms</div>' +
+          '<div class="stat-value">' + avgRT + 'ms</div>' +
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">IPv6池</div>' +
-          '<div class="stat-value">' + stats.ipv6.total + '</div>' +
+          '<div class="stat-value">' + total + '</div>' +
           '</div>' +
           '<div class="stat-item">' +
           '<div class="stat-label">平衡度</div>' +
-          '<div class="stat-value">' + stats.ipv6.balance + '</div>' +
+          '<div class="stat-value">' + balance + '</div>' +
           '</div>' +
           '</div>' +
           '<a href="http://' + node.ip + ':9528" target="_blank" class="node-link">查看详情 →</a>' +
@@ -353,18 +427,19 @@
       }).join('');
     }
 
-    // 初始加载
-    fetchAllStats();
+    // 初始化：连接所有节点的 WebSocket
+    console.log('🚀 初始化，连接所有节点...');
+    NODES.forEach(node => {
+      connectNodeWebSocket(node);
+    });
 
-    // 自动刷新：确保上一轮完成后再开始新一轮
-    let isRefreshing = false;
-    setInterval(async () => {
-      if (!isRefreshing) {
-        isRefreshing = true;
-        await fetchAllStats();
-        isRefreshing = false;
-      }
-    }, 5000);
+    // 显示连接状态
+    setTimeout(() => {
+      console.log('📊 连接状态:');
+      nodeConnections.forEach((conn, name) => {
+        console.log(`  ${name}: ${conn.type} (${conn.status})`);
+      });
+    }, 3000);
   </script>
 </body>
 

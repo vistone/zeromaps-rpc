@@ -51,6 +51,18 @@ export class MonitorServer {
       const clientIP = req.socket.remoteAddress
       console.log(`🔗 WebSocket 客户端连接: ${clientIP}`)
 
+      // 定时推送统计数据（每秒一次）
+      const statsInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          const stats = this.rpcServer.getStats()
+          const statsResponse: WsResponse = {
+            type: 'stats',
+            data: stats
+          }
+          ws.send(JSON.stringify(statsResponse))
+        }
+      }, 1000)
+
       // 处理消息
       ws.on('message', async (data: Buffer) => {
         try {
@@ -109,6 +121,7 @@ export class MonitorServer {
 
       ws.on('close', () => {
         console.log(`🔌 WebSocket 客户端断开: ${clientIP}`)
+        clearInterval(statsInterval)  // 清理统计推送定时器
       })
 
       ws.on('error', (error) => {
