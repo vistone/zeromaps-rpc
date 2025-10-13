@@ -33,9 +33,8 @@ rollback() {
         fi
         
         # 重启服务
-        PM2_NAME=$(pm2 jlist 2>/dev/null | grep -o '"name":"[^"]*zeromaps[^"]*"' | head -1 | cut -d'"' -f4)
-        if [ -n "$PM2_NAME" ]; then
-            pm2 restart "$PM2_NAME" 2>&1 | tee -a $LOG_FILE
+        if pm2 list | grep -q "online\|stopped"; then
+            pm2 restart all 2>&1 | tee -a $LOG_FILE
         fi
         
         log "✅ 回滚完成"
@@ -138,19 +137,16 @@ fi
 # 4. 重启PM2服务
 log "[4/5] 重启服务..."
 
-# 使用 pm2 jlist 获取JSON格式，更可靠
-PM2_NAME=$(pm2 jlist 2>/dev/null | grep -o '"name":"[^"]*zeromaps[^"]*"' | head -1 | cut -d'"' -f4)
-
-if [ -z "$PM2_NAME" ]; then
-    log "⚠️  未找到PM2进程（包含 zeromaps 的进程），跳过重启"
-else
-    log "重启 PM2 进程: $PM2_NAME"
-    if ! pm2 restart "$PM2_NAME" 2>&1 | tee -a $LOG_FILE; then
+if pm2 list | grep -q "online\|stopped"; then
+    log "重启所有 PM2 进程..."
+    if ! pm2 restart all 2>&1 | tee -a $LOG_FILE; then
         log "❌ PM2 重启失败"
         rollback
     fi
     pm2 save >/dev/null 2>&1
     log "✓ 服务重启完成"
+else
+    log "⚠️  未找到 PM2 进程，跳过重启"
 fi
 
 # 5. 更新Caddy配置（如果需要）
