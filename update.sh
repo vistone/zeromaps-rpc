@@ -36,13 +36,24 @@ echo -e "${GREEN}✓ 代码更新完成${NC}"
 
 # 2. 更新依赖
 echo ""
-echo "[2/3] 更新npm依赖..."
+echo "[2/4] 更新npm依赖..."
 npm install
 echo -e "${GREEN}✓ 依赖更新完成${NC}"
 
-# 3. 重启pm2服务
+# 3. 编译代码
 echo ""
-echo "[3/3] 重启服务..."
+echo "[3/4] 编译 TypeScript 代码..."
+npm run build
+if [ $? -eq 0 ]; then
+  echo -e "${GREEN}✓ 代码编译成功${NC}"
+else
+  echo -e "${RED}✗ 代码编译失败${NC}"
+  exit 1
+fi
+
+# 4. 重启pm2服务
+echo ""
+echo "[4/4] 重启服务..."
 
 # 清理可能冲突的systemd服务
 if systemctl list-units --full --all 2>/dev/null | grep -q "zeromaps-rpc.service"; then
@@ -63,14 +74,29 @@ for port in 9527 9528; do
 done
 echo -e "${GREEN}✓ 端口检查完成${NC}"
 
-# 重启pm2服务
+# 重启或启动pm2服务
 echo "重启pm2服务..."
 if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
+  # 服务已存在，重启
+  echo "服务已存在，执行重启..."
   pm2 restart zeromaps-rpc
+  pm2 save
   echo -e "${GREEN}✓ 服务重启完成${NC}"
 else
-  echo -e "${RED}✗ pm2服务不存在，请先运行deploy.sh${NC}"
-  exit 1
+  # 服务不存在，检查配置文件后启动
+  echo "服务不存在，检查配置文件..."
+  
+  if [ ! -f "$INSTALL_DIR/ecosystem.config.cjs" ]; then
+    echo -e "${RED}✗ 未找到 ecosystem.config.cjs 配置文件${NC}"
+    echo "请先运行 deploy.sh 进行初次部署"
+    exit 1
+  fi
+  
+  echo "启动新服务..."
+  pm2 start ecosystem.config.cjs
+  pm2 save
+  pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
+  echo -e "${GREEN}✓ 服务启动完成${NC}"
 fi
 
 # 等待服务启动
