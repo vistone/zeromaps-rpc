@@ -33,9 +33,9 @@ rollback() {
         fi
         
         # 重启服务
-        PM2_NAME=$(pm2 list | grep zeromaps | awk '{print $2}' | head -1)
+        PM2_NAME=$(pm2 jlist 2>/dev/null | grep -o '"name":"[^"]*zeromaps[^"]*"' | head -1 | cut -d'"' -f4)
         if [ -n "$PM2_NAME" ]; then
-            pm2 restart $PM2_NAME 2>&1 | tee -a $LOG_FILE
+            pm2 restart "$PM2_NAME" 2>&1 | tee -a $LOG_FILE
         fi
         
         log "✅ 回滚完成"
@@ -109,21 +109,44 @@ else
     log "✓ 依赖无变化，跳过安装"
 fi
 
-# 3. 编译
+# 3. 编译（如果需要）
 log "[3/5] 编译代码..."
-if ! npm run build 2>&1 | tee -a $LOG_FILE; then
-    rollback
+
+# 检查PM2是否使用tsx运行（直接运行TS，不需要编译）
+PM2_INTERPRETER=$(pm2 jlist 2>/dev/null | grep -o '"interpreter":"[^"]*"' | head -1 | cut -d'"' -f4)
+
+if [ "$PM2_INTERPRETER" = "tsx" ]; then
+    log "✓ 使用 tsx 运行，跳过编译"
+elif command -v tsc &> /dev/null; then
+    # 有 tsc 命令，执行编译
+    if ! npm run build 2>&1 | tee -a $LOG_FILE; then
+        log "❌ 编译失败"
+        rollback
+    fi
+    
+    # 检查 dist 目录是否存在
+    if [ ! -d "dist" ]; then
+        log "❌ 编译失败：dist 目录不存在"
+        rollback
+    fi
+    
+    log "✓ 编译完成"
+else
+    log "⚠️  未找到 tsc 命令，跳过编译（使用运行时 TypeScript）"
 fi
-log "✓ 编译完成"
 
 # 4. 重启PM2服务
 log "[4/5] 重启服务..."
-PM2_NAME=$(pm2 list | grep zeromaps | awk '{print $2}' | head -1)
+
+# 使用 pm2 jlist 获取JSON格式，更可靠
+PM2_NAME=$(pm2 jlist 2>/dev/null | grep -o '"name":"[^"]*zeromaps[^"]*"' | head -1 | cut -d'"' -f4)
+
 if [ -z "$PM2_NAME" ]; then
-    log "⚠️  未找到PM2进程，跳过重启"
+    log "⚠️  未找到PM2进程（包含 zeromaps 的进程），跳过重启"
 else
     log "重启 PM2 进程: $PM2_NAME"
-    if ! pm2 restart $PM2_NAME 2>&1 | tee -a $LOG_FILE; then
+    if ! pm2 restart "$PM2_NAME" 2>&1 | tee -a $LOG_FILE; then
+        log "❌ PM2 重启失败"
         rollback
     fi
     pm2 save >/dev/null 2>&1
