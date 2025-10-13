@@ -75,13 +75,17 @@ log "📝 本地 commit: ${LOCAL_COMMIT:0:8}"
 
 # Fetch 远程更新（不合并）
 log "🔄 检查远程仓库..."
-git fetch origin master --quiet 2>&1 | tee -a $LOG_FILE || {
-    log "❌ 拉取远程仓库失败"
+git fetch origin master 2>&1 | tee -a $LOG_FILE
+FETCH_EXIT=$?
+
+if [ $FETCH_EXIT -ne 0 ]; then
+    log "❌ git fetch 失败，退出码: $FETCH_EXIT"
     exit 1
-}
+fi
 
 # 获取远程 commit
 REMOTE_COMMIT=$(git rev-parse origin/master 2>/dev/null || echo "unknown")
+log "📝 远程 commit: ${REMOTE_COMMIT:0:8}"
 
 # 比较版本
 if [ "$LOCAL_COMMIT" = "$REMOTE_COMMIT" ]; then
