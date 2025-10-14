@@ -43,8 +43,9 @@ export class CurlFetcher extends EventEmitter {
   private concurrentRequests = 0  // 当前并发请求数
   private maxConcurrent = 0       // 最大并发请求数（用于统计）
   private queue: queueAsPromised<CurlTask, FetchResult>
-  private useFallbackCurl = true  // 临时使用普通 curl 测试
+  private useFallbackCurl = false  // 强制使用 curl-impersonate (性能更好)
   private cookieFiles = new Map<string, string>()  // 域名 -> Cookie 文件路径
+  private fallbackRetryTimer: NodeJS.Timeout | null = null  // 降级恢复定时器
 
   /**
    * @param curlPath curl-impersonate 可执行文件路径
@@ -60,15 +61,18 @@ export class CurlFetcher extends EventEmitter {
     this.curlPath = curlPath
     this.ipv6Pool = ipv6Pool || null
 
-    // 并发数优先级：参数 > 环境变量 > 默认值
+    // 并发数优先级：参数 > 环境变量 > 默认值(25)
     const finalConcurrency = concurrency
       || parseInt(process.env.CURL_CONCURRENCY || '0')
       || this.calculateOptimalConcurrency()
 
-    console.log(`🚀 CurlFetcher 初始化: 并发数=${finalConcurrency}`)
+    console.log(`🚀 CurlFetcher 初始化: 并发数=${finalConcurrency}, 使用curl-impersonate: ${!this.useFallbackCurl}`)
 
     // fastq 队列，管理请求分发
     this.queue = fastq.promise(this.worker.bind(this), finalConcurrency)
+    
+    // 启动降级恢复机制（每5分钟尝试恢复curl-impersonate）
+    this.startFallbackRecovery()
   }
 
   /**
@@ -79,23 +83,23 @@ export class CurlFetcher extends EventEmitter {
       const totalMem = os.totalmem() / 1024 / 1024 // MB
       const freeMem = os.freemem() / 1024 / 1024   // MB
 
-      // 保守策略：
-      // - 每个 curl-impersonate 占用约 100MB
-      // - 保留 300MB 给系统和 Node.js
-      const reservedMem = 300
-      const perProcessMem = 100
+      // 优化策略：
+      // - curl-impersonate 占用约 50-80MB (优化后)
+      // - 保留 500MB 给系统和 Node.js
+      const reservedMem = 500
+      const perProcessMem = 60  // 降低估算值
       const optimal = Math.floor((totalMem - reservedMem) / perProcessMem)
 
-      // 限制范围：1-20
-      const concurrency = Math.max(1, Math.min(20, optimal))
+      // 扩大范围：5-40
+      const concurrency = Math.max(5, Math.min(40, optimal))
 
       console.log(`📊 内存情况: 总内存=${totalMem.toFixed(0)}MB, 空闲=${freeMem.toFixed(0)}MB`)
       console.log(`📊 计算得出最佳并发数: ${concurrency}`)
 
       return concurrency
     } catch (error) {
-      console.warn('⚠️ 无法计算最佳并发数，使用默认值 5')
-      return 5  // 默认值
+      console.warn('⚠️ 无法计算最佳并发数，使用默认值 25')
+      return 25  // 提高默认值
     }
   }
 
@@ -105,7 +109,8 @@ export class CurlFetcher extends EventEmitter {
   public async fetch(options: FetchOptions): Promise<FetchResult> {
     const requestId = ++this.requestCount
     const queuedAt = Date.now()
-    const ipv6 = options.ipv6 || (this.ipv6Pool ? this.ipv6Pool.getNext() : null)
+    // 使用智能IPv6选择（优先选择健康的IP）
+    const ipv6 = options.ipv6 || (this.ipv6Pool ? this.ipv6Pool.getHealthyNext() : null)
 
     console.log(`[Req#${requestId}] 📥 接收请求: ${options.url.substring(0, 80)}`)
 
@@ -133,7 +138,12 @@ export class CurlFetcher extends EventEmitter {
       this.maxConcurrent = this.concurrentRequests
     }
 
-    console.log(`[Req#${requestId}] ⏱️  队列等待: ${waitTime}ms, 当前并发: ${this.concurrentRequests}`)
+    // 队列等待告警
+    if (waitTime > 1000) {
+      console.warn(`[Req#${requestId}] ⚠️  队列等待过长: ${waitTime}ms, 当前并发: ${this.concurrentRequests}, 队列长度: ${this.queue.length()}`)
+    } else {
+      console.log(`[Req#${requestId}] ⏱️  队列等待: ${waitTime}ms, 当前并发: ${this.concurrentRequests}`)
+    }
 
     try {
       // 1. 构建命令
@@ -160,12 +170,12 @@ export class CurlFetcher extends EventEmitter {
         // 如果是 Killed 错误且还没使用回退，尝试普通 curl
         const errorMsg = (curlError as Error).message
         if (!this.useFallbackCurl && errorMsg.includes('Killed')) {
-          console.warn(`[Req#${requestId}]   ⚠️  curl-impersonate 被杀死，切换到普通 curl`)
+          console.warn(`[Req#${requestId}]   ⚠️  curl-impersonate 被OOM杀死，临时切换到普通 curl`)
           this.useFallbackCurl = true
           const fallbackCmd = this.buildFallbackCurlCommand(options, ipv6)
           const fallbackResult = await execAsync(fallbackCmd, {
             encoding: 'buffer',
-            maxBuffer: 50 * 1024 * 1024,
+            maxBuffer: 10 * 1024 * 1024,  // 降低到10MB
             timeout: options.timeout || 10000
           })
           stdout = fallbackResult.stdout as Buffer
@@ -411,7 +421,31 @@ export class CurlFetcher extends EventEmitter {
       totalRequests: this.requestCount,
       concurrentRequests: this.concurrentRequests,
       maxConcurrent: this.maxConcurrent,
+      queueLength: this.queue.length(),
+      usingFallback: this.useFallbackCurl,
       ipv6PoolStats: this.ipv6Pool ? this.ipv6Pool.getStats() : null
+    }
+  }
+
+  /**
+   * 启动降级恢复机制（每5分钟尝试恢复curl-impersonate）
+   */
+  private startFallbackRecovery(): void {
+    this.fallbackRetryTimer = setInterval(() => {
+      if (this.useFallbackCurl) {
+        console.log('🔄 尝试恢复 curl-impersonate...')
+        this.useFallbackCurl = false
+      }
+    }, 5 * 60 * 1000)  // 每5分钟
+  }
+
+  /**
+   * 停止降级恢复定时器
+   */
+  public destroy(): void {
+    if (this.fallbackRetryTimer) {
+      clearInterval(this.fallbackRetryTimer)
+      this.fallbackRetryTimer = null
     }
   }
 }

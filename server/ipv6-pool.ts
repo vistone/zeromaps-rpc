@@ -60,6 +60,46 @@ export class IPv6Pool {
   }
 
   /**
+   * 获取健康的 IPv6 地址（智能选择，排除失败率高的IP）
+   */
+  public getHealthyNext(): string {
+    // 过滤出健康的IP（失败率<30%）
+    const healthyAddresses = this.addresses.filter(addr => {
+      const stats = this.detailedStats.get(addr)!
+      if (stats.totalRequests < 20) return true  // 新IP给机会（增加到20次）
+      
+      const failRate = stats.failureCount / stats.totalRequests
+      const avgRT = stats.totalResponseTime / stats.totalRequests
+      
+      // 条件：失败率<30% 且 平均响应时间<3000ms
+      return failRate < 0.3 && avgRT < 3000
+    })
+    
+    // 如果没有健康IP，降级到普通轮询
+    if (healthyAddresses.length === 0) {
+      console.warn('⚠️  没有健康的IPv6地址，使用普通轮询')
+      return this.getNext()
+    }
+    
+    // 从健康IP中选择使用最少的
+    let minUsage = Infinity
+    let selectedAddr = healthyAddresses[0]
+    
+    for (const addr of healthyAddresses) {
+      const usage = this.usageStats.get(addr) || 0
+      if (usage < minUsage) {
+        minUsage = usage
+        selectedAddr = addr
+      }
+    }
+    
+    // 更新使用统计
+    this.usageStats.set(selectedAddr, (this.usageStats.get(selectedAddr) || 0) + 1)
+    
+    return selectedAddr
+  }
+
+  /**
    * 随机获取一个 IPv6 地址
    */
   public getRandom(): string {
