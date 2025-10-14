@@ -231,14 +231,18 @@ else
     log "⚠️  未找到 PM2 进程，跳过重启"
 fi
 
-# 6. 更新Caddy配置（如果需要）
+# 6. 更新并启动 Caddy（如果已安装）
 log "[6/6] 检查Caddy配置..."
-if systemctl is-active caddy >/dev/null 2>&1; then
+
+if command -v caddy &>/dev/null; then
+    # Caddy 已安装
     if [ -f "/etc/caddy/Caddyfile" ]; then
         # 提取当前配置的域名
         CURRENT_DOMAIN=$(grep -E '^[a-z0-9.-]+\.(zeromaps\.cn|zeromaps\.com\.cn)' /etc/caddy/Caddyfile | head -1 | awk '{print $1}')
+        
         if [ -n "$CURRENT_DOMAIN" ]; then
             log "当前域名: $CURRENT_DOMAIN"
+            
             # 检查模板是否变化
             if git diff --name-only ${CURRENT_COMMIT} ${REMOTE_COMMIT} | grep -q "Caddyfile"; then
                 log "Caddyfile 模板有变化，更新配置..."
@@ -247,14 +251,7 @@ if systemctl is-active caddy >/dev/null 2>&1; then
                 # 验证新配置
                 if caddy validate --config /etc/caddy/Caddyfile.new 2>&1 | tee -a $LOG_FILE; then
                     mv /etc/caddy/Caddyfile.new /etc/caddy/Caddyfile
-                    # 重启 Caddy（而不是 reload）以确保配置完全生效
-                    systemctl restart caddy 2>&1 | tee -a $LOG_FILE
-                    sleep 2
-                    if systemctl is-active caddy >/dev/null 2>&1; then
-                        log "✓ Caddy 已重启，配置已更新"
-                    else
-                        log "❌ Caddy 重启失败"
-                    fi
+                    log "✓ Caddy 配置已更新"
                 else
                     log "⚠️  Caddy配置验证失败，保持原配置"
                     rm -f /etc/caddy/Caddyfile.new
@@ -262,10 +259,37 @@ if systemctl is-active caddy >/dev/null 2>&1; then
             else
                 log "✓ Caddy配置无变化"
             fi
+            
+            # 检查 Caddy 是否运行
+            if systemctl is-active caddy >/dev/null 2>&1; then
+                log "重启 Caddy..."
+                systemctl restart caddy 2>&1 | tee -a $LOG_FILE
+                sleep 2
+                if systemctl is-active caddy >/dev/null 2>&1; then
+                    log "✓ Caddy 已重启"
+                else
+                    log "❌ Caddy 重启失败"
+                    journalctl -u caddy -n 10 --no-pager | tee -a $LOG_FILE
+                fi
+            else
+                log "Caddy 未运行，启动 Caddy..."
+                systemctl start caddy 2>&1 | tee -a $LOG_FILE
+                sleep 2
+                if systemctl is-active caddy >/dev/null 2>&1; then
+                    log "✓ Caddy 已启动"
+                else
+                    log "❌ Caddy 启动失败"
+                    journalctl -u caddy -n 10 --no-pager | tee -a $LOG_FILE
+                fi
+            fi
+        else
+            log "⚠️  未找到域名配置"
         fi
+    else
+        log "⚠️  未找到 Caddyfile 配置文件"
     fi
 else
-    log "✓ Caddy未运行，跳过"
+    log "✓ Caddy 未安装，跳过"
 fi
 
 # 清理备份（保留最近的备份）

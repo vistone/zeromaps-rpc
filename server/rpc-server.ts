@@ -59,7 +59,7 @@ export class RpcServer extends EventEmitter {
 
     // 根据环境变量选择 fetcher 类型（默认使用 HTTP/2）
     const fetcherType = (process.env.FETCHER_TYPE || 'http').toLowerCase()
-    
+
     if (fetcherType === 'curl') {
       // 使用系统 curl（备选）
       console.log('🔧 使用系统 curl 请求')
@@ -297,7 +297,7 @@ export class RpcServer extends EventEmitter {
    */
   public async getStats() {
     const systemStats = await this.systemMonitor.getStats()
-    
+
     return {
       totalClients: this.clients.size,
       fetcherType: this.fetcherType,
@@ -337,7 +337,7 @@ export class RpcServer extends EventEmitter {
     if (this.fetcher.destroy) {
       this.fetcher.destroy()
     }
-    
+
     if (this.server) {
       return new Promise((resolve) => {
         this.server!.close(() => {
