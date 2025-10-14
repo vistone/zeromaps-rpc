@@ -42,11 +42,11 @@ func createUTLSClient(ipv6 string) *http.Client {
 			}
 
 			// 建立 TCP 连接（如果指定了 IPv6 则用 tcp6，否则自动选择）
-			network := "tcp"
+			connNetwork := "tcp"
 			if ipv6 != "" {
-				network = "tcp6"
+				connNetwork = "tcp6"
 			}
-			rawConn, err := dialer.Dial(network, addr)
+			rawConn, err := dialer.Dial(connNetwork, addr)
 			if err != nil {
 				log.Printf("❌ TCP 连接失败: %v", err)
 				return nil, err
