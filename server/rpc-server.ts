@@ -4,6 +4,7 @@
  */
 
 import * as net from 'net'
+import { exec } from 'child_process'
 import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 import { CurlFetcher } from './curl-fetcher.js'
@@ -406,12 +407,10 @@ export class RpcServer extends EventEmitter {
    */
   private async simpleCurlCheck(url: string, ipv6: string): Promise<{ statusCode: number; error?: string }> {
     return new Promise((resolve) => {
-      const { exec } = require('child_process')
-      
       // 使用系统 curl，-I 只获取 header（HEAD 请求），超时 5 秒
       const cmd = `curl -I -s --max-time 5 --interface "${ipv6}" -6 "${url}"`
       
-      exec(cmd, (error: any, stdout: string, stderr: string) => {
+      exec(cmd, (error, stdout, stderr) => {
         if (error) {
           resolve({ statusCode: 0, error: error.message })
           return
