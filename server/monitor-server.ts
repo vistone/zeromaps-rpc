@@ -75,11 +75,37 @@ export class MonitorServer {
       const statsInterval = setInterval(async () => {
         if (ws.readyState === WebSocket.OPEN) {
           const stats = await this.rpcServer.getStats()
+          const ipv6Pool = this.rpcServer.getIPv6Pool()
+          const detailedStats = ipv6Pool.getDetailedStats()
+          
+          // 转换成和 HTTP API 一致的格式
           const statsResponse: WsResponse = {
             type: 'stats',
             data: {
-              version: this.getVersion(),  // 实时读取本节点版本号
-              ...stats
+              version: this.getVersion(),
+              timestamp: Date.now(),
+              clients: stats.totalClients,
+              fetcherType: stats.fetcherType,
+              requests: {
+                total: stats.fetcherStats.totalRequests,
+                concurrent: stats.fetcherStats.concurrentRequests,
+                maxConcurrent: stats.fetcherStats.maxConcurrent,
+                queueLength: stats.fetcherStats.queueLength || 0
+              },
+              ipv6: {
+                total: detailedStats.totalAddresses,
+                totalRequests: detailedStats.totalRequests,
+                avgPerIP: detailedStats.averagePerIP,
+                balance: detailedStats.balance,
+                successRate: parseFloat(detailedStats.successRate),
+                totalSuccess: detailedStats.totalSuccess,
+                totalFailure: detailedStats.totalFailure,
+                avgResponseTime: detailedStats.avgResponseTime,
+                uptime: detailedStats.uptime,
+                qps: parseFloat(detailedStats.requestsPerSecond)
+              },
+              system: stats.system,
+              health: stats.health
             }
           }
           ws.send(JSON.stringify(statsResponse))
