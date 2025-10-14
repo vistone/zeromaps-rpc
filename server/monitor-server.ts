@@ -96,9 +96,9 @@ export class MonitorServer {
               // 构建完整 URL
               const url = `https://kh.google.com/rt/earth/${msg.uri}`
 
-              // 通过 CurlFetcher 获取数据
-              const curlFetcher = this.rpcServer.getCurlFetcher()
-              const result = await curlFetcher.fetch({ url, timeout: 10000 })
+              // 通过 Fetcher 获取数据
+              const fetcher = this.rpcServer.getFetcher()
+              const result = await fetcher.fetch({ url, timeout: 10000 })
 
               const duration = Date.now() - t1
               console.log(`📥 [WS] 请求完成: ${duration}ms, 状态=${result.statusCode}, 大小=${result.body.length}`)
@@ -187,10 +187,12 @@ export class MonitorServer {
     const data = {
       timestamp: Date.now(),
       clients: stats.totalClients,
+      fetcherType: stats.fetcherType,
       requests: {
-        total: stats.curlStats.totalRequests,
-        concurrent: stats.curlStats.concurrentRequests,
-        maxConcurrent: stats.curlStats.maxConcurrent
+        total: stats.fetcherStats.totalRequests,
+        concurrent: stats.fetcherStats.concurrentRequests,
+        maxConcurrent: stats.fetcherStats.maxConcurrent,
+        queueLength: stats.fetcherStats.queueLength || 0
       },
       ipv6: {
         total: detailedStats.totalAddresses,
@@ -256,9 +258,9 @@ export class MonitorServer {
       // 构建完整 URL
       const fullUrl = `https://kh.google.com/rt/earth/${uri}`
 
-      // 使用 curl-impersonate 获取数据
-      const curlFetcher = this.rpcServer.getCurlFetcher()
-      const result = await curlFetcher.fetch({
+      // 使用 Fetcher 获取数据
+      const fetcher = this.rpcServer.getFetcher()
+      const result = await fetcher.fetch({
         url: fullUrl,
         timeout: 10000
       })

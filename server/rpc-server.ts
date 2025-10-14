@@ -7,6 +7,7 @@ import * as net from 'net'
 import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 import { CurlFetcher } from './curl-fetcher.js'
+import { HttpFetcher } from './http-fetcher.js'
 import { SystemMonitor } from './system-monitor.js'
 import {
   FrameType,
@@ -16,6 +17,14 @@ import {
   DataRequest,
   DataResponse
 } from '../proto/proto/zeromaps-rpc.js'
+
+// 通用 Fetcher 接口
+interface IFetcher {
+  fetch(options: any): Promise<any>
+  getStats(): any
+  on(event: string, handler: (...args: any[]) => void): void
+  destroy?(): void
+}
 
 interface ClientSession {
   id: number
@@ -31,11 +40,12 @@ export class RpcServer extends EventEmitter {
   private clients = new Map<number, ClientSession>()
   private nextClientID = 1
   private ipv6Pool: IPv6Pool
-  private curlFetcher: CurlFetcher
+  private fetcher: IFetcher  // 通用 fetcher 接口
   private systemMonitor: SystemMonitor
   private requestLogs: any[] = []  // 最近的请求日志
   private maxLogs = 100  // 保留最近100条
   private healthStatus: { status: number; message: string; lastCheck: number } = { status: 0, message: '未检测', lastCheck: 0 }
+  private fetcherType: 'curl' | 'http' = 'curl'  // 当前使用的 fetcher 类型
 
   constructor(
     private port: number,
@@ -47,11 +57,23 @@ export class RpcServer extends EventEmitter {
     // 初始化 IPv6 地址池（100个地址）
     this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
 
-    // 初始化 curl 执行器
-    this.curlFetcher = new CurlFetcher(curlPath, this.ipv6Pool)
+    // 根据环境变量选择 fetcher 类型
+    const fetcherType = (process.env.FETCHER_TYPE || 'curl').toLowerCase()
+    
+    if (fetcherType === 'http' || fetcherType === 'native') {
+      // 使用 Node.js 原生 HTTP/2
+      console.log('🔧 使用 Node.js 原生 HTTP/2 请求（连接复用，TLS 指纹）')
+      this.fetcher = new HttpFetcher(this.ipv6Pool) as IFetcher
+      this.fetcherType = 'http'
+    } else {
+      // 使用 curl-impersonate（默认）
+      console.log('🔧 使用 curl-impersonate 请求')
+      this.fetcher = new CurlFetcher(curlPath, this.ipv6Pool) as IFetcher
+      this.fetcherType = 'curl'
+    }
 
     // 监听请求事件
-    this.curlFetcher.on('request', (log) => {
+    this.fetcher.on('request', (log) => {
       this.requestLogs.unshift(log)  // 添加到开头
       if (this.requestLogs.length > this.maxLogs) {
         this.requestLogs.pop()  // 移除最旧的
@@ -221,8 +243,8 @@ export class RpcServer extends EventEmitter {
       // 构建完整 URL
       const url = `https://kh.google.com/rt/earth/${request.uri}`
 
-      // 使用 curl-impersonate 获取数据
-      const result = await this.curlFetcher.fetch({
+      // 使用 fetcher 获取数据（curl 或 native http）
+      const result = await this.fetcher.fetch({
         url,
         timeout: 10000
       })
@@ -292,7 +314,8 @@ export class RpcServer extends EventEmitter {
     
     return {
       totalClients: this.clients.size,
-      curlStats: this.curlFetcher.getStats(),
+      fetcherType: this.fetcherType,
+      fetcherStats: this.fetcher.getStats(),
       ipv6Stats: this.ipv6Pool.getDetailedStats(),
       system: systemStats,
       health: this.healthStatus
@@ -307,10 +330,17 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 获取 CurlFetcher 对象（用于 HTTP API）
+   * 获取 Fetcher 对象（用于 HTTP API）
    */
-  public getCurlFetcher() {
-    return this.curlFetcher
+  public getFetcher() {
+    return this.fetcher
+  }
+
+  /**
+   * 获取 Fetcher 类型
+   */
+  public getFetcherType(): string {
+    return this.fetcherType
   }
 
   /**
@@ -339,7 +369,7 @@ export class RpcServer extends EventEmitter {
   private async checkHealth(): Promise<void> {
     try {
       const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
-      const result = await this.curlFetcher.fetch({ url: testUrl, timeout: 10000 })
+      const result = await this.fetcher.fetch({ url: testUrl, timeout: 10000 })
 
       this.healthStatus = {
         status: result.statusCode,
