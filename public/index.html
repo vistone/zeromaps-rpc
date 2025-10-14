@@ -409,10 +409,10 @@
 
         // 兼容新旧 API 格式，确保所有数值类型正确
         const clients = Number(stats.totalClients || stats.clients || 0) || 0;
-        const totalReqs = Number(stats.curlStats?.totalRequests || stats.requests?.total || 0) || 0;
-        const concurrent = Number(stats.curlStats?.concurrentRequests || stats.requests?.concurrent || 0) || 0;
-        const maxConcurrent = Number(stats.curlStats?.maxConcurrent || 0) || 0;
-        const ipv6Data = stats.ipv6Stats || stats.ipv6 || {};
+        const totalReqs = Number(stats.requests?.total || stats.curlStats?.totalRequests || 0) || 0;
+        const concurrent = Number(stats.requests?.concurrent || stats.curlStats?.concurrentRequests || 0) || 0;
+        const maxConcurrent = Number(stats.requests?.maxConcurrent || stats.curlStats?.maxConcurrent || 0) || 0;
+        const ipv6Data = stats.ipv6 || stats.ipv6Stats || {};
         const successRate = Number(ipv6Data.successRate || 0) || 0;
         const qps = Number(ipv6Data.requestsPerSecond || ipv6Data.qps || 0) || 0;
         const avgRT = Number(ipv6Data.avgResponseTime || 0) || 0;
