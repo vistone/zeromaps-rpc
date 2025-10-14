@@ -10,11 +10,8 @@ import { fileURLToPath } from 'url'
 import WebSocket, { WebSocketServer } from 'ws'
 import { RpcServer } from './rpc-server.js'
 
-// 读取版本号
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'))
-const VERSION = packageJson.version
 
 interface WsMessage {
   type: 'fetch' | 'ping'
@@ -39,6 +36,20 @@ export class MonitorServer {
     rpcServer: RpcServer
   ) {
     this.rpcServer = rpcServer
+  }
+
+  /**
+   * 实时读取版本号（每次调用时读取，确保获取最新版本）
+   */
+  private getVersion(): string {
+    try {
+      const packagePath = path.join(__dirname, '../package.json')
+      const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'))
+      return packageJson.version || 'unknown'
+    } catch (error) {
+      console.warn('⚠️  读取版本号失败:', (error as Error).message)
+      return 'unknown'
+    }
   }
 
   /**
@@ -67,7 +78,7 @@ export class MonitorServer {
           const statsResponse: WsResponse = {
             type: 'stats',
             data: {
-              version: VERSION,  // 添加版本号
+              version: this.getVersion(),  // 实时读取本节点版本号
               ...stats
             }
           }
@@ -197,7 +208,7 @@ export class MonitorServer {
     const detailedStats = ipv6Pool.getDetailedStats()
 
     const data = {
-      version: VERSION,  // 添加版本号
+      version: this.getVersion(),  // 实时读取本节点版本号
       timestamp: Date.now(),
       clients: stats.totalClients,
       fetcherType: stats.fetcherType,
