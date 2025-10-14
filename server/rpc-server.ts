@@ -55,8 +55,15 @@ export class RpcServer extends EventEmitter {
   ) {
     super()
 
-    // 初始化 IPv6 地址池（100个地址）
-    this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
+    // 初始化 IPv6 地址池（如果提供了前缀）
+    if (ipv6BasePrefix) {
+      this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
+      console.log(`🌐 IPv6 地址池: ${ipv6BasePrefix}::1001 ~ ::1100 (100个地址)`)
+    } else {
+      // 创建空的 IPv6 池（不使用 IPv6）
+      this.ipv6Pool = new IPv6Pool('', 0, 0)
+      console.warn('⚠️  未使用 IPv6 地址池（使用默认网络）')
+    }
 
     // 根据环境变量选择 fetcher 类型（默认使用 utls）
     const fetcherType = (process.env.FETCHER_TYPE || 'utls').toLowerCase()

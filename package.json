@@ -1,6 +1,6 @@
 {
   "name": "zeromaps-rpc",
-  "version": "1.9.10",
+  "version": "1.9.11",
   "description": "ZeroMaps RPC Protocol - 基于 IPv6 池和 HTTP/2 连接复用的高性能数据获取系统",
   "type": "module",
   "scripts": {

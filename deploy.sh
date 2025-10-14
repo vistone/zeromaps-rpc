@@ -115,10 +115,22 @@ source "$CONFIG_FILE"
 echo -e "${GREEN}✓ 加载配置: ${SERVER_NAME:-未命名} (${SERVER_DOMAIN:-无域名})${NC}"
 echo ""
 
+# 检测是否需要配置 IPv6
+ENABLE_IPV6=false
+if [ -n "$IPV6_PREFIX" ] && [ -n "$INTERFACE" ] && [ -n "$REMOTE_IP" ]; then
+  ENABLE_IPV6=true
+  echo -e "${BLUE}📍 检测到 IPv6 配置，将配置 IPv6 隧道和地址池${NC}"
+else
+  echo -e "${YELLOW}📍 未配置 IPv6，将跳过 IPv6 相关步骤${NC}"
+  echo "   提示：如需使用 IPv6，请在配置文件中设置 IPV6_PREFIX, INTERFACE, REMOTE_IP"
+fi
+echo ""
+
 # ==========================================
-# 步骤2: 配置IPv6隧道
+# 步骤2: 配置IPv6隧道（可选）
 # ==========================================
-echo -e "${YELLOW}[2/7] 配置IPv6隧道...${NC}"
+if [ "$ENABLE_IPV6" = true ]; then
+  echo -e "${YELLOW}[2/8] 配置IPv6隧道...${NC}"
 if ! ip link show $INTERFACE &>/dev/null; then
   ip tunnel add $INTERFACE mode sit local $LOCAL_IP remote $REMOTE_IP ttl 255
   ip link set $INTERFACE up
@@ -162,12 +174,16 @@ else
   echo ""
   echo -e "${YELLOW}继续部署（IPv6可能需要手动检查）${NC}"
 fi
+else
+  echo -e "${YELLOW}[2/8] 跳过 IPv6 隧道配置（未启用 IPv6）${NC}"
+fi
 
 # ==========================================
-# 步骤3: 添加IPv6地址池（100个）
+# 步骤3: 添加IPv6地址池（100个，可选）
 # ==========================================
 echo ""
-echo -e "${YELLOW}[3/7] 配置IPv6地址池 (100个地址)...${NC}"
+if [ "$ENABLE_IPV6" = true ]; then
+  echo -e "${YELLOW}[3/8] 配置IPv6地址池 (100个地址)...${NC}"
 
 # 先检查是否已经配置过
 EXISTING_COUNT=$(ip -6 addr show dev $INTERFACE 2>/dev/null | grep "$IPV6_PREFIX" | wc -l)
@@ -211,12 +227,16 @@ if [ $EXISTING_COUNT -lt 90 ] && [ ${TOTAL_COUNT:-0} -lt 50 ]; then
   echo "  预期至少100个，实际 ${TOTAL_COUNT:-0} 个"
   exit 1
 fi
+else
+  echo -e "${YELLOW}[3/8] 跳过 IPv6 地址池配置（未启用 IPv6）${NC}"
+fi
 
 # ==========================================
-# 步骤4: IPv6持久化
+# 步骤4: IPv6持久化（可选）
 # ==========================================
 echo ""
-echo -e "${YELLOW}[4/7] 配置IPv6持久化...${NC}"
+if [ "$ENABLE_IPV6" = true ]; then
+  echo -e "${YELLOW}[4/8] 配置IPv6持久化...${NC}"
 
 # 检查是否已经配置过systemd服务
 if systemctl is-enabled ipv6-pool >/dev/null 2>&1; then
@@ -264,12 +284,15 @@ SERVICE_END
   systemctl enable ipv6-pool >/dev/null 2>&1
   echo -e "${GREEN}✓ IPv6持久化配置完成${NC}"
 fi
+else
+  echo -e "${YELLOW}[4/8] 跳过 IPv6 持久化配置（未启用 IPv6）${NC}"
+fi
 
 # ==========================================
 # 步骤5: 安装系统依赖
 # ==========================================
 echo ""
-echo -e "${YELLOW}[5/7] 安装系统依赖...${NC}"
+echo -e "${YELLOW}[5/8] 安装系统依赖...${NC}"
 
 # Node.js
 if ! command -v node &>/dev/null || ! command -v npm &>/dev/null; then
@@ -484,7 +507,10 @@ fi
 
 # 配置pm2（使用.cjs后缀，因为package.json是type:module）
 # 自动配置所有必要的环境变量，无需手动配置
-cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
+# 根据是否启用 IPv6 生成不同的配置
+if [ "$ENABLE_IPV6" = true ]; then
+  # 有 IPv6 的配置
+  cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
 module.exports = {
   apps: [{
     name: 'zeromaps-rpc',
@@ -506,6 +532,32 @@ module.exports = {
   }]
 }
 PM2_END
+else
+  # 没有 IPv6 的配置（使用默认网络）
+  cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
+module.exports = {
+  apps: [{
+    name: 'zeromaps-rpc',
+    script: 'server/index.ts',
+    interpreter: 'tsx',
+    env: {
+      NODE_ENV: 'production',
+      IPV6_PREFIX: '',  // 不使用 IPv6
+      FETCHER_TYPE: 'utls',  // 使用 uTLS 代理（完美模拟 Chrome TLS 指纹）
+      UTLS_PROXY_PORT: '8765',  // uTLS 代理端口
+      UTLS_CONCURRENCY: '10',  // uTLS 并发数
+      // 可选：Webhook 密钥（留空则跳过签名验证）
+      // WEBHOOK_SECRET: 'your-secret-key'
+    },
+    max_memory_restart: '500M',
+    error_file: './logs/error.log',
+    out_file: './logs/out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss'
+  }]
+}
+PM2_END
+  echo -e "${YELLOW}⚠️  注意：未启用 IPv6，将使用默认网络（可能受 IP 限制）${NC}"
+fi
 
 mkdir -p $INSTALL_DIR/logs
 

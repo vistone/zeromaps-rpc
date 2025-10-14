@@ -25,14 +25,14 @@ const PORT = 9527
 const MONITOR_PORT = 9528
 const WEBHOOK_PORT = 9530
 
-// IPv6 前缀（必须通过环境变量设置）
-if (!process.env.IPV6_PREFIX) {
-  console.error('❌ 错误: 未设置 IPV6_PREFIX 环境变量')
-  console.error('   请在 ecosystem.config.cjs 中配置正确的 IPv6 前缀')
-  console.error('   或通过环境变量设置: export IPV6_PREFIX="2607:8700:5500:xxxx"')
-  process.exit(1)
+// IPv6 前缀（可选，如果未设置则不使用 IPv6）
+const IPV6_PREFIX: string = process.env.IPV6_PREFIX || ''
+
+if (!IPV6_PREFIX) {
+  console.warn('⚠️  未设置 IPV6_PREFIX 环境变量')
+  console.warn('   将使用默认网络（不绑定 IPv6 地址）')
+  console.warn('   如需使用 IPv6，请在 ecosystem.config.cjs 中配置 IPV6_PREFIX')
 }
-const IPV6_PREFIX: string = process.env.IPV6_PREFIX
 
 // 创建并启动服务器
 async function main() {
