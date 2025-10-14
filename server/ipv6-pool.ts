@@ -51,7 +51,11 @@ export class IPv6Pool {
   /**
    * 获取下一个 IPv6 地址（轮询）
    */
-  public getNext(): string {
+  public getNext(): string | null {
+    if (this.addresses.length === 0) {
+      return null  // 没有 IPv6 地址池
+    }
+    
     const addr = this.addresses[this.currentIndex]
     this.currentIndex = (this.currentIndex + 1) % this.addresses.length
     
@@ -64,7 +68,11 @@ export class IPv6Pool {
   /**
    * 获取健康的 IPv6 地址（智能选择，排除失败率高的IP）
    */
-  public getHealthyNext(): string {
+  public getHealthyNext(): string | null {
+    if (this.addresses.length === 0) {
+      return null  // 没有 IPv6 地址池
+    }
+    
     // 过滤出健康的IP（失败率<30%）
     const healthyAddresses = this.addresses.filter(addr => {
       const stats = this.detailedStats.get(addr)!
