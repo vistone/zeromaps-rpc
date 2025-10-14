@@ -333,25 +333,100 @@ else
 fi
 
 # ==========================================
-# 步骤6: 检查系统 curl
+# 步骤6: 安装 Go 和编译 uTLS 代理
 # ==========================================
 echo ""
-echo -e "${YELLOW}[6/7] 检查系统 curl...${NC}"
+echo -e "${YELLOW}[6/8] 安装 Go 和编译 uTLS 代理...${NC}"
 
-if command -v curl &>/dev/null; then
-  CURL_VERSION=$(curl --version | head -1)
-  echo -e "${GREEN}✓ 系统 curl 已安装: $CURL_VERSION${NC}"
+# 检查 Go 是否已安装
+if ! command -v go &>/dev/null; then
+  echo "安装 Go 1.21.5..."
+  
+  cd /tmp
+  
+  # 下载 Go
+  if [ ! -f "go1.21.5.linux-amd64.tar.gz" ]; then
+    echo "  下载 Go 安装包..."
+    wget -q --show-progress https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+  fi
+  
+  # 解压到 /usr/local
+  echo "  安装 Go..."
+  sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+  
+  # 添加到 PATH
+  export PATH=$PATH:/usr/local/go/bin
+  echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+  
+  # 清理下载文件
+  rm -f go1.21.5.linux-amd64.tar.gz
+  
+  if command -v go &>/dev/null; then
+    echo -e "${GREEN}✓ Go 安装成功: $(go version)${NC}"
+  else
+    echo -e "${RED}✗ Go 安装失败${NC}"
+    exit 1
+  fi
 else
-  echo "安装 curl..."
-  apt-get install -y curl
-  echo -e "${GREEN}✓ curl 安装完成${NC}"
+  GO_VERSION=$(go version | awk '{print $3}')
+  echo -e "${GREEN}✓ Go 已安装: $GO_VERSION${NC}"
+fi
+
+# 编译 uTLS 代理
+echo ""
+echo "编译 uTLS 代理..."
+cd $INSTALL_DIR/utls-proxy
+
+if [ ! -f "build.sh" ]; then
+  echo -e "${RED}✗ 未找到 uTLS 代理源代码${NC}"
+  exit 1
+fi
+
+# 执行编译
+bash build.sh
+
+if [ -f "utls-proxy" ]; then
+  UTLS_SIZE=$(du -h utls-proxy | cut -f1)
+  echo -e "${GREEN}✓ uTLS 代理编译成功 (大小: $UTLS_SIZE)${NC}"
+else
+  echo -e "${RED}✗ uTLS 代理编译失败${NC}"
+  exit 1
+fi
+
+# 启动 uTLS 代理（使用 PM2）
+echo ""
+echo "配置 uTLS 代理服务..."
+
+# 停止旧的 uTLS 代理
+pm2 delete utls-proxy 2>/dev/null || true
+
+# 启动 uTLS 代理
+pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
+    --name "utls-proxy" \
+    --time \
+    --max-memory-restart 100M \
+    --error-file "$INSTALL_DIR/logs/utls-error.log" \
+    --out-file "$INSTALL_DIR/logs/utls-out.log"
+
+pm2 save
+
+echo -e "${GREEN}✓ uTLS 代理已启动${NC}"
+
+# 等待代理启动并测试
+echo "测试 uTLS 代理..."
+sleep 2
+
+if curl -s --max-time 5 "http://localhost:8765/proxy?url=https://www.google.com" > /dev/null 2>&1; then
+  echo -e "${GREEN}✓ uTLS 代理测试成功！${NC}"
+else
+  echo -e "${YELLOW}⚠️  uTLS 代理测试失败，请检查日志: pm2 logs utls-proxy${NC}"
 fi
 
 # ==========================================
 # 步骤7: 部署RPC服务
 # ==========================================
 echo ""
-echo -e "${YELLOW}[7/7] 部署RPC服务...${NC}"
+echo -e "${YELLOW}[7/8] 部署RPC服务...${NC}"
 
 cd $INSTALL_DIR
 
@@ -400,10 +475,11 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       IPV6_PREFIX: '$IPV6_PREFIX',
+      FETCHER_TYPE: 'utls',  // 使用 uTLS 代理（完美模拟 Chrome TLS 指纹）
+      UTLS_PROXY_PORT: '8765',  // uTLS 代理端口
+      UTLS_CONCURRENCY: '10',  // uTLS 并发数
       // 可选：Webhook 密钥（留空则跳过签名验证）
-      // WEBHOOK_SECRET: 'your-secret-key',
-      // 可选：curl 并发数（默认自动计算）
-      // CURL_CONCURRENCY: '10'
+      // WEBHOOK_SECRET: 'your-secret-key'
     },
     max_memory_restart: '500M',
     error_file: './logs/error.log',
@@ -547,10 +623,10 @@ if command -v caddy &>/dev/null; then
 fi
 
 # ==========================================
-# 可选: 安装统一管理面板
+# 步骤8: 安装统一管理面板（可选）
 # ==========================================
 echo ""
-echo -e "${YELLOW}是否安装统一管理面板（可在一个页面查看所有7个VPS）?${NC}"
+echo -e "${YELLOW}[8/8] 是否安装统一管理面板（可在一个页面查看所有节点）?${NC}"
 read -p "安装Caddy和管理面板? (y/n) " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
@@ -701,6 +777,7 @@ echo "  IPv6前缀: $IPV6_PREFIX"
 echo "  IPv6池: ::1001 ~ ::1100 (100个地址)"
 echo ""
 echo "服务端口:"
+echo "  uTLS代理: 127.0.0.1:8765 (本地代理，模拟 Chrome TLS)"
 echo "  RPC服务: 0.0.0.0:$RPC_PORT (TCP)"
 echo "  监控服务: 0.0.0.0:$MONITOR_PORT (HTTP API + WebSocket)"
 echo "  Webhook服务: 0.0.0.0:9530 (GitHub 自动更新)"
@@ -716,14 +793,18 @@ if [ -n "$SERVER_DOMAIN" ]; then
 fi
 echo ""
 echo "常用命令:"
-echo "  pm2 status              - 查看服务状态"
-echo "  pm2 logs zeromaps-rpc   - 查看日志"
-echo "  pm2 restart zeromaps-rpc - 重启服务"
+echo "  pm2 status              - 查看服务状态（应该有 utls-proxy 和 zeromaps-rpc）"
+echo "  pm2 logs utls-proxy     - 查看 uTLS 代理日志"
+echo "  pm2 logs zeromaps-rpc   - 查看主服务日志"
+echo "  pm2 restart all         - 重启所有服务"
 if command -v caddy &>/dev/null; then
   echo "  systemctl status caddy  - 查看Caddy状态"
 fi
 echo ""
 echo "测试命令:"
+echo "  # 测试 uTLS 代理"
+echo "  curl 'http://localhost:8765/proxy?url=https://www.google.com' -I"
+echo ""
 echo "  # 测试 IPv6 地址池"
 echo "  curl -6 --interface ${IPV6_PREFIX}::1001 https://api64.ipify.org"
 echo ""
