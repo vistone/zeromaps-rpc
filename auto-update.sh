@@ -69,8 +69,22 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
     
     # 即使是最新版本，也重启PM2（因为可能代码已被外部更新）
     if pm2 list | grep -q "online\|stopped"; then
-        log "重启所有 PM2 进程..."
-        pm2 restart all 2>&1 | tee -a $LOG_FILE
+        # 检查是否使用 tsx（需要彻底重启清除缓存）
+        PM2_INTERPRETER=$(pm2 jlist 2>/dev/null | grep -o '"interpreter":"[^"]*"' | head -1 | cut -d'"' -f4)
+        
+        if [ "$PM2_INTERPRETER" = "tsx" ]; then
+            log "检测到 tsx 运行模式，彻底重启以清除缓存..."
+            rm -rf node_modules/.cache 2>/dev/null || true
+            pm2 delete all 2>&1 | tee -a $LOG_FILE
+            sleep 1
+            if [ -f "ecosystem.config.cjs" ]; then
+                pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE
+            fi
+        else
+            log "重启所有 PM2 进程..."
+            pm2 restart all 2>&1 | tee -a $LOG_FILE
+        fi
+        
         pm2 save >/dev/null 2>&1
         log "✓ PM2 重启完成"
     fi
@@ -125,12 +139,28 @@ if [ -d "dist" ]; then
 fi
 log "✓ 备份完成"
 
-# 1. 更新代码
+# 1. 更新代码（处理历史分歧）
 log "[1/5] 更新代码..."
-if ! git pull origin master 2>&1 | tee -a $LOG_FILE; then
-    error "git pull 失败"
+
+# 先尝试正常 pull
+if git pull origin master 2>&1 | tee -a $LOG_FILE; then
+    log "✓ 代码更新完成（正常拉取）"
+else
+    # 如果失败，检查是否是历史分歧问题
+    if git status 2>&1 | grep -q "divergent\|分歧"; then
+        log "⚠️  检测到历史分歧，使用强制同步..."
+        # 保存本地未提交的修改（如果有）
+        git stash save "auto-update-backup-$(date +%s)" 2>&1 | tee -a $LOG_FILE || true
+        # 强制同步远程分支
+        if git reset --hard origin/master 2>&1 | tee -a $LOG_FILE; then
+            log "✓ 代码强制同步完成"
+        else
+            error "git reset 失败"
+        fi
+    else
+        error "git pull 失败"
+    fi
 fi
-log "✓ 代码更新完成"
 
 # 2. 检查依赖变化
 log "[2/5] 检查依赖..."
@@ -170,15 +200,37 @@ else
     log "⚠️  未找到 tsc 命令，跳过编译（使用运行时 TypeScript）"
 fi
 
-# 4. 重启PM2服务
+# 4. 重启PM2服务（彻底重启，清除 tsx 缓存）
 log "[4/5] 重启服务..."
 
 if pm2 list | grep -q "online\|stopped"; then
-    log "重启所有 PM2 进程..."
-    if ! pm2 restart all 2>&1 | tee -a $LOG_FILE; then
-        log "❌ PM2 重启失败"
-        rollback
+    # 检查是否使用 tsx（需要彻底重启清除缓存）
+    PM2_INTERPRETER=$(pm2 jlist 2>/dev/null | grep -o '"interpreter":"[^"]*"' | head -1 | cut -d'"' -f4)
+    
+    if [ "$PM2_INTERPRETER" = "tsx" ]; then
+        log "检测到 tsx 运行模式，彻底重启以清除缓存..."
+        # 清理 node 缓存
+        rm -rf node_modules/.cache 2>/dev/null || true
+        # 删除并重新启动（而不是 restart）
+        pm2 delete all 2>&1 | tee -a $LOG_FILE
+        sleep 1
+        if [ -f "ecosystem.config.cjs" ]; then
+            if ! pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE; then
+                log "❌ PM2 启动失败"
+                rollback
+            fi
+        else
+            log "❌ 未找到 ecosystem.config.cjs"
+            rollback
+        fi
+    else
+        log "重启所有 PM2 进程..."
+        if ! pm2 restart all 2>&1 | tee -a $LOG_FILE; then
+            log "❌ PM2 重启失败"
+            rollback
+        fi
     fi
+    
     pm2 save >/dev/null 2>&1
     log "✓ 服务重启完成"
 else
