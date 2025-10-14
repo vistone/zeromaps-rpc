@@ -162,17 +162,16 @@ else
     fi
 fi
 
-# 2. 检查并更新 ecosystem.config.cjs（自动添加 FETCHER_TYPE）
+# 2. 检查 PM2 配置（移除旧的 FETCHER_TYPE 配置）
 log "[2/6] 检查 PM2 配置..."
 if [ -f "ecosystem.config.cjs" ]; then
-    # 检查是否已有 FETCHER_TYPE 配置
-    if ! grep -q "FETCHER_TYPE" ecosystem.config.cjs; then
-        log "自动添加 FETCHER_TYPE 环境变量配置..."
-        # 在 IPV6_PREFIX 后面添加 FETCHER_TYPE
-        sed -i "/IPV6_PREFIX:/a\      FETCHER_TYPE: 'http',  // 使用 Node.js HTTP/2（自动添加）" ecosystem.config.cjs
-        log "✓ 已添加 FETCHER_TYPE: 'http'"
+    # 删除旧的 FETCHER_TYPE 配置（如果存在），让代码使用默认值 http
+    if grep -q "FETCHER_TYPE" ecosystem.config.cjs; then
+        log "移除旧的 FETCHER_TYPE 配置（使用代码默认值 http）..."
+        sed -i "/FETCHER_TYPE/d" ecosystem.config.cjs
+        log "✓ 已移除 FETCHER_TYPE 配置，使用默认 HTTP/2"
     else
-        log "✓ FETCHER_TYPE 配置已存在"
+        log "✓ 无 FETCHER_TYPE 配置，使用默认 HTTP/2"
     fi
 fi
 

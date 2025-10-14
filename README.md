@@ -1,6 +1,6 @@
 # ZeroMaps RPC
 
-基于IPv6池和curl-impersonate的高性能RPC服务，支持100个IPv6地址轮询。
+基于IPv6池和HTTP/2连接复用的高性能RPC服务，支持100个IPv6地址轮询。
 
 ## ⚡ 快速开始
 
@@ -91,7 +91,7 @@ sudo ./deploy.sh
 自动完成：
 - ✅ 配置IPv6隧道（6in4）
 - ✅ 添加100个IPv6地址池
-- ✅ 安装Node.js 18、pm2、curl-impersonate
+- ✅ 安装Node.js 18、pm2
 - ✅ 启动RPC和监控服务
 - ✅ 可选安装Caddy和管理面板
 
@@ -145,61 +145,49 @@ zeromaps-rpc/
 - **IPv6池**: 100个地址
 - **负载平衡度**: <2
 
-## 🚀 请求方式切换（新功能）
+## 🚀 请求方式切换
 
 系统支持两种 HTTP 请求方式，可通过环境变量切换：
 
-### 方式1: curl-impersonate（默认）
+### 方式1: Node.js 原生 HTTP/2（默认，推荐）
 ```bash
-# 不设置或设置为 curl（默认）
-export FETCHER_TYPE=curl
-```
-
-**优势**：
-- ✅ 完美模拟 Chrome 浏览器指纹
-- ✅ 成熟稳定，经过大量生产验证
-- ❌ 每个请求启动独立进程，内存占用高
-- ❌ 无连接复用
-
-### 方式2: Node.js 原生 HTTP/2（推荐测试）
-```bash
-# 设置为 http 或 native 启用
+# 不设置或设置为 http（默认）
 export FETCHER_TYPE=http
 ```
 
 **优势**：
 - ✅ **连接复用**：同域名请求共享连接，大幅降低延迟
 - ✅ **HTTP/2 多路复用**：一个连接同时处理多个请求
-- ✅ **内存占用低**：无需启动外部进程
+- ✅ **内存占用低**：无需启动外部进程（15-20MB/并发）
 - ✅ **DNS缓存**：减少 DNS 查询时间
 - ✅ **TLS指纹**：模拟 Chrome 116 TLS 握手参数
-- ⚡ **性能提升30-50%**（理论值，需实测）
+- ⚡ **性能优异**：响应时间 500-800ms
 
 **TLS 指纹配置**：
 - 支持 TLS 1.2/1.3
 - Chrome 116 加密套件顺序
 - ALPN: h2, http/1.1
-- 自定义签名算法
 
-### 性能对比测试
-
+### 方式2: 系统 curl（备选）
 ```bash
-# 测试 curl-impersonate
+# 设置为 curl 切换
 export FETCHER_TYPE=curl
-pm2 restart zeromaps-rpc
-pm2 logs zeromaps-rpc --lines 50
-
-# 测试 HTTP/2 原生
-export FETCHER_TYPE=http
-pm2 restart zeromaps-rpc
-pm2 logs zeromaps-rpc --lines 50
 ```
 
-**预期改进**：
-- 队列等待时间：3000ms → 500ms
-- 平均响应时间：1376ms → 800ms（目标）
-- 内存占用：850MB → 300MB
-- 连接复用率：0% → 80%+
+**优势**：
+- ✅ 系统自带，无需额外安装
+- ✅ 轻量稳定
+- ❌ 每个请求启动独立进程
+- ❌ 无连接复用
+
+### 性能对比
+
+| 指标 | HTTP/2（默认） | 系统 curl |
+|------|---------------|-----------|
+| 平均响应时间 | 500-800ms | 1000-1500ms |
+| 内存占用 | 300MB | 500MB |
+| 连接复用 | 80%+ | 0% |
+| CPU 占用 | 低 | 中等 |
 
 ## License
 

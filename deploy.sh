@@ -333,28 +333,18 @@ else
 fi
 
 # ==========================================
-# 步骤6: 安装curl-impersonate
+# 步骤6: 检查系统 curl
 # ==========================================
 echo ""
-echo -e "${YELLOW}[6/7] 安装curl-impersonate...${NC}"
+echo -e "${YELLOW}[6/7] 检查系统 curl...${NC}"
 
-if [ ! -f "/usr/local/bin/curl-impersonate-chrome" ]; then
-  cd /tmp
-  wget -q --show-progress https://github.com/lwthiker/curl-impersonate/releases/download/v0.6.1/curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz
-  tar -xzf curl-impersonate-v0.6.1.x86_64-linux-gnu.tar.gz
-  
-  if [ -f "curl_chrome116" ]; then
-    cp curl_chrome116 /usr/local/bin/curl-impersonate-chrome
-    chmod +x /usr/local/bin/curl-impersonate-chrome
-    echo -e "${GREEN}✓ curl-impersonate安装成功${NC}"
-  else
-    echo -e "${RED}✗ 找不到curl_chrome116${NC}"
-    exit 1
-  fi
-  
-  rm -rf curl-impersonate* *.tar.gz
+if command -v curl &>/dev/null; then
+  CURL_VERSION=$(curl --version | head -1)
+  echo -e "${GREEN}✓ 系统 curl 已安装: $CURL_VERSION${NC}"
 else
-  echo -e "${GREEN}✓ curl-impersonate已安装${NC}"
+  echo "安装 curl..."
+  apt-get install -y curl
+  echo -e "${GREEN}✓ curl 安装完成${NC}"
 fi
 
 # ==========================================

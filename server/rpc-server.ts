@@ -1,6 +1,6 @@
 /**
  * ZeroMaps RPC 服务器
- * 处理客户端请求，使用 curl-impersonate + IPv6 池获取数据
+ * 处理客户端请求，使用 HTTP/2 或系统 curl + IPv6 池获取数据
  */
 
 import * as net from 'net'
@@ -46,31 +46,30 @@ export class RpcServer extends EventEmitter {
   private requestLogs: any[] = []  // 最近的请求日志
   private maxLogs = 100  // 保留最近100条
   private healthStatus: { status: number; message: string; lastCheck: number } = { status: 0, message: '未检测', lastCheck: 0 }
-  private fetcherType: 'curl' | 'http' = 'curl'  // 当前使用的 fetcher 类型
+  private fetcherType: 'curl' | 'http' = 'http'  // 当前使用的 fetcher 类型
 
   constructor(
     private port: number,
-    private ipv6BasePrefix: string,
-    private curlPath: string = '/usr/local/bin/curl_chrome116'
+    private ipv6BasePrefix: string
   ) {
     super()
 
     // 初始化 IPv6 地址池（100个地址）
     this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
 
-    // 根据环境变量选择 fetcher 类型
-    const fetcherType = (process.env.FETCHER_TYPE || 'curl').toLowerCase()
-
-    if (fetcherType === 'http' || fetcherType === 'native') {
-      // 使用 Node.js 原生 HTTP/2
+    // 根据环境变量选择 fetcher 类型（默认使用 HTTP/2）
+    const fetcherType = (process.env.FETCHER_TYPE || 'http').toLowerCase()
+    
+    if (fetcherType === 'curl') {
+      // 使用系统 curl（备选）
+      console.log('🔧 使用系统 curl 请求')
+      this.fetcher = new CurlFetcher(this.ipv6Pool) as IFetcher
+      this.fetcherType = 'curl'
+    } else {
+      // 使用 Node.js 原生 HTTP/2（默认）
       console.log('🔧 使用 Node.js 原生 HTTP/2 请求（连接复用，TLS 指纹）')
       this.fetcher = new HttpFetcher(this.ipv6Pool) as IFetcher
       this.fetcherType = 'http'
-    } else {
-      // 使用 curl-impersonate（默认）
-      console.log('🔧 使用 curl-impersonate 请求')
-      this.fetcher = new CurlFetcher(curlPath, this.ipv6Pool) as IFetcher
-      this.fetcherType = 'curl'
     }
 
     // 监听请求事件
@@ -100,7 +99,7 @@ export class RpcServer extends EventEmitter {
       this.server!.listen(this.port, () => {
         console.log(`🚀 ZeroMaps RPC 服务器启动: 端口 ${this.port}`)
         console.log(`   IPv6 池: ${this.ipv6Pool.getAllAddresses().length} 个地址`)
-        console.log(`   curl: ${this.curlPath}`)
+        console.log(`   Fetcher: ${this.fetcherType}`)
         resolve()
       })
 
@@ -294,25 +293,11 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 停止服务器
-   */
-  public async stop(): Promise<void> {
-    if (this.server) {
-      return new Promise((resolve) => {
-        this.server!.close(() => {
-          console.log('✓ RPC 服务器已停止')
-          resolve()
-        })
-      })
-    }
-  }
-
-  /**
    * 获取服务器统计
    */
   public async getStats() {
     const systemStats = await this.systemMonitor.getStats()
-
+    
     return {
       totalClients: this.clients.size,
       fetcherType: this.fetcherType,
@@ -342,6 +327,25 @@ export class RpcServer extends EventEmitter {
    */
   public getFetcherType(): string {
     return this.fetcherType
+  }
+
+  /**
+   * 停止服务器
+   */
+  public async stop(): Promise<void> {
+    // 清理 fetcher 资源
+    if (this.fetcher.destroy) {
+      this.fetcher.destroy()
+    }
+    
+    if (this.server) {
+      return new Promise((resolve) => {
+        this.server!.close(() => {
+          console.log('✓ RPC 服务器已停止')
+          resolve()
+        })
+      })
+    }
   }
 
   /**

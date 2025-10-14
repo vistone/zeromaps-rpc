@@ -24,7 +24,6 @@ process.on('unhandledRejection', (reason, promise) => {
 const PORT = 9527
 const MONITOR_PORT = 9528
 const WEBHOOK_PORT = 9530
-const CURL_PATH = '/usr/local/bin/curl-impersonate-chrome'
 
 // IPv6 前缀（必须通过环境变量设置）
 if (!process.env.IPV6_PREFIX) {
@@ -41,7 +40,7 @@ async function main() {
   console.log('ZeroMaps RPC 服务器')
   console.log('='.repeat(50))
 
-  const server = new RpcServer(PORT, IPV6_PREFIX, CURL_PATH)
+  const server = new RpcServer(PORT, IPV6_PREFIX)
 
   try {
     await server.start()
