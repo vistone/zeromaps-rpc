@@ -14,7 +14,10 @@ if ! command -v go &> /dev/null; then
     exit 1
 fi
 
-# 下载依赖
+# 整理依赖并下载
+echo "📦 整理依赖..."
+go mod tidy
+
 echo "📦 下载依赖..."
 go mod download
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"fmt"
 	"io"
 	"log"
@@ -20,7 +21,7 @@ func createUTLSClient(ipv6 string) *http.Client {
 	return &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
-			DialTLSContext: func(ctx, network, addr string) (net.Conn, error) {
+			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				// 如果指定了 IPv6，强制使用该地址
 				var dialer *net.Dialer
 				if ipv6 != "" {
@@ -92,7 +93,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	ipv6 := r.URL.Query().Get("ipv6")
 
 	if targetURL == "" {
-		http.Error(w, "Missing 'url' parameter", http.BadRequest)
+		http.Error(w, "Missing 'url' parameter", http.StatusBadRequest)
 		return
 	}
 
