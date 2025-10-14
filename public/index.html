@@ -69,6 +69,12 @@
       opacity: 0.7;
     }
 
+    .node-card.blocked {
+      border-left-color: #ef4444;
+      border: 3px solid #ef4444;
+      background: #fef2f2;
+    }
+
     .node-header {
       display: flex;
       justify-content: space-between;
@@ -394,6 +400,12 @@
         }
 
         const stats = node.stats;
+        
+        // 检查健康状态，判断是否被 Google 封禁
+        const health = stats.health || {};
+        const healthStatus = health.status || 0;
+        const isBlocked = healthStatus === 403;
+        const cardClass = isBlocked ? 'blocked' : 'online';
 
         // 兼容新旧 API 格式，确保所有数值类型正确
         const clients = Number(stats.totalClients || stats.clients || 0) || 0;
@@ -430,7 +442,19 @@
         // 获取版本号
         const version = stats.version || '-';
         
-        return '<div class="node-card online">' +
+        // 健康状态显示
+        let healthBanner = '';
+        if (isBlocked) {
+          healthBanner = '<div style="background: #ef4444; color: white; padding: 10px; border-radius: 6px; margin-bottom: 10px; text-align: center; font-weight: bold;">' +
+            '⚠️ 节点被封禁 (403)' +
+            '</div>';
+        } else if (healthStatus === 200) {
+          healthBanner = '<div style="background: #10b981; color: white; padding: 8px; border-radius: 6px; margin-bottom: 10px; text-align: center; font-size: 0.9em;">' +
+            '✅ 节点正常' +
+            '</div>';
+        }
+        
+        return '<div class="node-card ' + cardClass + '">' +
           '<div class="node-header">' +
           '<div class="node-name">' + node.name + '</div>' +
           '<span class="node-status status-online">在线</span>' +
@@ -440,6 +464,7 @@
           node.ip + '<br>' +
           '<span style="font-size: 0.85em; color: #888;">版本: ' + version + '</span>' +
           '</div>' +
+          healthBanner +
 
           // 系统资源
           '<div style="margin: 15px 0; padding-top: 10px; border-top: 1px solid #eee;">' +
