@@ -405,16 +405,38 @@ fi
 echo ""
 echo -e "${YELLOW}[6/8] 安装 Go 和编译 uTLS 代理...${NC}"
 
-# 检查 Go 是否已安装
+# 检查 Go 是否已安装及版本
+NEED_INSTALL_GO=false
+
 # 先检查 /usr/local/go/bin/go 是否存在（即使 PATH 未设置）
 if [ -f "/usr/local/go/bin/go" ]; then
   export PATH=$PATH:/usr/local/go/bin
-  GO_VERSION=$(/usr/local/go/bin/go version | awk '{print $3}')
-  echo -e "${GREEN}✓ Go 已安装: $GO_VERSION，跳过安装${NC}"
+  GO_VERSION=$(/usr/local/go/bin/go version | awk '{print $3}' | sed 's/go//')
+  GO_MAJOR=$(echo $GO_VERSION | cut -d. -f1)
+  GO_MINOR=$(echo $GO_VERSION | cut -d. -f2)
+  
+  if [ "$GO_MAJOR" -gt 1 ] || ([ "$GO_MAJOR" -eq 1 ] && [ "$GO_MINOR" -ge 19 ]); then
+    echo -e "${GREEN}✓ Go 已安装: go$GO_VERSION（版本满足要求）${NC}"
+  else
+    echo -e "${YELLOW}⚠ Go 版本太低: go$GO_VERSION < 1.19，需要升级${NC}"
+    NEED_INSTALL_GO=true
+  fi
 elif command -v go &>/dev/null; then
-  GO_VERSION=$(go version | awk '{print $3}')
-  echo -e "${GREEN}✓ Go 已安装: $GO_VERSION，跳过安装${NC}"
+  GO_VERSION=$(go version | awk '{print $3}' | sed 's/go//')
+  GO_MAJOR=$(echo $GO_VERSION | cut -d. -f1)
+  GO_MINOR=$(echo $GO_VERSION | cut -d. -f2)
+  
+  if [ "$GO_MAJOR" -gt 1 ] || ([ "$GO_MAJOR" -eq 1 ] && [ "$GO_MINOR" -ge 19 ]); then
+    echo -e "${GREEN}✓ Go 已安装: go$GO_VERSION（版本满足要求）${NC}"
+  else
+    echo -e "${YELLOW}⚠ Go 版本太低: go$GO_VERSION < 1.19，需要升级${NC}"
+    NEED_INSTALL_GO=true
+  fi
 else
+  NEED_INSTALL_GO=true
+fi
+
+if [ "$NEED_INSTALL_GO" = true ]; then
   echo "安装 Go 1.21.5..."
   
   cd /tmp
