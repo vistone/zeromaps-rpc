@@ -4,6 +4,7 @@
  */
 
 import * as net from 'net'
+import * as https from 'https'
 import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 import { CurlFetcher } from './curl-fetcher.js'
@@ -364,12 +365,14 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 检查节点健康状态（测试是否能访问 Google Earth）
+   * 检查节点健康状态（使用轻量级 Node.js 原生 HTTPS 请求）
    */
   private async checkHealth(): Promise<void> {
     try {
       const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
-      const result = await this.fetcher.fetch({ url: testUrl, timeout: 10000 })
+      
+      // 使用轻量级的原生 Node.js HTTPS 请求（不占用队列）
+      const result = await this.simpleHttpsRequest(testUrl)
 
       this.healthStatus = {
         status: result.statusCode,
@@ -394,6 +397,53 @@ export class RpcServer extends EventEmitter {
       }
       console.error('❌ 健康检查失败:', error)
     }
+  }
+
+  /**
+   * 简单的 HTTPS 请求（用于健康检查，不占用主请求队列）
+   */
+  private simpleHttpsRequest(url: string): Promise<{ statusCode: number; error?: string }> {
+    return new Promise((resolve) => {
+      const parsedUrl = new URL(url)
+      
+      // 使用一个随机的 IPv6 地址
+      const ipv6 = this.ipv6Pool.getRandom()
+      
+      const options: https.RequestOptions = {
+        hostname: parsedUrl.hostname,
+        port: 443,
+        path: parsedUrl.pathname,
+        method: 'HEAD',  // 使用 HEAD 请求，更轻量
+        timeout: 5000,
+        family: 6,
+        lookup: (hostname: string, opts: any, callback: any) => {
+          // 强制使用 IPv6
+          callback(null, ipv6, 6)
+        },
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }
+
+      const req = https.request(options, (res) => {
+        // 丢弃响应数据
+        res.on('data', () => {})
+        res.on('end', () => {
+          resolve({ statusCode: res.statusCode || 0 })
+        })
+      })
+
+      req.on('error', (err: Error) => {
+        resolve({ statusCode: 0, error: err.message })
+      })
+
+      req.on('timeout', () => {
+        req.destroy()
+        resolve({ statusCode: 0, error: 'Request timeout' })
+      })
+
+      req.end()
+    })
   }
 
   /**
