@@ -33,8 +33,8 @@ rollback() {
         fi
         
         # 重启服务
-        if pm2 list | grep -q "online\|stopped"; then
-            pm2 restart all 2>&1 | tee -a $LOG_FILE
+        if pm2 list | grep -q "zeromaps-rpc"; then
+            pm2 restart zeromaps-rpc 2>&1 | tee -a $LOG_FILE
         fi
         
         log "✅ 回滚完成"
@@ -68,21 +68,21 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
     log "✅ 已是最新版本，但仍然重启服务以确保代码生效"
     
     # 即使是最新版本，也重启PM2（因为可能代码已被外部更新）
-    if pm2 list | grep -q "online\|stopped"; then
+    if pm2 list | grep -q "zeromaps-rpc"; then
         # 检查是否使用 tsx（需要彻底重启清除缓存）
         PM2_INTERPRETER=$(pm2 jlist 2>/dev/null | grep -o '"interpreter":"[^"]*"' | head -1 | cut -d'"' -f4)
         
         if [ "$PM2_INTERPRETER" = "tsx" ]; then
             log "检测到 tsx 运行模式，彻底重启以清除缓存..."
             rm -rf node_modules/.cache 2>/dev/null || true
-            pm2 delete all 2>&1 | tee -a $LOG_FILE
+            pm2 delete zeromaps-rpc 2>&1 | tee -a $LOG_FILE
             sleep 1
             if [ -f "ecosystem.config.cjs" ]; then
                 pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE
             fi
         else
-            log "重启所有 PM2 进程..."
-            pm2 restart all 2>&1 | tee -a $LOG_FILE
+            log "重启 zeromaps-rpc 进程..."
+            pm2 restart zeromaps-rpc 2>&1 | tee -a $LOG_FILE
         fi
         
         pm2 save >/dev/null 2>&1
@@ -176,43 +176,24 @@ if [ -f "ecosystem.config.cjs" ]; then
     fi
 fi
 
-# 3. 检查依赖变化
-log "[3/6] 检查依赖..."
-if git diff --name-only ${CURRENT_COMMIT} ${REMOTE_COMMIT} | grep -q "package.json"; then
-    log "package.json 有变化，安装依赖..."
-    if ! npm install 2>&1 | tee -a $LOG_FILE; then
-        rollback
-    fi
-    log "✓ 依赖安装完成"
-else
-    log "✓ 依赖无变化，跳过安装"
+# 3. 安装依赖（始终执行）
+log "[3/6] 安装依赖..."
+if ! npm install 2>&1 | tee -a $LOG_FILE; then
+    log "❌ 依赖安装失败"
+    rollback
 fi
+log "✓ 依赖安装完成"
 
-# 4. 编译（如果需要）
+# 4. 编译代码（必须执行）
 log "[4/6] 编译代码..."
 
-# 检查PM2是否使用tsx运行（直接运行TS，不需要编译）
-PM2_INTERPRETER=$(pm2 jlist 2>/dev/null | grep -o '"interpreter":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-if [ "$PM2_INTERPRETER" = "tsx" ]; then
-    log "✓ 使用 tsx 运行，跳过编译"
-elif command -v tsc &> /dev/null; then
-    # 有 tsc 命令，执行编译
-    if ! npm run build 2>&1 | tee -a $LOG_FILE; then
-        log "❌ 编译失败"
-        rollback
-    fi
-    
-    # 检查 dist 目录是否存在
-    if [ ! -d "dist" ]; then
-        log "❌ 编译失败：dist 目录不存在"
-        rollback
-    fi
-    
-    log "✓ 编译完成"
-else
-    log "⚠️  未找到 tsc 命令，跳过编译（使用运行时 TypeScript）"
+# 始终执行编译，即使使用 tsx 也需要编译
+if ! npm run build 2>&1 | tee -a $LOG_FILE; then
+    log "❌ 编译失败"
+    rollback
 fi
+
+log "✓ 编译完成"
 
 # 5. 重启PM2服务（彻底重启，清除 tsx 缓存）
 log "[5/6] 重启服务..."
@@ -225,8 +206,8 @@ if pm2 list | grep -q "online\|stopped"; then
         log "检测到 tsx 运行模式，彻底重启以清除缓存..."
         # 清理 node 缓存
         rm -rf node_modules/.cache 2>/dev/null || true
-        # 删除并重新启动（而不是 restart）
-        pm2 delete all 2>&1 | tee -a $LOG_FILE
+        # 只删除 zeromaps-rpc（而不是 all）
+        pm2 delete zeromaps-rpc 2>&1 | tee -a $LOG_FILE
         sleep 1
         if [ -f "ecosystem.config.cjs" ]; then
             if ! pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE; then
@@ -238,8 +219,8 @@ if pm2 list | grep -q "online\|stopped"; then
             rollback
         fi
     else
-        log "重启所有 PM2 进程..."
-        if ! pm2 restart all 2>&1 | tee -a $LOG_FILE; then
+        log "重启 zeromaps-rpc 进程..."
+        if ! pm2 restart zeromaps-rpc 2>&1 | tee -a $LOG_FILE; then
             log "❌ PM2 重启失败"
             rollback
         fi
