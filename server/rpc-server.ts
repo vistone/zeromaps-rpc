@@ -9,6 +9,7 @@ import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 import { CurlFetcher } from './curl-fetcher.js'
 import { HttpFetcher } from './http-fetcher.js'
+import { UTLSFetcher } from './utls-fetcher.js'
 import { SystemMonitor } from './system-monitor.js'
 import {
   FrameType,
@@ -46,7 +47,7 @@ export class RpcServer extends EventEmitter {
   private requestLogs: any[] = []  // 最近的请求日志
   private maxLogs = 100  // 保留最近100条
   private healthStatus: { status: number; message: string; lastCheck: number } = { status: 0, message: '未检测', lastCheck: 0 }
-  private fetcherType: 'curl' | 'http' = 'http'  // 当前使用的 fetcher 类型
+  private fetcherType: 'curl' | 'http' | 'utls' = 'utls'  // 当前使用的 fetcher 类型
 
   constructor(
     private port: number,
@@ -57,16 +58,22 @@ export class RpcServer extends EventEmitter {
     // 初始化 IPv6 地址池（100个地址）
     this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
 
-    // 根据环境变量选择 fetcher 类型（默认使用 curl）
-    const fetcherType = (process.env.FETCHER_TYPE || 'curl').toLowerCase()
+    // 根据环境变量选择 fetcher 类型（默认使用 utls）
+    const fetcherType = (process.env.FETCHER_TYPE || 'utls').toLowerCase()
 
-    if (fetcherType === 'curl') {
-      // 使用系统 curl（默认，因为 Node.js HTTP/2 无法通过 Google TLS 检测）
+    if (fetcherType === 'utls') {
+      // 使用 uTLS 代理（默认，完美模拟 Chrome TLS 指纹）
+      console.log('🔧 使用 uTLS 代理请求（模拟 Chrome 120 TLS 指纹）')
+      const proxyPort = parseInt(process.env.UTLS_PROXY_PORT || '8765')
+      this.fetcher = new UTLSFetcher(this.ipv6Pool, undefined, proxyPort) as IFetcher
+      this.fetcherType = 'utls'
+    } else if (fetcherType === 'curl') {
+      // 使用系统 curl（备选）
       console.log('🔧 使用系统 curl 请求')
       this.fetcher = new CurlFetcher(this.ipv6Pool) as IFetcher
       this.fetcherType = 'curl'
     } else {
-      // 使用 Node.js 原生 HTTP/2（备用，可能被 Google 拒绝）
+      // 使用 Node.js 原生 HTTP/2（可能被 Google 拒绝）
       console.log('🔧 使用 Node.js 原生 HTTP/2 请求（可能无法访问 Google）')
       this.fetcher = new HttpFetcher(this.ipv6Pool) as IFetcher
       this.fetcherType = 'http'

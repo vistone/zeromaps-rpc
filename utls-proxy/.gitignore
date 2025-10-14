@@ -1,0 +1,6 @@
+# 编译产物
+utls-proxy
+
+# Go 模块缓存
+go.sum
+
