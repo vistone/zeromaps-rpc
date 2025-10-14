@@ -785,16 +785,31 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo -e "${GREEN}✓ Caddy安装成功${NC}"
   fi
   
-  # 创建日志目录并设置权限（必须在Caddy安装后，caddy用户才存在）
+  # 确保 caddy 用户存在（有些安装可能不会自动创建）
+  if ! id caddy &>/dev/null; then
+    echo "创建 caddy 用户..."
+    useradd -r -s /bin/false -d /var/lib/caddy caddy >/dev/null 2>&1
+    echo -e "${GREEN}✓ caddy 用户已创建${NC}"
+  fi
+  
+  # 创建日志目录并设置权限
   echo "配置日志目录..."
   mkdir -p /var/log/caddy
-  chown -R caddy:caddy /var/log/caddy
   chmod 755 /var/log/caddy
-  # 预创建日志文件并设置权限
-  touch /var/log/caddy/zeromaps-rpc.log
-  chown caddy:caddy /var/log/caddy/zeromaps-rpc.log
-  chmod 644 /var/log/caddy/zeromaps-rpc.log
-  echo -e "${GREEN}✓ 日志目录已配置${NC}"
+  
+  # 检查 caddy 用户是否存在
+  if id caddy &>/dev/null; then
+    chown -R caddy:caddy /var/log/caddy
+    touch /var/log/caddy/zeromaps-rpc.log
+    chown caddy:caddy /var/log/caddy/zeromaps-rpc.log
+    chmod 644 /var/log/caddy/zeromaps-rpc.log
+    echo -e "${GREEN}✓ 日志目录已配置（caddy 用户）${NC}"
+  else
+    # caddy 用户不存在，创建或使用 root
+    touch /var/log/caddy/zeromaps-rpc.log
+    chmod 644 /var/log/caddy/zeromaps-rpc.log
+    echo -e "${YELLOW}⚠ caddy 用户不存在，使用 root 权限${NC}"
+  fi
   
   # 生成Caddy配置（从模板文件）
   echo "生成Caddy配置..."
