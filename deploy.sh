@@ -405,8 +405,8 @@ pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
     --name "utls-proxy" \
     --time \
     --max-memory-restart 100M \
-    --error-file "$INSTALL_DIR/logs/utls-error.log" \
-    --out-file "$INSTALL_DIR/logs/utls-out.log"
+    --error "$INSTALL_DIR/logs/utls-error.log" \
+    --output "$INSTALL_DIR/logs/utls-out.log"
 
 pm2 save
 
