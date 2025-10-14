@@ -407,8 +407,8 @@ export class RpcServer extends EventEmitter {
    */
   private async simpleCurlCheck(url: string, ipv6: string): Promise<{ statusCode: number; error?: string }> {
     return new Promise((resolve) => {
-      // 使用系统 curl，-I 只获取 header（HEAD 请求），超时 5 秒
-      const cmd = `curl -I -s --max-time 5 --interface "${ipv6}" -6 "${url}"`
+      // 使用系统 curl，-i 包含 header（GET 请求），超时 5 秒
+      const cmd = `curl -i -s --max-time 5 --interface "${ipv6}" -6 "${url}"`
       
       exec(cmd, (error, stdout, stderr) => {
         if (error) {
