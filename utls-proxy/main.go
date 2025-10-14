@@ -165,8 +165,23 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	duration := time.Since(startTime)
+	
+	// 安全截取字符串
+	ipv6Display := ipv6
+	if len(ipv6Display) > 20 {
+		ipv6Display = ipv6Display[:20]
+	}
+	if ipv6Display == "" {
+		ipv6Display = "default"
+	}
+	
+	urlDisplay := targetURL
+	if len(urlDisplay) > 60 {
+		urlDisplay = urlDisplay[:60]
+	}
+	
 	log.Printf("✅ [%s] %d - %s (%dms, %d bytes)", 
-		ipv6[:20], resp.StatusCode, targetURL[:60], duration.Milliseconds(), len(body))
+		ipv6Display, resp.StatusCode, urlDisplay, duration.Milliseconds(), len(body))
 
 	// 返回响应
 	w.Header().Set("Content-Type", "application/octet-stream")
