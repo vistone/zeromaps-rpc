@@ -162,17 +162,12 @@ else
     fi
 fi
 
-# 2. 检查 PM2 配置（移除旧的 FETCHER_TYPE 配置）
+# 2. 检查 PM2 配置
 log "[2/6] 检查 PM2 配置..."
 if [ -f "ecosystem.config.cjs" ]; then
-    # 删除旧的 FETCHER_TYPE 配置（如果存在），让代码使用默认值 http
-    if grep -q "FETCHER_TYPE" ecosystem.config.cjs; then
-        log "移除旧的 FETCHER_TYPE 配置（使用代码默认值 http）..."
-        sed -i "/FETCHER_TYPE/d" ecosystem.config.cjs
-        log "✓ 已移除 FETCHER_TYPE 配置，使用默认 HTTP/2"
-    else
-        log "✓ 无 FETCHER_TYPE 配置，使用默认 HTTP/2"
-    fi
+    log "✓ PM2 配置文件存在"
+else
+    log "⚠️  PM2 配置文件不存在，将在重启时自动生成"
 fi
 
 # 3. 安装依赖（始终执行）

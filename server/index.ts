@@ -59,16 +59,10 @@ async function main() {
       console.log('\n' + '='.repeat(50))
       console.log('📊 服务器统计')
       console.log('='.repeat(50))
-      console.log(`🔧 Fetcher 类型: ${stats.fetcherType}`)
       console.log(`👥 在线客户端: ${stats.totalClients}`)
       console.log(`📦 总请求数: ${stats.fetcherStats.totalRequests}`)
       console.log(`⚡ 当前并发: ${stats.fetcherStats.concurrentRequests}`)
       console.log(`📈 最大并发: ${stats.fetcherStats.maxConcurrent}`)
-      
-      // 如果使用 HTTP fetcher，显示连接池信息
-      if (stats.fetcherType === 'http' && stats.fetcherStats.connectionPool) {
-        console.log(`🔗 连接池: ${stats.fetcherStats.connectionPool.totalConnections} 个连接, ${stats.fetcherStats.connectionPool.totalUsage} 次复用`)
-      }
 
       if (stats.system) {
         console.log(`\n💻 系统资源:`)

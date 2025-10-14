@@ -563,9 +563,8 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       IPV6_PREFIX: '$IPV6_PREFIX',
-      FETCHER_TYPE: 'utls',  // 使用 uTLS 代理（完美模拟 Chrome TLS 指纹）
-      UTLS_PROXY_PORT: '8765',  // uTLS 代理端口
-      UTLS_CONCURRENCY: '10',  // uTLS 并发数
+      UTLS_PROXY_PORT: '8765',  // uTLS 代理端口（默认）
+      UTLS_CONCURRENCY: '10',   // uTLS 并发数
       // 可选：Webhook 密钥（留空则跳过签名验证）
       // WEBHOOK_SECRET: 'your-secret-key'
     },
@@ -587,9 +586,8 @@ module.exports = {
     env: {
       NODE_ENV: 'production',
       IPV6_PREFIX: '',  // 不使用 IPv6
-      FETCHER_TYPE: 'utls',  // 使用 uTLS 代理（完美模拟 Chrome TLS 指纹）
-      UTLS_PROXY_PORT: '8765',  // uTLS 代理端口
-      UTLS_CONCURRENCY: '10',  // uTLS 并发数
+      UTLS_PROXY_PORT: '8765',  // uTLS 代理端口（默认）
+      UTLS_CONCURRENCY: '10',   // uTLS 并发数
       // 可选：Webhook 密钥（留空则跳过签名验证）
       // WEBHOOK_SECRET: 'your-secret-key'
     },

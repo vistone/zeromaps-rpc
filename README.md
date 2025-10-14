@@ -1,6 +1,6 @@
 # ZeroMaps RPC
 
-基于IPv6池和HTTP/2连接复用的高性能RPC服务，支持100个IPv6地址轮询。
+基于 uTLS + IPv6 池的高性能 Google Earth 数据获取系统。使用 Go uTLS 完美模拟 Chrome 浏览器指纹，配合会话管理绕过 Google 检测。
 
 ## ⚡ 快速开始
 
@@ -127,67 +127,54 @@ zeromaps-rpc/
 ├── Caddyfile          # Caddy配置模板
 ├── public/            # 统一管理面板
 │   └── index.html
-├── configs/           # VPS配置（7个）
-├── server/            # 服务端代码
+├── configs/           # VPS配置文件
+├── utls-proxy/        # Go uTLS 代理（模拟 Chrome TLS 指纹）
+│   ├── main.go        # uTLS 代理主程序
+│   └── build.sh       # 编译脚本
+├── server/            # Node.js 服务端
 │   ├── index.ts       # 入口
-│   ├── rpc-server.ts  # RPC服务器
-│   ├── ipv6-pool.ts   # IPv6池管理
-│   ├── curl-fetcher.ts # Curl执行器
+│   ├── rpc-server.ts  # RPC 服务器
+│   ├── ipv6-pool.ts   # IPv6 池管理
+│   ├── utls-fetcher.ts # uTLS Fetcher
 │   └── monitor-server.ts # 监控服务器
-└── client/            # 客户端SDK
+└── client/            # 客户端 SDK
 ```
 
 ## 📈 性能指标
 
-- **QPS**: 15-20 req/s（单服务器）
-- **成功率**: >99.5%
-- **平均响应时间**: 200-300ms
-- **IPv6池**: 100个地址
-- **负载平衡度**: <2
+- **QPS**: 10-15 req/s（单服务器）
+- **成功率**: >99%（配合 Cookie 会话）
+- **平均响应时间**: 150-300ms
+- **IPv6 池**: 100 个地址（可选）
+- **uTLS 内存**: ~15MB（Go 代理）
+- **主服务内存**: ~70MB（Node.js）
 
-## 🚀 请求方式切换
+## 🔧 技术方案
 
-系统支持两种 HTTP 请求方式，可通过环境变量切换：
+### Go uTLS 代理（唯一方案）
 
-### 方式1: Node.js 原生 HTTP/2（默认，推荐）
-```bash
-# 不设置或设置为 http（默认）
-export FETCHER_TYPE=http
+使用 Go + [uTLS](https://github.com/refraction-networking/utls) 完美模拟 Chrome 120 浏览器：
+
+**核心特性：**
+- ✅ **完美 TLS 指纹**：100% 模拟 Chrome 120 的 TLS ClientHello
+- ✅ **HTTP/2 支持**：原生 HTTP/2 协议支持
+- ✅ **Cookie 会话管理**：自动从 earth.google.com 获取会话 Cookie
+- ✅ **极低内存占用**：单进程 ~15MB，处理所有请求
+- ✅ **IPv4/IPv6 双栈**：自动适配网络环境
+
+**工作流程：**
+```
+1. 访问 earth.google.com/web/ → 获取真实 Cookie
+2. 使用 uTLS 模拟 Chrome TLS 指纹
+3. 带着 Cookie 请求 kh.google.com API
+4. Google 识别为："真实浏览器用户" ✓
 ```
 
-**优势**：
-- ✅ **连接复用**：同域名请求共享连接，大幅降低延迟
-- ✅ **HTTP/2 多路复用**：一个连接同时处理多个请求
-- ✅ **内存占用低**：无需启动外部进程（15-20MB/并发）
-- ✅ **DNS缓存**：减少 DNS 查询时间
-- ✅ **TLS指纹**：模拟 Chrome 116 TLS 握手参数
-- ⚡ **性能优异**：响应时间 500-800ms
-
-**TLS 指纹配置**：
-- 支持 TLS 1.2/1.3
-- Chrome 116 加密套件顺序
-- ALPN: h2, http/1.1
-
-### 方式2: 系统 curl（备选）
+**配置：**
 ```bash
-# 设置为 curl 切换
-export FETCHER_TYPE=curl
+UTLS_PROXY_PORT=8765    # uTLS 代理端口
+UTLS_CONCURRENCY=10     # 并发数
 ```
-
-**优势**：
-- ✅ 系统自带，无需额外安装
-- ✅ 轻量稳定
-- ❌ 每个请求启动独立进程
-- ❌ 无连接复用
-
-### 性能对比
-
-| 指标 | HTTP/2（默认） | 系统 curl |
-|------|---------------|-----------|
-| 平均响应时间 | 500-800ms | 1000-1500ms |
-| 内存占用 | 300MB | 500MB |
-| 连接复用 | 80%+ | 0% |
-| CPU 占用 | 低 | 中等 |
 
 ## License
 
