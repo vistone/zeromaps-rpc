@@ -66,7 +66,10 @@ export class MonitorServer {
           const stats = await this.rpcServer.getStats()
           const statsResponse: WsResponse = {
             type: 'stats',
-            data: stats
+            data: {
+              version: VERSION,  // 添加版本号
+              ...stats
+            }
           }
           ws.send(JSON.stringify(statsResponse))
         }
