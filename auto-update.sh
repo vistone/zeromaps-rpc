@@ -162,8 +162,22 @@ else
     fi
 fi
 
-# 2. 检查依赖变化
-log "[2/5] 检查依赖..."
+# 2. 检查并更新 ecosystem.config.cjs（自动添加 FETCHER_TYPE）
+log "[2/6] 检查 PM2 配置..."
+if [ -f "ecosystem.config.cjs" ]; then
+    # 检查是否已有 FETCHER_TYPE 配置
+    if ! grep -q "FETCHER_TYPE" ecosystem.config.cjs; then
+        log "自动添加 FETCHER_TYPE 环境变量配置..."
+        # 在 IPV6_PREFIX 后面添加 FETCHER_TYPE
+        sed -i "/IPV6_PREFIX:/a\      FETCHER_TYPE: 'http',  // 使用 Node.js HTTP/2（自动添加）" ecosystem.config.cjs
+        log "✓ 已添加 FETCHER_TYPE: 'http'"
+    else
+        log "✓ FETCHER_TYPE 配置已存在"
+    fi
+fi
+
+# 3. 检查依赖变化
+log "[3/6] 检查依赖..."
 if git diff --name-only ${CURRENT_COMMIT} ${REMOTE_COMMIT} | grep -q "package.json"; then
     log "package.json 有变化，安装依赖..."
     if ! npm install 2>&1 | tee -a $LOG_FILE; then
@@ -174,8 +188,8 @@ else
     log "✓ 依赖无变化，跳过安装"
 fi
 
-# 3. 编译（如果需要）
-log "[3/5] 编译代码..."
+# 4. 编译（如果需要）
+log "[4/6] 编译代码..."
 
 # 检查PM2是否使用tsx运行（直接运行TS，不需要编译）
 PM2_INTERPRETER=$(pm2 jlist 2>/dev/null | grep -o '"interpreter":"[^"]*"' | head -1 | cut -d'"' -f4)
@@ -200,8 +214,8 @@ else
     log "⚠️  未找到 tsc 命令，跳过编译（使用运行时 TypeScript）"
 fi
 
-# 4. 重启PM2服务（彻底重启，清除 tsx 缓存）
-log "[4/5] 重启服务..."
+# 5. 重启PM2服务（彻底重启，清除 tsx 缓存）
+log "[5/6] 重启服务..."
 
 if pm2 list | grep -q "online\|stopped"; then
     # 检查是否使用 tsx（需要彻底重启清除缓存）
@@ -237,8 +251,8 @@ else
     log "⚠️  未找到 PM2 进程，跳过重启"
 fi
 
-# 5. 更新Caddy配置（如果需要）
-log "[5/5] 检查Caddy配置..."
+# 6. 更新Caddy配置（如果需要）
+log "[6/6] 检查Caddy配置..."
 if systemctl is-active caddy >/dev/null 2>&1; then
     if [ -f "/etc/caddy/Caddyfile" ]; then
         # 提取当前配置的域名
