@@ -814,7 +814,7 @@ export class MonitorServer {
             </div>
           </div>
           <div class="log-detail">
-            IPv6: \${log.ipv6 || 'N/A'} | 等待: \${log.waitTime}ms | 执行: \${log.curlTime}ms
+            IPv6: \${log.ipv6 || 'N/A'} | 等待: \${log.waitTime || 0}ms | 执行: \${log.duration || log.curlTime || 0}ms
             \${log.error ? ' | 错误: ' + log.error : ''}
           </div>
         </div>\`;
