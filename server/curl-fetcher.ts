@@ -79,16 +79,16 @@ export class CurlFetcher extends EventEmitter {
       const perProcessMem = 15  // 系统 curl 更轻量
       const optimal = Math.floor((totalMem - reservedMem) / perProcessMem)
 
-      // 范围：10-50
-      const concurrency = Math.max(10, Math.min(50, optimal))
+      // 范围：2-5（降低并发避免被 Google 封禁）
+      const concurrency = Math.max(2, Math.min(5, optimal))
 
       console.log(`📊 内存情况: 总内存=${totalMem.toFixed(0)}MB, 空闲=${freeMem.toFixed(0)}MB`)
-      console.log(`📊 计算得出最佳并发数: ${concurrency}`)
+      console.log(`📊 计算得出最佳并发数: ${concurrency}（降低以避免被封）`)
 
       return concurrency
     } catch (error) {
-      console.warn('⚠️ 无法计算最佳并发数，使用默认值 30')
-      return 30
+      console.warn('⚠️ 无法计算最佳并发数，使用默认值 3')
+      return 3
     }
   }
 
@@ -239,11 +239,16 @@ export class CurlFetcher extends EventEmitter {
       parts.push(`-X ${options.method}`)
     }
 
-    // 基本 Headers
+    // 模拟 Google Earth Web 客户端的完整 Headers
     parts.push(`-H 'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36'`)
     parts.push(`-H 'Accept: */*'`)
     parts.push(`-H 'Accept-Encoding: gzip, deflate, br'`)
     parts.push(`-H 'Accept-Language: zh-CN,zh;q=0.9,en;q=0.8'`)
+    parts.push(`-H 'Referer: https://earth.google.com/'`)
+    parts.push(`-H 'Origin: https://earth.google.com'`)
+    parts.push(`-H 'Sec-Fetch-Dest: empty'`)
+    parts.push(`-H 'Sec-Fetch-Mode: cors'`)
+    parts.push(`-H 'Sec-Fetch-Site: same-site'`)
 
     // 自定义 Headers
     if (options.headers) {
