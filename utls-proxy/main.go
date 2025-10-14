@@ -9,12 +9,26 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/net/http2"
+)
+
+// Cookie 会话管理
+type CookieSession struct {
+	cookies    []*http.Cookie
+	lastUpdate time.Time
+	mu         sync.RWMutex
+}
+
+var (
+	globalSession = &CookieSession{}
+	sessionMutex  sync.Mutex
 )
 
 // 使用 uTLS 创建 HTTP 客户端，模拟 Chrome 120（支持 HTTP/2）
@@ -106,6 +120,63 @@ func decompressGzip(data []byte) ([]byte, error) {
 	return io.ReadAll(reader)
 }
 
+// 初始化或刷新会话（访问 earth.google.com 获取 Cookie）
+func refreshSession(client *http.Client, ipv6 string) error {
+	sessionMutex.Lock()
+	defer sessionMutex.Unlock()
+
+	// 检查会话是否有效（5分钟内不重复刷新）
+	globalSession.mu.RLock()
+	if time.Since(globalSession.lastUpdate) < 5*time.Minute && len(globalSession.cookies) > 0 {
+		globalSession.mu.RUnlock()
+		log.Printf("✓ 使用缓存的会话 Cookie（%d 个）", len(globalSession.cookies))
+		return nil
+	}
+	globalSession.mu.RUnlock()
+
+	log.Printf("🔄 刷新会话：访问 earth.google.com...")
+
+	// 访问 Google Earth 主页建立会话
+	req, err := http.NewRequest("GET", "https://earth.google.com/web/", nil)
+	if err != nil {
+		return err
+	}
+
+	// 设置基本 Headers
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	
+	// 读取并丢弃响应体（我们只要 Cookie）
+	io.Copy(io.Discard, resp.Body)
+
+	// 保存 Cookie
+	globalSession.mu.Lock()
+	globalSession.cookies = resp.Cookies()
+	globalSession.lastUpdate = time.Now()
+	globalSession.mu.Unlock()
+
+	log.Printf("✓ 会话已刷新，获得 %d 个 Cookie", len(resp.Cookies()))
+	for _, cookie := range resp.Cookies() {
+		log.Printf("  - %s=%s...", cookie.Name, cookie.Value[:min(20, len(cookie.Value))])
+	}
+
+	return nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // HTTP 代理处理器
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
@@ -121,6 +192,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 创建 uTLS 客户端
 	client := createUTLSClient(ipv6)
+	
+	// 检查是否需要刷新会话（针对 kh.google.com 的请求）
+	parsedURL, _ := url.Parse(targetURL)
+	if parsedURL.Host == "kh.google.com" {
+		if err := refreshSession(client, ipv6); err != nil {
+			log.Printf("⚠️  会话刷新失败（继续请求）: %v", err)
+		}
+	}
 
 	// 创建请求
 	req, err := http.NewRequest("GET", targetURL, nil)
@@ -149,6 +228,13 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
+	
+	// 添加从 earth.google.com 获取的会话 Cookie
+	globalSession.mu.RLock()
+	for _, cookie := range globalSession.cookies {
+		req.AddCookie(cookie)
+	}
+	globalSession.mu.RUnlock()
 
 	// 发送请求
 	resp, err := client.Do(req)
