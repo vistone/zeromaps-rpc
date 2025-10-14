@@ -115,14 +115,58 @@ source "$CONFIG_FILE"
 echo -e "${GREEN}✓ 加载配置: ${SERVER_NAME:-未命名} (${SERVER_DOMAIN:-无域名})${NC}"
 echo ""
 
-# 检测是否需要配置 IPv6
-ENABLE_IPV6=false
-if [ -n "$IPV6_PREFIX" ] && [ -n "$INTERFACE" ] && [ -n "$REMOTE_IP" ]; then
-  ENABLE_IPV6=true
-  echo -e "${BLUE}📍 检测到 IPv6 配置，将配置 IPv6 隧道和地址池${NC}"
+# ==========================================
+# 自动检测系统是否支持 IPv6
+# ==========================================
+echo -e "${YELLOW}检测系统 IPv6 支持...${NC}"
+
+HAS_SYSTEM_IPV6=false
+
+# 1. 检查内核是否支持 IPv6
+if [ -f "/proc/net/if_inet6" ]; then
+  echo "  ✓ 内核支持 IPv6"
+  
+  # 2. 检查是否有非本地的 IPv6 地址（排除 ::1 和 fe80）
+  if ip -6 addr show | grep -q "inet6.*scope global"; then
+    echo "  ✓ 系统已有全局 IPv6 地址"
+    HAS_SYSTEM_IPV6=true
+  else
+    echo "  ⚠️  系统没有全局 IPv6 地址"
+  fi
+  
+  # 3. 测试 IPv6 连通性
+  if timeout 3 ping6 -c 1 2606:4700:4700::1111 >/dev/null 2>&1; then
+    echo "  ✓ IPv6 外网连通性正常"
+    HAS_SYSTEM_IPV6=true
+  else
+    echo "  ⚠️  IPv6 外网不可达"
+  fi
 else
-  echo -e "${YELLOW}📍 未配置 IPv6，将跳过 IPv6 相关步骤${NC}"
-  echo "   提示：如需使用 IPv6，请在配置文件中设置 IPV6_PREFIX, INTERFACE, REMOTE_IP"
+  echo "  ✗ 内核不支持 IPv6"
+fi
+
+# 决定是否启用 IPv6 配置
+ENABLE_IPV6=false
+
+if [ -n "$IPV6_PREFIX" ] && [ -n "$INTERFACE" ] && [ -n "$REMOTE_IP" ]; then
+  # 配置文件中有 IPv6 参数
+  ENABLE_IPV6=true
+  echo ""
+  echo -e "${BLUE}📍 配置文件中有 IPv6 参数，将配置 IPv6 隧道和地址池${NC}"
+elif [ "$HAS_SYSTEM_IPV6" = true ]; then
+  # 系统原生支持 IPv6，但配置文件中没有隧道参数
+  echo ""
+  echo -e "${BLUE}📍 系统原生支持 IPv6（无需隧道），跳过隧道配置${NC}"
+  echo "   将使用系统默认 IPv6 网络"
+  # 不启用 IPv6 池，使用系统默认路由
+  ENABLE_IPV6=false
+else
+  # 既没有配置也没有原生 IPv6
+  echo ""
+  echo -e "${YELLOW}📍 系统不支持 IPv6 或未配置 IPv6 隧道${NC}"
+  echo "   将使用 IPv4 网络"
+  echo "   提示：如需使用 IPv6 隧道，请在配置文件中设置 IPV6_PREFIX, INTERFACE, REMOTE_IP"
+  ENABLE_IPV6=false
 fi
 echo ""
 
