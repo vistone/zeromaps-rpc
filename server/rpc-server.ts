@@ -4,7 +4,6 @@
  */
 
 import * as net from 'net'
-import * as https from 'https'
 import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 import { CurlFetcher } from './curl-fetcher.js'
@@ -365,14 +364,17 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 检查节点健康状态（使用轻量级 Node.js 原生 HTTPS 请求）
+   * 检查节点健康状态（使用简单的 curl 命令）
    */
   private async checkHealth(): Promise<void> {
     try {
       const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
       
-      // 使用轻量级的原生 Node.js HTTPS 请求（不占用队列）
-      const result = await this.simpleHttpsRequest(testUrl)
+      // 使用随机 IPv6 地址
+      const ipv6 = this.ipv6Pool.getRandom()
+      
+      // 使用系统 curl 命令（简单、稳定）
+      const result = await this.simpleCurlCheck(testUrl, ipv6)
 
       this.healthStatus = {
         status: result.statusCode,
@@ -400,55 +402,27 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 简单的 HTTPS 请求（用于健康检查，不占用主请求队列）
+   * 使用 curl 命令检查健康状态
    */
-  private simpleHttpsRequest(url: string): Promise<{ statusCode: number; error?: string }> {
+  private async simpleCurlCheck(url: string, ipv6: string): Promise<{ statusCode: number; error?: string }> {
     return new Promise((resolve) => {
-      const parsedUrl = new URL(url)
+      const { exec } = require('child_process')
       
-      // 使用一个随机的 IPv6 地址
-      const ipv6 = this.ipv6Pool.getRandom()
+      // 使用系统 curl，-I 只获取 header（HEAD 请求），超时 5 秒
+      const cmd = `curl -I -s --max-time 5 --interface "${ipv6}" -6 "${url}"`
       
-      const options: https.RequestOptions = {
-        hostname: parsedUrl.hostname,
-        port: 443,
-        path: parsedUrl.pathname,
-        method: 'HEAD',  // 使用 HEAD 请求，更轻量
-        timeout: 5000,
-        family: 6,
-        // TLS 配置
-        minVersion: 'TLSv1.2',
-        maxVersion: 'TLSv1.3',
-        rejectUnauthorized: false,  // 允许自签名证书
-        lookup: (hostname: string, opts: any, callback: any) => {
-          // 强制使用 IPv6
-          callback(null, ipv6, 6)
-        },
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Accept': '*/*',
-          'Connection': 'close'  // 健康检查不需要保持连接
+      exec(cmd, (error: any, stdout: string, stderr: string) => {
+        if (error) {
+          resolve({ statusCode: 0, error: error.message })
+          return
         }
-      }
-
-      const req = https.request(options, (res) => {
-        // 丢弃响应数据
-        res.on('data', () => {})
-        res.on('end', () => {
-          resolve({ statusCode: res.statusCode || 0 })
-        })
+        
+        // 解析状态码：HTTP/2 200 或 HTTP/1.1 200
+        const match = stdout.match(/HTTP\/[\d.]+\s+(\d+)/)
+        const statusCode = match ? parseInt(match[1]) : 0
+        
+        resolve({ statusCode })
       })
-
-      req.on('error', (err: Error) => {
-        resolve({ statusCode: 0, error: err.message })
-      })
-
-      req.on('timeout', () => {
-        req.destroy()
-        resolve({ statusCode: 0, error: 'Request timeout' })
-      })
-
-      req.end()
     })
   }
 
