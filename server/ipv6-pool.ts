@@ -42,8 +42,10 @@ export class IPv6Pool {
       })
     }
     
-    console.log(`✓ IPv6 池初始化完成: ${this.addresses.length} 个地址`)
-    console.log(`  范围: ${this.addresses[0]} ~ ${this.addresses[this.addresses.length - 1]}`)
+    if (count > 0 && this.addresses.length > 0) {
+      console.log(`✓ IPv6 池初始化完成: ${this.addresses.length} 个地址`)
+      console.log(`  范围: ${this.addresses[0]} ~ ${this.addresses[this.addresses.length - 1]}`)
+    }
   }
 
   /**
