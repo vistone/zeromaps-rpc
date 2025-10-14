@@ -19,14 +19,18 @@ import (
 
 // 使用 uTLS 创建 HTTP 客户端，模拟 Chrome 120（支持 HTTP/2）
 func createUTLSClient(ipv6 string) *http.Client {
-	// 创建 HTTP/2 Transport，使用 uTLS 自定义 TLS 连接
+	// 创建 HTTP/2 Transport
 	transport := &http2.Transport{
+		AllowHTTP: false,
 		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
+			log.Printf("🔗 建立连接: %s (IPv6: %s)", addr, ipv6)
+			
 			// 如果指定了 IPv6，强制使用该地址
 			var dialer *net.Dialer
 			if ipv6 != "" {
 				localAddr, err := net.ResolveIPAddr("ip6", ipv6)
 				if err != nil {
+					log.Printf("❌ 无效的 IPv6 地址: %v", err)
 					return nil, fmt.Errorf("invalid ipv6 address: %v", err)
 				}
 				dialer = &net.Dialer{
@@ -40,27 +44,37 @@ func createUTLSClient(ipv6 string) *http.Client {
 			// 建立 TCP 连接
 			rawConn, err := dialer.Dial("tcp6", addr)
 			if err != nil {
+				log.Printf("❌ TCP 连接失败: %v", err)
 				return nil, err
 			}
+			
+			log.Printf("✓ TCP 连接成功: %s", addr)
 
-			// 使用 uTLS 模拟 Chrome 120 的 TLS 指纹（完整支持 h2）
+			// 使用 uTLS 模拟 Chrome 120 的 TLS 指纹
 			tlsConfig := &utls.Config{
 				ServerName:         getHostFromAddr(addr),
 				InsecureSkipVerify: true,
+				NextProtos:         []string{"h2", "http/1.1"}, // 支持 HTTP/2
 			}
 
 			tlsConn := utls.UClient(rawConn, tlsConfig, utls.HelloChrome_120)
+			
+			log.Printf("🔐 开始 TLS 握手...")
 
 			// 执行 TLS 握手
 			err = tlsConn.Handshake()
 			if err != nil {
+				log.Printf("❌ TLS 握手失败: %v", err)
 				rawConn.Close()
 				return nil, err
 			}
+			
+			// 检查协商的协议
+			state := tlsConn.ConnectionState()
+			log.Printf("✓ TLS 握手成功，协议: %s", state.NegotiatedProtocol)
 
 			return tlsConn, nil
 		},
-		AllowHTTP: false,
 	}
 
 	return &http.Client{
