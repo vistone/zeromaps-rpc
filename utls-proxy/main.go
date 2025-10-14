@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -13,69 +14,61 @@ import (
 	"strconv"
 	"time"
 
-	tls "github.com/refraction-networking/utls"
+	utls "github.com/refraction-networking/utls"
+	"golang.org/x/net/http2"
 )
 
-// 使用 uTLS 创建 HTTP 客户端，模拟 Chrome 120
+// 使用 uTLS 创建 HTTP 客户端，模拟 Chrome 120（支持 HTTP/2）
 func createUTLSClient(ipv6 string) *http.Client {
-	return &http.Client{
-		Timeout: 30 * time.Second,
-		Transport: &http.Transport{
-			ForceAttemptHTTP2: false, // 禁用 HTTP/2，使用 HTTP/1.1（更稳定）
-			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-				// 如果指定了 IPv6，强制使用该地址
-				var dialer *net.Dialer
-				if ipv6 != "" {
-					localAddr, err := net.ResolveIPAddr("ip6", ipv6)
-					if err != nil {
-						return nil, fmt.Errorf("invalid ipv6 address: %v", err)
-					}
-					dialer = &net.Dialer{
-						Timeout:   10 * time.Second,
-						LocalAddr: &net.TCPAddr{IP: localAddr.IP},
-					}
-				} else {
-					dialer = &net.Dialer{Timeout: 10 * time.Second}
-				}
-
-				// 建立 TCP 连接
-				rawConn, err := dialer.DialContext(ctx, "tcp6", addr)
-				if err != nil {
-					return nil, err
-				}
-
-				// 使用 uTLS 模拟 Chrome 的 TLS 指纹
-				config := &tls.Config{
-					ServerName:         getHostFromAddr(addr),
-					InsecureSkipVerify: true,
-				}
-				
-				tlsConn := tls.UClient(rawConn, config, tls.HelloChrome_120)
-				
-				// 获取 ClientHello 扩展并修改 ALPN 为只支持 http/1.1
-				if err := tlsConn.BuildHandshakeState(); err != nil {
-					rawConn.Close()
-					return nil, err
-				}
-				
-				// 修改 ALPN 扩展
-				if tlsConn.HandshakeState.Hello.AlpnProtocols != nil {
-					tlsConn.HandshakeState.Hello.AlpnProtocols = []string{"http/1.1"}
-				}
-
-				// 执行 TLS 握手
-				err = tlsConn.Handshake()
-				if err != nil {
-					rawConn.Close()
-					return nil, err
-				}
-
-				return tlsConn, nil
-			},
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 10,
-			IdleConnTimeout:     90 * time.Second,
+	// 创建支持 HTTP/2 的 Transport
+	transport := &http2.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
 		},
+		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
+			// 如果指定了 IPv6，强制使用该地址
+			var dialer *net.Dialer
+			if ipv6 != "" {
+				localAddr, err := net.ResolveIPAddr("ip6", ipv6)
+				if err != nil {
+					return nil, fmt.Errorf("invalid ipv6 address: %v", err)
+				}
+				dialer = &net.Dialer{
+					Timeout:   10 * time.Second,
+					LocalAddr: &net.TCPAddr{IP: localAddr.IP},
+				}
+			} else {
+				dialer = &net.Dialer{Timeout: 10 * time.Second}
+			}
+
+			// 建立 TCP 连接
+			rawConn, err := dialer.Dial("tcp6", addr)
+			if err != nil {
+				return nil, err
+			}
+
+			// 使用 uTLS 模拟 Chrome 120 的 TLS 指纹（支持 h2）
+			tlsConfig := &utls.Config{
+				ServerName:         getHostFromAddr(addr),
+				InsecureSkipVerify: true,
+			}
+
+			tlsConn := utls.UClient(rawConn, tlsConfig, utls.HelloChrome_120)
+
+			// 执行 TLS 握手
+			err = tlsConn.Handshake()
+			if err != nil {
+				rawConn.Close()
+				return nil, err
+			}
+
+			return tlsConn, nil
+		},
+	}
+
+	return &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
 	}
 }
 
