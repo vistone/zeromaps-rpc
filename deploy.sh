@@ -339,27 +339,48 @@ echo ""
 echo -e "${YELLOW}[6/8] 安装 Go 和编译 uTLS 代理...${NC}"
 
 # 检查 Go 是否已安装
-if ! command -v go &>/dev/null; then
+# 先检查 /usr/local/go/bin/go 是否存在（即使 PATH 未设置）
+if [ -f "/usr/local/go/bin/go" ]; then
+  export PATH=$PATH:/usr/local/go/bin
+  GO_VERSION=$(/usr/local/go/bin/go version | awk '{print $3}')
+  echo -e "${GREEN}✓ Go 已安装: $GO_VERSION，跳过安装${NC}"
+elif command -v go &>/dev/null; then
+  GO_VERSION=$(go version | awk '{print $3}')
+  echo -e "${GREEN}✓ Go 已安装: $GO_VERSION，跳过安装${NC}"
+else
   echo "安装 Go 1.21.5..."
   
   cd /tmp
   
-  # 下载 Go
-  if [ ! -f "go1.21.5.linux-amd64.tar.gz" ]; then
+  # 下载 Go（如果缓存文件存在则跳过）
+  if [ -f "go1.21.5.linux-amd64.tar.gz" ]; then
+    echo -e "${GREEN}✓ 使用缓存的 Go 安装包${NC}"
+  else
     echo "  下载 Go 安装包..."
     wget -q --show-progress https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
   fi
   
   # 解压到 /usr/local
   echo "  安装 Go..."
+  
+  # 如果已存在旧版本，先删除
+  if [ -d "/usr/local/go" ]; then
+    echo "  删除旧版本..."
+    sudo rm -rf /usr/local/go
+  fi
+  
   sudo tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
   
   # 添加到 PATH
   export PATH=$PATH:/usr/local/go/bin
-  echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
   
-  # 清理下载文件
-  rm -f go1.21.5.linux-amd64.tar.gz
+  # 添加到 bashrc（避免重复添加）
+  if ! grep -q '/usr/local/go/bin' ~/.bashrc; then
+    echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+  fi
+  
+  # 保留下载文件以备将来使用（不删除）
+  echo "  保留安装包缓存: /tmp/go1.21.5.linux-amd64.tar.gz"
   
   if command -v go &>/dev/null; then
     echo -e "${GREEN}✓ Go 安装成功: $(go version)${NC}"
@@ -367,9 +388,6 @@ if ! command -v go &>/dev/null; then
     echo -e "${RED}✗ Go 安装失败${NC}"
     exit 1
   fi
-else
-  GO_VERSION=$(go version | awk '{print $3}')
-  echo -e "${GREEN}✓ Go 已安装: $GO_VERSION${NC}"
 fi
 
 # 编译 uTLS 代理
