@@ -54,12 +54,12 @@ export class CurlFetcher extends EventEmitter {
     super()
     this.ipv6Pool = ipv6Pool || null
 
-    // 并发数优先级：参数 > 环境变量 > 默认值(25)
+    // 并发数优先级：参数 > 环境变量 > 自动计算（默认1-2）
     const finalConcurrency = concurrency
       || parseInt(process.env.CURL_CONCURRENCY || '0')
       || this.calculateOptimalConcurrency()
 
-    console.log(`🚀 CurlFetcher 初始化: 并发数=${finalConcurrency}, 使用系统 curl`)
+    console.log(`🚀 CurlFetcher 初始化: 并发数=${finalConcurrency}, 使用系统 curl, 随机延迟=100-500ms`)
 
     // fastq 队列，管理请求分发
     this.queue = fastq.promise(this.worker.bind(this), finalConcurrency)
@@ -79,16 +79,16 @@ export class CurlFetcher extends EventEmitter {
       const perProcessMem = 15  // 系统 curl 更轻量
       const optimal = Math.floor((totalMem - reservedMem) / perProcessMem)
 
-      // 范围：2-5（降低并发避免被 Google 封禁）
-      const concurrency = Math.max(2, Math.min(5, optimal))
+      // 范围：1-2（极低并发避免被 Google 封禁）
+      const concurrency = Math.max(1, Math.min(2, optimal))
 
       console.log(`📊 内存情况: 总内存=${totalMem.toFixed(0)}MB, 空闲=${freeMem.toFixed(0)}MB`)
-      console.log(`📊 计算得出最佳并发数: ${concurrency}（降低以避免被封）`)
+      console.log(`📊 计算得出最佳并发数: ${concurrency}（极低并发避免被封）`)
 
       return concurrency
     } catch (error) {
-      console.warn('⚠️ 无法计算最佳并发数，使用默认值 3')
-      return 3
+      console.warn('⚠️ 无法计算最佳并发数，使用默认值 1')
+      return 1
     }
   }
 
@@ -133,10 +133,15 @@ export class CurlFetcher extends EventEmitter {
     }
 
     try {
-      // 1. 构建系统 curl 命令
+      // 1. 随机延迟 (100-500ms)，避免请求模式太规律
+      const randomDelay = Math.floor(Math.random() * 400) + 100
+      await new Promise(resolve => setTimeout(resolve, randomDelay))
+      console.log(`[Req#${requestId}]   ├─ 随机延迟: ${randomDelay}ms`)
+
+      // 2. 构建系统 curl 命令
       const curlCmd = this.buildCurlCommand(options, ipv6)
 
-      // 2. 执行 curl
+      // 3. 执行 curl
       const t3 = Date.now()
       console.log(`[Req#${requestId}]   ├─ 开始执行 curl via ${ipv6?.substring(0, 30)}...`)
 
@@ -150,11 +155,11 @@ export class CurlFetcher extends EventEmitter {
       const curlTime = Date.now() - t3
       console.log(`[Req#${requestId}]   ├─ curl 执行: ${curlTime}ms`)
 
-      // 3. 解析响应
+      // 4. 解析响应
       const parsedResult = this.parseResponse(stdout)
       console.log(`[Req#${requestId}]   ├─ 状态码: ${parsedResult.statusCode}, 数据: ${parsedResult.body.length} bytes`)
 
-      // 4. 记录统计
+      // 5. 记录统计
       const totalDuration = Date.now() - queuedAt
       const success = parsedResult.statusCode >= 200 && parsedResult.statusCode < 300
       if (ipv6 && this.ipv6Pool) {
