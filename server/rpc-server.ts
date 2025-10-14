@@ -367,23 +367,20 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 检查节点健康状态（使用简单的 curl 命令）
+   * 检查节点健康状态（使用 uTLS Fetcher）
    */
   private async checkHealth(): Promise<void> {
     try {
       const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
 
-      // 使用随机 IPv6 地址
-      const ipv6 = this.ipv6Pool.getRandom()
-
-      // 使用系统 curl 命令（简单、稳定）
-      const result = await this.simpleCurlCheck(testUrl, ipv6)
+      // 使用 Fetcher 进行健康检查（与实际请求保持一致）
+      const result = await this.fetcher.fetch({ url: testUrl, timeout: 10000 })
 
       this.healthStatus = {
         status: result.statusCode,
         message: result.statusCode === 200 ? '正常' :
           result.statusCode === 403 ? '节点被拉黑' :
-            result.error || `HTTP ${result.statusCode}`,
+            `HTTP ${result.statusCode}`,
         lastCheck: Date.now()
       }
 
@@ -402,29 +399,6 @@ export class RpcServer extends EventEmitter {
       }
       console.error('❌ 健康检查失败:', error)
     }
-  }
-
-  /**
-   * 使用 curl 命令检查健康状态
-   */
-  private async simpleCurlCheck(url: string, ipv6: string): Promise<{ statusCode: number; error?: string }> {
-    return new Promise((resolve) => {
-      // 使用系统 curl，-i 包含 header（GET 请求），超时 5 秒
-      const cmd = `curl -i -s --max-time 5 --interface "${ipv6}" -6 "${url}"`
-
-      exec(cmd, (error, stdout, stderr) => {
-        if (error) {
-          resolve({ statusCode: 0, error: error.message })
-          return
-        }
-
-        // 解析状态码：HTTP/2 200 或 HTTP/1.1 200
-        const match = stdout.match(/HTTP\/[\d.]+\s+(\d+)/)
-        const statusCode = match ? parseInt(match[1]) : 0
-
-        resolve({ statusCode })
-      })
-    })
   }
 
   /**
