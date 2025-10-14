@@ -125,19 +125,26 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 设置 Chrome 浏览器的 Headers
+	// 设置完整的 Google Earth Web 客户端 Headers
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
 	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Referer", "https://earth.google.com/")
-	req.Header.Set("Origin", "https://earth.google.com")
+	
+	// 关键：必须有 Referer 和 Origin，否则会被识别为爬虫
+	if targetURL != "https://www.google.com" { // 测试 URL 除外
+		req.Header.Set("Referer", "https://earth.google.com/")
+		req.Header.Set("Origin", "https://earth.google.com")
+	}
+	
 	req.Header.Set("Sec-Fetch-Dest", "empty")
 	req.Header.Set("Sec-Fetch-Mode", "cors")
 	req.Header.Set("Sec-Fetch-Site", "same-site")
 	req.Header.Set("Sec-Ch-Ua", `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`)
 	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
 	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
 
 	// 发送请求
 	resp, err := client.Do(req)
