@@ -57,17 +57,17 @@ export class RpcServer extends EventEmitter {
     // 初始化 IPv6 地址池（100个地址）
     this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
 
-    // 根据环境变量选择 fetcher 类型（默认使用 HTTP/2）
-    const fetcherType = (process.env.FETCHER_TYPE || 'http').toLowerCase()
+    // 根据环境变量选择 fetcher 类型（默认使用 curl）
+    const fetcherType = (process.env.FETCHER_TYPE || 'curl').toLowerCase()
 
     if (fetcherType === 'curl') {
-      // 使用系统 curl（备选）
+      // 使用系统 curl（默认，因为 Node.js HTTP/2 无法通过 Google TLS 检测）
       console.log('🔧 使用系统 curl 请求')
       this.fetcher = new CurlFetcher(this.ipv6Pool) as IFetcher
       this.fetcherType = 'curl'
     } else {
-      // 使用 Node.js 原生 HTTP/2（默认）
-      console.log('🔧 使用 Node.js 原生 HTTP/2 请求（连接复用，TLS 指纹）')
+      // 使用 Node.js 原生 HTTP/2（备用，可能被 Google 拒绝）
+      console.log('🔧 使用 Node.js 原生 HTTP/2 请求（可能无法访问 Google）')
       this.fetcher = new HttpFetcher(this.ipv6Pool) as IFetcher
       this.fetcherType = 'http'
     }
