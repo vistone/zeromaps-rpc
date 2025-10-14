@@ -1,11 +1,7 @@
 /**
  * Node.js 原生 HTTP/HTTPS 请求执行器
- * 支持连接复用、HTTP/2、自定义 TLS 指纹
- * 相比 curl-impersonate 的优势：
- * - 连接复用（Keep-Alive）
- * - 无需启动外部进程
- * - 更低的内存占用
- * - DNS 缓存
+ * 使用 Node.js 默认配置，不模拟浏览器指纹
+ * 每次请求创建新连接，避免连接复用被检测
  */
 
 import * as http2 from 'http2'
@@ -45,8 +41,9 @@ interface HttpTask {
 class Http2ConnectionPool {
     private connections = new Map<string, http2.ClientHttp2Session>()
     private connectionUsage = new Map<string, number>()
-    private maxConnectionAge = 5 * 60 * 1000 // 5分钟后关闭连接
+    private maxConnectionAge = 2 * 60 * 1000 // 2分钟后关闭连接（缩短避免连接过期）
     private connectionTimestamps = new Map<string, number>()
+    private connectionErrors = new Map<string, number>() // 记录连接错误次数
 
     /**
      * 获取或创建 HTTP/2 连接
@@ -58,13 +55,19 @@ class Http2ConnectionPool {
         if (this.connections.has(key)) {
             const conn = this.connections.get(key)!
             const timestamp = this.connectionTimestamps.get(key)!
+            const errorCount = this.connectionErrors.get(key) || 0
 
-            // 检查连接是否过期或已关闭
-            if (!conn.closed && !conn.destroyed && Date.now() - timestamp < this.maxConnectionAge) {
+            // 检查连接是否健康：未关闭、未过期、错误次数少
+            const isHealthy = !conn.closed && !conn.destroyed &&
+                Date.now() - timestamp < this.maxConnectionAge &&
+                errorCount < 3  // 如果错误超过3次，关闭重建
+
+            if (isHealthy) {
                 this.connectionUsage.set(key, (this.connectionUsage.get(key) || 0) + 1)
                 return conn
             } else {
-                // 清理旧连接
+                // 清理不健康的连接
+                console.log(`[HTTP2] 清理不健康连接 (${key}): closed=${conn.closed}, destroyed=${conn.destroyed}, age=${Date.now() - timestamp}ms, errors=${errorCount}`)
                 this.closeConnection(key)
             }
         }
@@ -89,11 +92,18 @@ class Http2ConnectionPool {
         this.connections.set(key, client)
         this.connectionUsage.set(key, 1)
         this.connectionTimestamps.set(key, Date.now())
+        this.connectionErrors.set(key, 0)
 
         // 监听错误和关闭事件
         client.on('error', (err) => {
-            console.warn(`[HTTP2] 连接错误 (${key}):`, err.message)
-            this.closeConnection(key)
+            const errorCount = (this.connectionErrors.get(key) || 0) + 1
+            this.connectionErrors.set(key, errorCount)
+            console.warn(`[HTTP2] 连接错误 (${key}, 错误次数: ${errorCount}):`, err.message)
+
+            // 如果错误次数过多，立即关闭连接
+            if (errorCount >= 3) {
+                this.closeConnection(key)
+            }
         })
 
         client.on('close', () => {
@@ -114,6 +124,7 @@ class Http2ConnectionPool {
         this.connections.delete(key)
         this.connectionUsage.delete(key)
         this.connectionTimestamps.delete(key)
+        this.connectionErrors.delete(key)
     }
 
     /**
@@ -142,50 +153,19 @@ class Http2ConnectionPool {
 }
 
 /**
- * Chrome 116 TLS 指纹配置
+ * 简单的 TLS 配置（使用 Node.js 默认值）
  */
-const CHROME_116_TLS_CONFIG: tls.ConnectionOptions = {
-    minVersion: 'TLSv1.2',
-    maxVersion: 'TLSv1.3',
-    ciphers: [
-        'TLS_AES_128_GCM_SHA256',
-        'TLS_AES_256_GCM_SHA384',
-        'TLS_CHACHA20_POLY1305_SHA256',
-        'ECDHE-ECDSA-AES128-GCM-SHA256',
-        'ECDHE-RSA-AES128-GCM-SHA256',
-        'ECDHE-ECDSA-AES256-GCM-SHA384',
-        'ECDHE-RSA-AES256-GCM-SHA384',
-        'ECDHE-ECDSA-CHACHA20-POLY1305',
-        'ECDHE-RSA-CHACHA20-POLY1305',
-        'ECDHE-RSA-AES128-SHA',
-        'ECDHE-RSA-AES256-SHA',
-        'AES128-GCM-SHA256',
-        'AES256-GCM-SHA384',
-        'AES128-SHA',
-        'AES256-SHA'
-    ].join(':'),
-    // ALPN 协议（HTTP/2 优先）
-    ALPNProtocols: ['h2', 'http/1.1'],
-    // 允许未授权的证书（生产环境建议设为 false）
-    rejectUnauthorized: false
+const SIMPLE_TLS_CONFIG: tls.ConnectionOptions = {
+    // 使用 Node.js 默认配置，不模拟浏览器指纹
+    rejectUnauthorized: false  // 允许自签名证书
 }
 
 /**
- * Chrome 浏览器 Headers
+ * 简单的 HTTP Headers（不模拟浏览器）
  */
-const CHROME_116_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36',
-    'Accept': '*/*',
-    'Accept-Encoding': 'gzip, deflate, br',
-    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-    'Cache-Control': 'no-cache',
-    'Pragma': 'no-cache',
-    'Sec-Ch-Ua': '"Chromium";v="116", "Not)A;Brand";v="24", "Google Chrome";v="116"',
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': '"Windows"',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'none'
+const SIMPLE_HEADERS = {
+    'User-Agent': 'Mozilla/5.0',
+    'Accept': '*/*'
 }
 
 export class HttpFetcher extends EventEmitter {
@@ -194,7 +174,7 @@ export class HttpFetcher extends EventEmitter {
     private concurrentRequests = 0
     private maxConcurrent = 0
     private queue: queueAsPromised<HttpTask, FetchResult>
-    private connectionPool: Http2ConnectionPool
+    private connectionPool: Http2ConnectionPool  // 保留但不使用
     private useHttp2 = true  // 是否使用 HTTP/2
 
     constructor(
@@ -203,11 +183,11 @@ export class HttpFetcher extends EventEmitter {
     ) {
         super()
         this.ipv6Pool = ipv6Pool || null
-        this.connectionPool = new Http2ConnectionPool()
+        this.connectionPool = new Http2ConnectionPool()  // 保留兼容性
 
         const finalConcurrency = concurrency || parseInt(process.env.HTTP_CONCURRENCY || '25')
 
-        console.log(`🚀 HttpFetcher 初始化: 并发数=${finalConcurrency}, HTTP/2=${this.useHttp2}`)
+        console.log(`🚀 HttpFetcher 初始化: 并发数=${finalConcurrency}, HTTP/2=${this.useHttp2}, 使用 Node.js 原生配置`)
 
         this.queue = fastq.promise(this.worker.bind(this), finalConcurrency)
     }
@@ -312,7 +292,7 @@ export class HttpFetcher extends EventEmitter {
     }
 
     /**
-     * 使用 HTTP/2 发起请求（支持连接复用）
+     * 使用 HTTP/2 发起请求（每次创建新连接，避免连接复用被检测）
      */
     private async fetchHttp2(task: HttpTask): Promise<FetchResult> {
         const { requestId, options, ipv6 } = task
@@ -322,12 +302,33 @@ export class HttpFetcher extends EventEmitter {
             const startTime = Date.now()
 
             try {
-                // 获取或创建连接
-                const client = this.connectionPool.getConnection(
-                    `${parsedUrl.protocol}//${parsedUrl.host}`,
-                    ipv6,
-                    CHROME_116_TLS_CONFIG
-                )
+                // 使用 Node.js 原生配置，不模拟浏览器指纹
+                const tlsOptions: http2.SecureClientSessionOptions = {
+                    ...SIMPLE_TLS_CONFIG,
+                    // 强制使用 IPv6
+                    lookup: (hostname, opts, callback) => {
+                        if (ipv6) {
+                            callback(null, ipv6, 6)
+                        } else {
+                            dns.lookup(hostname, { family: 6 }, callback)
+                        }
+                    }
+                }
+
+                const client = http2.connect(`${parsedUrl.protocol}//${parsedUrl.host}`, tlsOptions)
+
+                // 请求完成后立即关闭连接
+                const cleanupConnection = () => {
+                    if (!client.destroyed) {
+                        client.close()
+                    }
+                }
+
+                // 监听连接错误
+                client.on('error', (err) => {
+                    console.warn(`[HttpReq#${requestId}] 连接错误:`, err.message)
+                    cleanupConnection()
+                })
 
                 // 构建请求头
                 const headers = {
@@ -335,7 +336,7 @@ export class HttpFetcher extends EventEmitter {
                     ':path': parsedUrl.pathname + parsedUrl.search,
                     ':scheme': parsedUrl.protocol.replace(':', ''),
                     ':authority': parsedUrl.host,
-                    ...CHROME_116_HEADERS,
+                    ...SIMPLE_HEADERS,
                     ...options.headers
                 }
 
@@ -346,6 +347,7 @@ export class HttpFetcher extends EventEmitter {
                 const timeout = options.timeout || 10000
                 const timer = setTimeout(() => {
                     req.destroy(new Error('Request timeout'))
+                    cleanupConnection()
                 }, timeout)
 
                 const chunks: Buffer[] = []
@@ -369,6 +371,9 @@ export class HttpFetcher extends EventEmitter {
 
                     console.log(`[HttpReq#${requestId}]   ├─ HTTP/2 请求: ${requestTime}ms, 状态码: ${statusCode}, 数据: ${body.length} bytes`)
 
+                    // 关闭连接
+                    cleanupConnection()
+
                     resolve({
                         statusCode,
                         headers: this.normalizeHeaders(responseHeaders),
@@ -378,6 +383,7 @@ export class HttpFetcher extends EventEmitter {
 
                 req.on('error', (err) => {
                     clearTimeout(timer)
+                    cleanupConnection()
                     reject(err)
                 })
 
@@ -405,12 +411,12 @@ export class HttpFetcher extends EventEmitter {
                 path: parsedUrl.pathname + parsedUrl.search,
                 method: options.method || 'GET',
                 headers: {
-                    ...CHROME_116_HEADERS,
+                    ...SIMPLE_HEADERS,
                     'Host': parsedUrl.host,
                     ...options.headers
                 },
                 timeout: options.timeout || 10000,
-                ...CHROME_116_TLS_CONFIG,
+                ...SIMPLE_TLS_CONFIG,
                 // 强制使用 IPv6
                 family: 6,
                 lookup: (hostname, opts, callback) => {
