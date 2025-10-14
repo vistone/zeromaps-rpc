@@ -60,7 +60,7 @@ export class RpcServer extends EventEmitter {
 
     // 根据环境变量选择 fetcher 类型
     const fetcherType = (process.env.FETCHER_TYPE || 'curl').toLowerCase()
-    
+
     if (fetcherType === 'http' || fetcherType === 'native') {
       // 使用 Node.js 原生 HTTP/2
       console.log('🔧 使用 Node.js 原生 HTTP/2 请求（连接复用，TLS 指纹）')
@@ -312,7 +312,7 @@ export class RpcServer extends EventEmitter {
    */
   public async getStats() {
     const systemStats = await this.systemMonitor.getStats()
-    
+
     return {
       totalClients: this.clients.size,
       fetcherType: this.fetcherType,
@@ -370,18 +370,18 @@ export class RpcServer extends EventEmitter {
   private async checkHealth(): Promise<void> {
     try {
       const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
-      
+
       // 使用随机 IPv6 地址
       const ipv6 = this.ipv6Pool.getRandom()
-      
+
       // 使用系统 curl 命令（简单、稳定）
       const result = await this.simpleCurlCheck(testUrl, ipv6)
 
       this.healthStatus = {
         status: result.statusCode,
-        message: result.statusCode === 200 ? '正常' : 
-                 result.statusCode === 403 ? '节点被拉黑' :
-                 result.error || `HTTP ${result.statusCode}`,
+        message: result.statusCode === 200 ? '正常' :
+          result.statusCode === 403 ? '节点被拉黑' :
+            result.error || `HTTP ${result.statusCode}`,
         lastCheck: Date.now()
       }
 
@@ -409,17 +409,17 @@ export class RpcServer extends EventEmitter {
     return new Promise((resolve) => {
       // 使用系统 curl，-i 包含 header（GET 请求），超时 5 秒
       const cmd = `curl -i -s --max-time 5 --interface "${ipv6}" -6 "${url}"`
-      
+
       exec(cmd, (error, stdout, stderr) => {
         if (error) {
           resolve({ statusCode: 0, error: error.message })
           return
         }
-        
+
         // 解析状态码：HTTP/2 200 或 HTTP/1.1 200
         const match = stdout.match(/HTTP\/[\d.]+\s+(\d+)/)
         const statusCode = match ? parseInt(match[1]) : 0
-        
+
         resolve({ statusCode })
       })
     })

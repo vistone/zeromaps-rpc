@@ -4,8 +4,17 @@
  */
 
 import * as http from 'http'
+import * as fs from 'fs'
+import * as path from 'path'
+import { fileURLToPath } from 'url'
 import WebSocket, { WebSocketServer } from 'ws'
 import { RpcServer } from './rpc-server.js'
+
+// 读取版本号
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, '../package.json'), 'utf-8'))
+const VERSION = packageJson.version
 
 interface WsMessage {
   type: 'fetch' | 'ping'
@@ -185,6 +194,7 @@ export class MonitorServer {
     const detailedStats = ipv6Pool.getDetailedStats()
 
     const data = {
+      version: VERSION,  // 添加版本号
       timestamp: Date.now(),
       clients: stats.totalClients,
       fetcherType: stats.fetcherType,

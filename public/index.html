@@ -427,6 +427,9 @@
           return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
         }
 
+        // 获取版本号
+        const version = stats.version || '-';
+        
         return '<div class="node-card online">' +
           '<div class="node-header">' +
           '<div class="node-name">' + node.name + '</div>' +
@@ -434,7 +437,8 @@
           '</div>' +
           '<div class="node-info">' +
           node.domain + '<br>' +
-          node.ip +
+          node.ip + '<br>' +
+          '<span style="font-size: 0.85em; color: #888;">版本: ' + version + '</span>' +
           '</div>' +
 
           // 系统资源
