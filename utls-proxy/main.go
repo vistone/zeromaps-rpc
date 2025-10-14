@@ -44,11 +44,24 @@ func createUTLSClient(ipv6 string) *http.Client {
 					return nil, err
 				}
 
-				// 使用 uTLS 模拟 Chrome 120 的 TLS 指纹
-				tlsConn := tls.UClient(rawConn, &tls.Config{
+				// 使用 uTLS 模拟 Chrome 的 TLS 指纹
+				config := &tls.Config{
 					ServerName:         getHostFromAddr(addr),
-					InsecureSkipVerify: true, // 生产环境建议设为 false
-				}, tls.HelloChrome_120)
+					InsecureSkipVerify: true,
+				}
+				
+				tlsConn := tls.UClient(rawConn, config, tls.HelloChrome_120)
+				
+				// 获取 ClientHello 扩展并修改 ALPN 为只支持 http/1.1
+				if err := tlsConn.BuildHandshakeState(); err != nil {
+					rawConn.Close()
+					return nil, err
+				}
+				
+				// 修改 ALPN 扩展
+				if tlsConn.HandshakeState.Hello.AlpnProtocols != nil {
+					tlsConn.HandshakeState.Hello.AlpnProtocols = []string{"http/1.1"}
+				}
 
 				// 执行 TLS 握手
 				err = tlsConn.Handshake()
