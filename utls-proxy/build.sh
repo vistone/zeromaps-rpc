@@ -7,20 +7,20 @@ echo "🔨 编译 uTLS Proxy..."
 
 cd "$(dirname "$0")"
 
-# 检查 Go 是否安装（智能查找）
+# 检查 Go 是否安装（优先使用新版本）
 GO_BIN=""
 
-# 1. 检查 PATH 中是否有 go
-if command -v go &> /dev/null; then
-    GO_BIN="go"
-# 2. 检查常见安装路径
-elif [ -f "/usr/local/go/bin/go" ]; then
+# 1. 优先检查 /usr/local/go（通常是手动安装的新版本）
+if [ -f "/usr/local/go/bin/go" ]; then
     GO_BIN="/usr/local/go/bin/go"
-    export PATH=$PATH:/usr/local/go/bin
-# 3. 检查用户目录
+    export PATH=/usr/local/go/bin:$PATH
+# 2. 检查用户目录
 elif [ -f "$HOME/go/bin/go" ]; then
     GO_BIN="$HOME/go/bin/go"
-    export PATH=$PATH:$HOME/go/bin
+    export PATH=$HOME/go/bin:$PATH
+# 3. 检查 PATH 中是否有 go（可能是系统旧版本）
+elif command -v go &> /dev/null; then
+    GO_BIN="go"
 else
     echo "❌ 错误: 未找到 Go"
     echo "请先安装 Go: https://go.dev/dl/"
