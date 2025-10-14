@@ -416,12 +416,18 @@ export class RpcServer extends EventEmitter {
         method: 'HEAD',  // 使用 HEAD 请求，更轻量
         timeout: 5000,
         family: 6,
+        // TLS 配置
+        minVersion: 'TLSv1.2',
+        maxVersion: 'TLSv1.3',
+        rejectUnauthorized: false,  // 允许自签名证书
         lookup: (hostname: string, opts: any, callback: any) => {
           // 强制使用 IPv6
           callback(null, ipv6, 6)
         },
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': '*/*',
+          'Connection': 'close'  // 健康检查不需要保持连接
         }
       }
 
