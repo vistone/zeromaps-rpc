@@ -21,6 +21,7 @@ func createUTLSClient(ipv6 string) *http.Client {
 	return &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
+			ForceAttemptHTTP2: false, // 禁用 HTTP/2，使用 HTTP/1.1（更稳定）
 			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 				// 如果指定了 IPv6，强制使用该地址
 				var dialer *net.Dialer
