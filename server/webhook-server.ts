@@ -5,6 +5,9 @@
 
 import * as http from 'http'
 import * as crypto from 'crypto'
+import { createLogger } from './logger.js'
+
+const logger = createLogger('WebhookServer')
 
 export class WebhookServer {
   private server: http.Server | null = null
@@ -31,11 +34,13 @@ export class WebhookServer {
     })
 
     this.server.listen(this.port, '0.0.0.0', () => {
-      console.log(`🎣 Webhook 服务器启动: http://0.0.0.0:${this.port}/webhook`)
-      if (this.secret) {
-        console.log(`   🔐 Secret 已配置，启用签名验证`)
-      } else {
-        console.warn(`   ⚠️  未配置 Secret，跳过签名验证（不安全）`)
+      logger.info('Webhook 服务器启动', {
+        url: `http://0.0.0.0:${this.port}/webhook`,
+        secretConfigured: !!this.secret
+      })
+
+      if (!this.secret) {
+        logger.warn('未配置 Secret，跳过签名验证（不安全）')
       }
     })
   }
@@ -80,7 +85,7 @@ export class WebhookServer {
       if (this.secret) {
         const signature = req.headers['x-hub-signature-256'] as string
         if (!signature) {
-          console.warn('❌ Webhook 请求缺少签名')
+          logger.warn('Webhook 请求缺少签名')
           res.writeHead(401)
           res.end('Missing signature')
           return
@@ -92,7 +97,7 @@ export class WebhookServer {
           .digest('hex')
 
         if (signature !== expectedSignature) {
-          console.warn('❌ Webhook 签名验证失败')
+          logger.warn('Webhook 签名验证失败')
           res.writeHead(401)
           res.end('Invalid signature')
           return
@@ -103,11 +108,11 @@ export class WebhookServer {
       const data = JSON.parse(payload)
       const event = req.headers['x-github-event'] as string
 
-      console.log(`🎣 收到 GitHub Webhook: ${event}`)
+      logger.info('收到 GitHub Webhook', { event })
 
       // 只处理 push 事件
       if (event !== 'push') {
-        console.log(`ℹ️  忽略事件类型: ${event}`)
+        logger.debug('忽略非 push 事件', { event })
         res.writeHead(200)
         res.end('OK')
         return
@@ -116,7 +121,7 @@ export class WebhookServer {
       // 检查是否是 master 分支
       const ref = data.ref
       if (ref !== 'refs/heads/master') {
-        console.log(`ℹ️  忽略非 master 分支: ${ref}`)
+        logger.debug('忽略非 master 分支', { ref })
         res.writeHead(200)
         res.end('OK')
         return
@@ -126,27 +131,24 @@ export class WebhookServer {
       const commits = data.commits || []
       const pusher = data.pusher?.name || 'unknown'
 
-      console.log(`📦 检测到 master 分支推送`)
-      console.log(`   推送者: ${pusher}`)
-      console.log(`   提交数: ${commits.length}`)
-
-      if (commits.length > 0) {
-        const lastCommit = commits[commits.length - 1]
-        console.log(`   最新提交: ${lastCommit.message}`)
-      }
+      logger.info('检测到 master 分支推送', {
+        pusher,
+        commitCount: commits.length,
+        lastCommit: commits.length > 0 ? commits[commits.length - 1].message : null
+      })
 
       // 触发更新（异步执行，立即返回响应）
       res.writeHead(200)
       res.end('Update triggered')
 
       // 在后台执行更新（不要 await，立即返回）
-      console.log(`🚀 准备触发自动更新...`)
+      logger.info('准备触发自动更新')
       this.triggerUpdate().catch(err => {
-        console.error('❌ 触发更新异常:', err)
+        logger.error('触发更新异常', err)
       })
 
     } catch (error) {
-      console.error('❌ 处理 Webhook 失败:', error)
+      logger.error('处理 Webhook 失败', error as Error)
       res.writeHead(500)
       res.end('Internal Error')
     }
@@ -157,13 +159,12 @@ export class WebhookServer {
    */
   private async triggerUpdate(): Promise<void> {
     if (this.updating) {
-      console.log('⚠️  更新已在进行中，跳过')
+      logger.warn('更新已在进行中，跳过')
       return
     }
 
     this.updating = true
-    console.log('🚀 触发自动更新...')
-    console.log(`   执行: ${this.updateScript}`)
+    logger.info('触发自动更新', { script: this.updateScript })
 
     try {
       const { spawn } = await import('child_process')
@@ -171,29 +172,29 @@ export class WebhookServer {
       const child = spawn('bash', [this.updateScript])
 
       child.stdout.on('data', (data) => {
-        console.log(`[更新] ${data.toString().trim()}`)
+        logger.info('[更新输出]', { output: data.toString().trim() })
       })
 
       child.stderr.on('data', (data) => {
-        console.error(`[更新错误] ${data.toString().trim()}`)
+        logger.warn('[更新错误输出]', { output: data.toString().trim() })
       })
 
       child.on('close', (code) => {
         if (code === 0) {
-          console.log('✅ 自动更新完成')
+          logger.info('自动更新完成')
         } else {
-          console.error(`❌ 自动更新失败，退出码: ${code}`)
+          logger.error('自动更新失败', undefined, { exitCode: code })
         }
         this.updating = false
       })
 
       child.on('error', (error) => {
-        console.error('❌ 自动更新执行失败:', error)
+        logger.error('自动更新执行失败', error)
         this.updating = false
       })
 
     } catch (error) {
-      console.error('❌ 自动更新启动失败:', error)
+      logger.error('自动更新启动失败', error as Error)
       this.updating = false
     }
   }
@@ -204,7 +205,7 @@ export class WebhookServer {
   public stop(): void {
     if (this.server) {
       this.server.close()
-      console.log('✓ Webhook 服务器已停止')
+      logger.info('Webhook 服务器已停止')
     }
   }
 }

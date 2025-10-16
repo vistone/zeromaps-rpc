@@ -9,6 +9,9 @@ import * as path from 'path'
 import { fileURLToPath } from 'url'
 import WebSocket, { WebSocketServer } from 'ws'
 import { RpcServer } from './rpc-server.js'
+import { createLogger } from './logger.js'
+
+const logger = createLogger('MonitorServer')
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -47,7 +50,7 @@ export class MonitorServer {
       const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'))
       return packageJson.version || 'unknown'
     } catch (error) {
-      console.warn('⚠️  读取版本号失败:', (error as Error).message)
+      logger.warn('读取版本号失败', { error: (error as Error).message })
       return 'unknown'
     }
   }
@@ -69,7 +72,7 @@ export class MonitorServer {
     // 处理 WebSocket 连接
     this.wss.on('connection', (ws: WebSocket, req) => {
       const clientIP = req.socket.remoteAddress
-      console.log(`🔗 WebSocket 客户端连接: ${clientIP}`)
+      logger.info('WebSocket 客户端连接', { clientIP })
 
       // 定时推送统计数据（每秒一次）
       const statsInterval = setInterval(async () => {
@@ -137,7 +140,10 @@ export class MonitorServer {
 
           // 数据请求
           if (msg.type === 'fetch' && msg.uri && msg.id) {
-            console.log(`📤 [WS] 收到请求: ${msg.uri.substring(0, 80)} (id=${msg.id})`)
+            logger.debug('[WS] 收到请求', {
+              uri: msg.uri.substring(0, 80),
+              id: msg.id
+            })
 
             try {
               const t1 = Date.now()
@@ -150,7 +156,11 @@ export class MonitorServer {
               const result = await fetcher.fetch({ url, timeout: 10000 })
 
               const duration = Date.now() - t1
-              console.log(`📥 [WS] 请求完成: ${duration}ms, 状态=${result.statusCode}, 大小=${result.body.length}`)
+              logger.debug('[WS] 请求完成', {
+                duration,
+                statusCode: result.statusCode,
+                size: result.body.length
+              })
 
               const response: WsResponse = {
                 type: 'response',
@@ -164,7 +174,7 @@ export class MonitorServer {
 
               ws.send(JSON.stringify(response))
             } catch (error) {
-              console.error(`❌ [WS] 请求失败:`, error)
+              logger.error('[WS] 请求失败', error as Error)
 
               const response: WsResponse = {
                 type: 'error',
@@ -175,25 +185,27 @@ export class MonitorServer {
             }
           }
         } catch (error) {
-          console.error('❌ 处理 WebSocket 消息失败:', error)
+          logger.error('处理 WebSocket 消息失败', error as Error)
         }
       })
 
       ws.on('close', () => {
-        console.log(`🔌 WebSocket 客户端断开: ${clientIP}`)
+        logger.info('WebSocket 客户端断开', { clientIP })
         clearInterval(statsInterval)  // 清理统计推送定时器
         this.rpcServer.off('requestLog', requestLogHandler)  // 移除请求日志监听器
       })
 
       ws.on('error', (error) => {
-        console.error('❌ WebSocket 错误:', error)
+        logger.error('WebSocket 错误', error)
       })
     })
 
     this.server.listen(this.port, () => {
-      console.log(`📊 监控服务器启动: http://0.0.0.0:${this.port}`)
-      console.log(`   HTTP API: http://0.0.0.0:${this.port}/api/*`)
-      console.log(`   WebSocket: ws://0.0.0.0:${this.port}/ws`)
+      logger.info('监控服务器启动', {
+        port: this.port,
+        httpApi: `http://0.0.0.0:${this.port}/api/*`,
+        websocket: `ws://0.0.0.0:${this.port}/ws`
+      })
     })
   }
 
@@ -330,7 +342,7 @@ export class MonitorServer {
       res.end(result.body)
 
     } catch (error) {
-      console.error('[HTTP API] 错误:', error)
+      logger.error('[HTTP API] 错误', error as Error)
       res.writeHead(500, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: (error as Error).message }))
     }
@@ -839,7 +851,7 @@ export class MonitorServer {
   public stop(): void {
     if (this.server) {
       this.server.close()
-      console.log('✓ 监控服务器已停止')
+      logger.info('监控服务器已停止')
     }
   }
 }

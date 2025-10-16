@@ -9,6 +9,7 @@ import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 import { UTLSFetcher } from './utls-fetcher.js'
 import { SystemMonitor } from './system-monitor.js'
+import { createLogger } from './logger.js'
 import {
   FrameType,
   DataType,
@@ -17,6 +18,8 @@ import {
   DataRequest,
   DataResponse
 } from '../proto/proto/zeromaps-rpc.js'
+
+const logger = createLogger('RpcServer')
 
 // 通用 Fetcher 接口
 interface IFetcher {
@@ -56,17 +59,25 @@ export class RpcServer extends EventEmitter {
     // 初始化 IPv6 地址池（如果提供了前缀）
     if (ipv6BasePrefix) {
       this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
-      console.log(`🌐 IPv6 地址池: ${ipv6BasePrefix}::1001 ~ ::1100 (100个地址)`)
+      logger.info('IPv6 地址池已配置', {
+        prefix: ipv6BasePrefix,
+        range: '::1001 ~ ::1100',
+        count: 100
+      })
     } else {
       // 创建空的 IPv6 池（不使用 IPv6）
       this.ipv6Pool = new IPv6Pool('', 0, 0)
-      console.warn('⚠️  未使用 IPv6 地址池（使用默认网络）')
+      logger.warn('未使用 IPv6 地址池（使用默认网络）')
     }
 
     // 只使用 uTLS 代理（完美模拟 Chrome TLS 指纹 + 会话管理）
-    console.log('🔧 使用 uTLS 代理（模拟 Chrome 120 TLS 指纹 + Cookie 会话）')
     const proxyPort = parseInt(process.env.UTLS_PROXY_PORT || '8765')
     const concurrency = parseInt(process.env.UTLS_CONCURRENCY || '10')
+    logger.info('使用 uTLS 代理', {
+      browser: 'Chrome 120',
+      proxyPort,
+      concurrency
+    })
     this.fetcher = new UTLSFetcher(this.ipv6Pool, concurrency, proxyPort) as IFetcher
     this.fetcherType = 'utls'
 
@@ -95,9 +106,11 @@ export class RpcServer extends EventEmitter {
 
     return new Promise((resolve, reject) => {
       this.server!.listen(this.port, () => {
-        console.log(`🚀 ZeroMaps RPC 服务器启动: 端口 ${this.port}`)
-        console.log(`   IPv6 池: ${this.ipv6Pool.getAllAddresses().length} 个地址`)
-        console.log(`   Fetcher: ${this.fetcherType}`)
+        logger.info('RPC 服务器启动', {
+          port: this.port,
+          ipv6PoolSize: this.ipv6Pool.getAllAddresses().length,
+          fetcherType: this.fetcherType
+        })
         resolve()
       })
 
@@ -110,7 +123,7 @@ export class RpcServer extends EventEmitter {
    */
   private handleConnection(socket: net.Socket): void {
     const clientIP = socket.remoteAddress || 'unknown'
-    console.log(`[Server] 新连接: ${clientIP}`)
+    logger.info('新客户端连接', { clientIP })
 
     let buffer = Buffer.alloc(0)
 
@@ -125,14 +138,17 @@ export class RpcServer extends EventEmitter {
       for (const [clientID, session] of this.clients) {
         if (session.socket === socket) {
           this.clients.delete(clientID)
-          console.log(`[Server] 客户端 ${clientID} 断开连接 (共处理 ${session.requestCount} 个请求)`)
+          logger.info('客户端断开连接', {
+            clientID,
+            requestCount: session.requestCount
+          })
           break
         }
       }
     })
 
     socket.on('error', (err) => {
-      console.error(`[Server] Socket 错误:`, err.message)
+      logger.error('Socket 错误', err)
     })
   }
 
@@ -156,7 +172,7 @@ export class RpcServer extends EventEmitter {
 
       // 异步处理帧，不阻塞后续帧的读取（关键优化：避免堵塞）
       this.handleFrame(socket, frameType, payload).catch(error => {
-        console.error(`[Server] 处理帧错误:`, error)
+        logger.error('处理帧错误', error)
       })
     }
 
@@ -178,10 +194,10 @@ export class RpcServer extends EventEmitter {
           break
 
         default:
-          console.warn(`[Server] 未知帧类型: ${frameType}`)
+          logger.warn('未知帧类型', { frameType })
       }
     } catch (error) {
-      console.error(`[Server] 处理帧错误:`, error)
+      logger.error('处理帧错误', error as Error)
     }
   }
 
@@ -207,7 +223,11 @@ export class RpcServer extends EventEmitter {
 
       this.clients.set(clientID, session)
 
-      console.log(`[Server] 客户端握手成功: ID=${clientID}, IP=${clientIP}, Info=${request.clientInfo}`)
+      logger.info('客户端握手成功', {
+        clientID,
+        clientIP,
+        clientInfo: request.clientInfo
+      })
 
       // 发送握手响应
       const response = HandshakeResponse.encode({
@@ -218,7 +238,7 @@ export class RpcServer extends EventEmitter {
 
       this.sendFrame(socket, FrameType.HANDSHAKE_RESPONSE, Buffer.from(response))
     } catch (error) {
-      console.error(`[Server] 握手失败:`, error)
+      logger.error('握手失败', error as Error)
     }
   }
 
@@ -236,7 +256,10 @@ export class RpcServer extends EventEmitter {
         session.lastActiveAt = Date.now()
       }
 
-      console.log(`[Server] 数据请求: clientID=${request.clientID}, uri=${request.uri}`)
+      logger.debug('数据请求', {
+        clientID: request.clientID,
+        uri: request.uri.substring(0, 80)
+      })
 
       // 构建完整 URL
       const url = `https://kh.google.com/rt/earth/${request.uri}`
@@ -257,7 +280,7 @@ export class RpcServer extends EventEmitter {
 
       this.sendFrame(socket, FrameType.DATA_RESPONSE, Buffer.from(response))
     } catch (error) {
-      console.error(`[Server] 处理数据请求错误:`, error)
+      logger.error('处理数据请求错误', error as Error)
 
       // 发送错误响应
       const request = DataRequest.decode(payload)
@@ -339,7 +362,7 @@ export class RpcServer extends EventEmitter {
     if (this.server) {
       return new Promise((resolve) => {
         this.server!.close(() => {
-          console.log('✓ RPC 服务器已停止')
+          logger.info('RPC 服务器已停止')
           resolve()
         })
       })
@@ -385,11 +408,14 @@ export class RpcServer extends EventEmitter {
       }
 
       if (result.statusCode === 403) {
-        console.warn('⚠️  健康检查: 节点被 Google 拉黑 (403)')
+        logger.warn('健康检查: 节点被 Google 拉黑', { statusCode: 403 })
       } else if (result.statusCode === 200) {
-        console.log('✓ 健康检查: 节点正常')
+        logger.info('健康检查: 节点正常')
       } else {
-        console.warn(`⚠️  健康检查: ${this.healthStatus.message}`)
+        logger.warn('健康检查异常', {
+          statusCode: result.statusCode,
+          message: this.healthStatus.message
+        })
       }
     } catch (error) {
       this.healthStatus = {
@@ -397,7 +423,7 @@ export class RpcServer extends EventEmitter {
         message: (error as Error).message,
         lastCheck: Date.now()
       }
-      console.error('❌ 健康检查失败:', error)
+      logger.error('健康检查失败', error as Error)
     }
   }
 

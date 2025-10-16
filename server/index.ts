@@ -6,17 +6,18 @@ import { RpcServer } from './rpc-server.js'
 import { StatsExporter } from './stats-exporter.js'
 import { MonitorServer } from './monitor-server.js'
 import { WebhookServer } from './webhook-server.js'
+import { createLogger } from './logger.js'
+
+const logger = createLogger('MainProcess')
 
 // 全局错误处理，防止未捕获的异常导致进程崩溃
 process.on('uncaughtException', (error) => {
-  console.error('❌ 未捕获的异常:', error)
-  console.error('堆栈:', error.stack)
+  logger.error('未捕获的异常', error)
   // 不退出进程，继续运行
 })
 
 process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ 未处理的 Promise 拒绝:', reason)
-  console.error('Promise:', promise)
+  logger.error('未处理的 Promise 拒绝', reason as Error, { promise })
   // 不退出进程，继续运行
 })
 
@@ -29,16 +30,12 @@ const WEBHOOK_PORT = 9530
 const IPV6_PREFIX: string = process.env.IPV6_PREFIX || ''
 
 if (!IPV6_PREFIX) {
-  console.warn('⚠️  未设置 IPV6_PREFIX 环境变量')
-  console.warn('   将使用默认网络（不绑定 IPv6 地址）')
-  console.warn('   如需使用 IPv6，请在 ecosystem.config.cjs 中配置 IPV6_PREFIX')
+  logger.warn('未设置 IPV6_PREFIX 环境变量，将使用默认网络')
 }
 
 // 创建并启动服务器
 async function main() {
-  console.log('='.repeat(50))
-  console.log('ZeroMaps RPC 服务器')
-  console.log('='.repeat(50))
+  logger.info('ZeroMaps RPC 服务器启动中...')
 
   const server = new RpcServer(PORT, IPV6_PREFIX)
 
@@ -56,34 +53,24 @@ async function main() {
     // 定期打印统计信息
     setInterval(async () => {
       const stats = await server.getStats()
-      console.log('\n' + '='.repeat(50))
-      console.log('📊 服务器统计')
-      console.log('='.repeat(50))
-      console.log(`👥 在线客户端: ${stats.totalClients}`)
-      console.log(`📦 总请求数: ${stats.fetcherStats.totalRequests}`)
-      console.log(`⚡ 当前并发: ${stats.fetcherStats.concurrentRequests}`)
-      console.log(`📈 最大并发: ${stats.fetcherStats.maxConcurrent}`)
-
-      if (stats.system) {
-        console.log(`\n💻 系统资源:`)
-        console.log(`  ├─ CPU: ${stats.system.cpu.usage}% (${stats.system.cpu.cores} 核心)`)
-        console.log(`  ├─ 内存: ${stats.system.memory.used}MB / ${stats.system.memory.total}MB (${stats.system.memory.usage}%)`)
-        console.log(`  └─ 网络: ↓${formatBytes(stats.system.network.rx)}/s ↑${formatBytes(stats.system.network.tx)}/s`)
-      }
-
-      if (stats.ipv6Stats) {
-        console.log(`\n🌐 IPv6 池统计:`)
-        console.log(`  ├─ 总地址数: ${stats.ipv6Stats.totalAddresses}`)
-        console.log(`  ├─ 总请求数: ${stats.ipv6Stats.totalRequests}`)
-        console.log(`  ├─ 成功请求: ${stats.ipv6Stats.totalSuccess} (${stats.ipv6Stats.successRate}%)`)
-        console.log(`  ├─ 失败请求: ${stats.ipv6Stats.totalFailure}`)
-        console.log(`  ├─ 平均每IP: ${stats.ipv6Stats.averagePerIP} 次`)
-        console.log(`  ├─ 平衡度: ${stats.ipv6Stats.balance} (差值)`)
-        console.log(`  ├─ 平均响应时间: ${stats.ipv6Stats.avgResponseTime}ms`)
-        console.log(`  ├─ 运行时间: ${formatUptime(stats.ipv6Stats.uptime)}`)
-        console.log(`  └─ 请求速率: ${stats.ipv6Stats.requestsPerSecond} req/s`)
-      }
-      console.log('='.repeat(50) + '\n')
+      logger.info('服务器统计', {
+        clients: stats.totalClients,
+        totalRequests: stats.fetcherStats.totalRequests,
+        concurrent: stats.fetcherStats.concurrentRequests,
+        maxConcurrent: stats.fetcherStats.maxConcurrent,
+        system: stats.system ? {
+          cpu: `${stats.system.cpu.usage}%`,
+          memory: `${stats.system.memory.used}MB / ${stats.system.memory.total}MB (${stats.system.memory.usage}%)`,
+          network: `↓${formatBytes(stats.system.network.rx)}/s ↑${formatBytes(stats.system.network.tx)}/s`
+        } : null,
+        ipv6: stats.ipv6Stats ? {
+          totalAddresses: stats.ipv6Stats.totalAddresses,
+          totalRequests: stats.ipv6Stats.totalRequests,
+          successRate: `${stats.ipv6Stats.successRate}%`,
+          avgResponseTime: `${stats.ipv6Stats.avgResponseTime}ms`,
+          qps: `${stats.ipv6Stats.requestsPerSecond} req/s`
+        } : null
+      })
     }, 60000) // 每分钟打印一次
 
     // 格式化字节数
@@ -117,7 +104,7 @@ async function main() {
     // 手动导出命令（发送 SIGUSR1 信号触发）
     // 使用方法: kill -SIGUSR1 <进程ID>
     process.on('SIGUSR1', () => {
-      console.log('\n📤 收到导出信号，正在导出统计数据...')
+      logger.info('收到导出信号，正在导出统计数据...')
 
       try {
         const ipv6Pool = server.getIPv6Pool()
@@ -132,38 +119,38 @@ async function main() {
         // 显示Top 20
         StatsExporter.showTopIPs(ipv6Pool, 20)
       } catch (error) {
-        console.error('❌ 导出失败:', (error as Error).message)
+        logger.error('导出失败', error as Error)
       }
     })
 
     // 显示详细统计（发送 SIGUSR2 信号触发）
     // 使用方法: kill -SIGUSR2 <进程ID>
     process.on('SIGUSR2', () => {
-      console.log('\n📊 收到详细统计信号...')
+      logger.info('收到详细统计信号')
 
       try {
         const ipv6Pool = server.getIPv6Pool()
         StatsExporter.showDetailedStats(ipv6Pool)
       } catch (error) {
-        console.error('❌ 显示失败:', (error as Error).message)
+        logger.error('显示失败', error as Error)
       }
     })
 
     // 优雅退出
     process.on('SIGINT', async () => {
-      console.log('\n收到退出信号，正在关闭服务器...')
+      logger.info('收到退出信号，正在关闭服务器...')
       await server.stop()
       process.exit(0)
     })
 
     process.on('SIGTERM', async () => {
-      console.log('\n收到退出信号，正在关闭服务器...')
+      logger.info('收到退出信号，正在关闭服务器...')
       await server.stop()
       process.exit(0)
     })
 
   } catch (error) {
-    console.error('服务器启动失败:', error)
+    logger.error('服务器启动失败', error as Error)
     process.exit(1)
   }
 }

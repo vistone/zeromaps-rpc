@@ -8,6 +8,9 @@ import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
 import * as fastq from 'fastq'
 import type { queueAsPromised } from 'fastq'
+import { createLogger } from './logger.js'
+
+const logger = createLogger('UTLSFetcher')
 
 export interface FetchOptions {
   url: string
@@ -50,7 +53,10 @@ export class UTLSFetcher extends EventEmitter {
 
     const finalConcurrency = concurrency || parseInt(process.env.UTLS_CONCURRENCY || '10')
 
-    console.log(`🚀 UTLSFetcher 初始化: 并发数=${finalConcurrency}, 代理端口=${proxyPort}`)
+    logger.info('UTLSFetcher 初始化', {
+      concurrency: finalConcurrency,
+      proxyPort
+    })
 
     this.queue = fastq.promise(this.worker.bind(this), finalConcurrency)
   }
@@ -63,12 +69,15 @@ export class UTLSFetcher extends EventEmitter {
     const queuedAt = Date.now()
     const ipv6 = options.ipv6 || (this.ipv6Pool ? this.ipv6Pool.getHealthyNext() : null)
 
-    console.log(`[UTLSReq#${requestId}] 📥 接收请求: ${options.url.substring(0, 80)}`)
+    logger.debug('接收请求', {
+      requestId,
+      url: options.url.substring(0, 80)
+    })
 
     const result = await this.queue.push({ requestId, options, ipv6, queuedAt })
 
     const totalTime = Date.now() - queuedAt
-    console.log(`[UTLSReq#${requestId}] ✅ 总耗时: ${totalTime}ms\n`)
+    logger.debug('请求完成', { requestId, totalTime })
 
     return result
   }
@@ -87,7 +96,11 @@ export class UTLSFetcher extends EventEmitter {
       this.maxConcurrent = this.concurrentRequests
     }
 
-    console.log(`[UTLSReq#${requestId}] ⏱️  队列等待: ${waitTime}ms, 当前并发: ${this.concurrentRequests}`)
+    logger.debug('开始处理', {
+      requestId,
+      waitTime,
+      concurrent: this.concurrentRequests
+    })
 
     try {
       // 构建代理 URL
@@ -98,17 +111,24 @@ export class UTLSFetcher extends EventEmitter {
       }
 
       const t3 = Date.now()
-      console.log(`[UTLSReq#${requestId}]   ├─ 通过 uTLS 代理请求 via ${ipv6?.substring(0, 30)}...`)
+      logger.debug('通过 uTLS 代理请求', {
+        requestId,
+        ipv6: ipv6?.substring(0, 30)
+      })
 
       // 发送请求到 Go 代理
       const result = await this.httpRequest(proxyURL.toString(), options.timeout || 10000)
 
       const requestTime = Date.now() - t3
-      console.log(`[UTLSReq#${requestId}]   ├─ uTLS 代理响应: ${requestTime}ms`)
 
       // 从响应头获取状态码
       const statusCode = parseInt(result.headers['x-status-code'] || '200')
-      console.log(`[UTLSReq#${requestId}]   ├─ 状态码: ${statusCode}, 数据: ${result.body.length} bytes`)
+      logger.debug('uTLS 代理响应', {
+        requestId,
+        requestTime,
+        statusCode,
+        size: result.body.length
+      })
 
       // 记录统计
       const totalDuration = Date.now() - queuedAt
@@ -138,7 +158,10 @@ export class UTLSFetcher extends EventEmitter {
 
     } catch (error) {
       const duration = Date.now() - queuedAt
-      console.error(`[UTLSReq#${requestId}] ❌ 错误 (${duration}ms):`, (error as Error).message)
+      logger.error('请求失败', error as Error, {
+        requestId,
+        duration
+      })
 
       if (ipv6 && this.ipv6Pool) {
         this.ipv6Pool.recordRequest(ipv6, false, duration)
@@ -173,7 +196,7 @@ export class UTLSFetcher extends EventEmitter {
   private async httpRequest(url: string, timeout: number): Promise<{ headers: Record<string, string>, body: Buffer }> {
     return new Promise((resolve, reject) => {
       const parsedUrl = new URL(url)
-      
+
       const options = {
         hostname: parsedUrl.hostname,
         port: parsedUrl.port,
