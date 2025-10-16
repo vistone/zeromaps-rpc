@@ -54,7 +54,8 @@ type Stats struct {
 var (
 	globalSession  = &CookieSession{}
 	stats          = &Stats{startTime: time.Now()}
-	clientPool     sync.Pool
+	clientPool     sync.Pool          // 无 IPv6 绑定的客户端池
+	ipv6ClientCache sync.Map          // IPv6 地址 -> *http.Client 的缓存
 	allowedDomains = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
@@ -277,6 +278,26 @@ func createUTLSClient() *http.Client {
 	}
 }
 
+// 获取或创建 IPv6 绑定的客户端（带缓存）
+func getOrCreateIPv6Client(ipv6 string) (*http.Client, error) {
+	// 先查缓存
+	if cached, ok := ipv6ClientCache.Load(ipv6); ok {
+		return cached.(*http.Client), nil
+	}
+
+	// 缓存未命中，创建新客户端
+	client, err := createUTLSClientWithIPv6(ipv6)
+	if err != nil {
+		return nil, err
+	}
+
+	// 存入缓存
+	ipv6ClientCache.Store(ipv6, client)
+	log.Printf("✓ 为 IPv6 %s 创建并缓存新客户端", ipv6[:min(20, len(ipv6))])
+
+	return client, nil
+}
+
 // 创建带 IPv6 绑定的客户端（使用随机浏览器指纹）
 func createUTLSClientWithIPv6(ipv6 string) (*http.Client, error) {
 	localAddr, err := net.ResolveIPAddr("ip6", ipv6)
@@ -329,6 +350,14 @@ func createUTLSClientWithIPv6(ipv6 string) (*http.Client, error) {
 	}, nil
 }
 
+// min 辅助函数
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // 从 addr (host:port) 提取 host
 func getHostFromAddr(addr string) string {
 	host, _, err := net.SplitHostPort(addr)
@@ -369,16 +398,24 @@ func refreshSession(ipv6 string) error {
 
 	var client *http.Client
 	var err error
+	var shouldReturn bool
 
 	if ipv6 != "" {
-		client, err = createUTLSClientWithIPv6(ipv6)
+		// 使用缓存获取 IPv6 客户端
+		client, err = getOrCreateIPv6Client(ipv6)
 		if err != nil {
-			log.Printf("⚠️  创建 IPv6 客户端失败，使用默认客户端: %v", err)
+			log.Printf("⚠️  获取 IPv6 客户端失败，使用默认客户端: %v", err)
 			client = clientPool.Get().(*http.Client)
-			defer clientPool.Put(client)
+			shouldReturn = true
+		} else {
+			shouldReturn = false
 		}
 	} else {
 		client = clientPool.Get().(*http.Client)
+		shouldReturn = true
+	}
+
+	if shouldReturn {
 		defer clientPool.Put(client)
 	}
 
@@ -521,28 +558,23 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// 随机选择浏览器指纹
 	profile := getRandomBrowserProfile()
 
-	// 获取客户端
+	// 获取客户端（优先从缓存获取）
 	var client *http.Client
-	var shouldReturn bool
 
 	if ipv6 != "" {
+		// 有 IPv6：从缓存获取或创建（会自动缓存）
 		var err error
-		client, err = createUTLSClientWithIPv6(ipv6)
+		client, err = getOrCreateIPv6Client(ipv6)
 		if err != nil {
-			log.Printf("❌ 创建 IPv6 客户端失败: %v", err)
+			log.Printf("❌ 获取 IPv6 客户端失败: %v", err)
 			http.Error(w, "IPv6 client creation failed", http.StatusInternalServerError)
 			stats.failedRequests.Add(1)
 			return
 		}
-		shouldReturn = false
 	} else {
+		// 无 IPv6：使用通用连接池
 		client = clientPool.Get().(*http.Client)
-		shouldReturn = true
-		defer func() {
-			if shouldReturn {
-				clientPool.Put(client)
-			}
-		}()
+		defer clientPool.Put(client)
 	}
 
 	// 刷新会话（针对 kh.google.com）
@@ -681,6 +713,13 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		return true
 	})
 
+	// 统计 IPv6 客户端缓存数量
+	var ipv6ClientCount int64
+	ipv6ClientCache.Range(func(key, value interface{}) bool {
+		ipv6ClientCount++
+		return true
+	})
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -708,6 +747,9 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		"lastRefresh": "%s",
 		"sessionRefreshCount": %d
 	},
+	"clientPool": {
+		"ipv6ClientsCached": %d
+	},
 	"browserProfiles": {
 		"available": %d,
 		"usage": %s
@@ -721,6 +763,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		cookieCount,
 		lastRefresh.Format(time.RFC3339),
 		sessionRefresh,
+		ipv6ClientCount,
 		len(browserProfiles),
 		browserStats,
 	)
