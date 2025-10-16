@@ -15,21 +15,24 @@ const logger = createLogger('ConfigManager')
  * 服务器配置接口
  */
 export interface ServerConfig {
-    server: {
-        rpc: {
-            port: number
-            timeout: number
-        }
-        monitor: {
-            port: number
-            statsInterval: number
-        }
-        webhook: {
-            port: number
-            secret: string
-            updateScript: string
-        }
+  server: {
+    name: string
+    domain: string
+    rpc: {
+      port: number
+      timeout: number
     }
+    monitor: {
+      port: number
+      statsInterval: number
+    }
+    webhook: {
+      port: number
+      secret: string
+      updateScript: string
+      forwardToOtherNodes: boolean
+    }
+  }
     utls: {
         proxyPort: number
         concurrency: number

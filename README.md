@@ -20,6 +20,34 @@ git pull
 sudo ./update.sh
 ```
 
+### 自动更新机制
+
+系统支持 GitHub Webhook 自动更新，**一次推送，所有节点自动更新**：
+
+1. **GitHub Webhook 配置**：只需配置一个主节点（如 tile0.zeromaps.cn）
+2. **自动转发**：主节点收到 webhook 后，自动转发到其他 6 个节点
+3. **并发更新**：所有节点同时执行更新，互不阻塞
+4. **防止循环**：转发的请求不会再次转发，避免无限循环
+
+**GitHub 配置示例**：
+```
+Payload URL: https://tile0.zeromaps.cn/webhook
+Content type: application/json
+Secret: (在配置文件中设置)
+Events: Just the push event
+```
+
+**工作流程**：
+```
+GitHub Push → tile0 → 本节点更新 + 转发到其他 6 个节点
+               ├─> tile3.zeromaps.cn/webhook ✅
+               ├─> tile4.zeromaps.cn/webhook ✅
+               ├─> tile5.zeromaps.cn/webhook ✅
+               ├─> tile6.zeromaps.cn/webhook ✅
+               ├─> tile12.zeromaps.cn/webhook ✅
+               └─> www.zeromaps.com.cn/webhook ✅
+```
+
 ## 📊 监控访问
 
 ### 统一管理面板

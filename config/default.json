@@ -1,20 +1,23 @@
 {
-    "$schema": "./schema.json",
-    "server": {
-        "rpc": {
-            "port": 9527,
-            "timeout": 30000
-        },
-        "monitor": {
-            "port": 9528,
-            "statsInterval": 60000
-        },
-        "webhook": {
-            "port": 9530,
-            "secret": "",
-            "updateScript": "/opt/zeromaps-rpc/auto-update.sh"
-        }
+  "$schema": "./schema.json",
+  "server": {
+    "name": "",
+    "domain": "",
+    "rpc": {
+      "port": 9527,
+      "timeout": 30000
     },
+    "monitor": {
+      "port": 9528,
+      "statsInterval": 60000
+    },
+    "webhook": {
+      "port": 9530,
+      "secret": "",
+      "updateScript": "/opt/zeromaps-rpc/auto-update.sh",
+      "forwardToOtherNodes": true
+    }
+  },
     "utls": {
         "proxyPort": 8765,
         "concurrency": 10,
