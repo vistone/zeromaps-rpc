@@ -1,6 +1,6 @@
 {
   "name": "zeromaps-rpc",
-  "version": "2.0.17",
+  "version": "2.0.18",
   "description": "ZeroMaps RPC Protocol - 基于 Go uTLS 完美模拟 Chrome 指纹的高性能 Google Earth 数据获取系统",
   "type": "module",
   "scripts": {
