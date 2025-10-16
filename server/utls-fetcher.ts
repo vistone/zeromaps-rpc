@@ -51,14 +51,12 @@ export class UTLSFetcher extends EventEmitter {
     this.ipv6Pool = ipv6Pool || null
     this.proxyUrl = `http://localhost:${proxyPort}/proxy`
 
-    const finalConcurrency = concurrency || parseInt(process.env.UTLS_CONCURRENCY || '10')
-
     logger.info('UTLSFetcher 初始化', {
-      concurrency: finalConcurrency,
+      concurrency,
       proxyPort
     })
 
-    this.queue = fastq.promise(this.worker.bind(this), finalConcurrency)
+    this.queue = fastq.promise(this.worker.bind(this), concurrency)
   }
 
   /**

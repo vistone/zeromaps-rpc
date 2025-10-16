@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url'
 import WebSocket, { WebSocketServer } from 'ws'
 import { RpcServer } from './rpc-server.js'
 import { createLogger } from './logger.js'
+import { getConfig } from './config-manager.js'
 
 const logger = createLogger('MonitorServer')
 
@@ -80,7 +81,7 @@ export class MonitorServer {
           const stats = await this.rpcServer.getStats()
           const ipv6Pool = this.rpcServer.getIPv6Pool()
           const detailedStats = ipv6Pool.getDetailedStats()
-          
+
           // 转换成和 HTTP API 一致的格式
           const statsResponse: WsResponse = {
             type: 'stats',
@@ -221,6 +222,8 @@ export class MonitorServer {
       await this.serveStats(res)
     } else if (url === '/api/ipv6') {
       this.serveIPv6Stats(res)
+    } else if (url === '/api/config') {
+      await this.serveConfig(req, res)
     } else if (url.startsWith('/api/fetch')) {
       await this.serveFetch(req, res, url)
     } else {
@@ -300,6 +303,55 @@ export class MonitorServer {
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify(data, null, 2))
+  }
+
+  /**
+   * 返回配置数据或更新配置
+   */
+  private async serveConfig(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const config = getConfig()
+      
+      // GET - 获取配置
+      if (req.method === 'GET') {
+        const configData = config.getAll()
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(configData, null, 2))
+        return
+      }
+
+      // POST - 更新配置
+      if (req.method === 'POST') {
+        const chunks: Buffer[] = []
+        for await (const chunk of req) {
+          chunks.push(chunk as Buffer)
+        }
+        const body = Buffer.concat(chunks).toString()
+        const updates = JSON.parse(body)
+
+        // 更新配置
+        for (const [key, value] of Object.entries(updates)) {
+          await config.set(key, value)
+        }
+
+        logger.info('配置已通过 API 更新', { updates })
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          success: true,
+          message: '配置已更新',
+          config: config.getAll()
+        }))
+        return
+      }
+
+      res.writeHead(405, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Method not allowed' }))
+    } catch (error) {
+      logger.error('[配置 API] 错误', error as Error)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: (error as Error).message }))
+    }
   }
 
   /**

@@ -7,6 +7,7 @@ import { StatsExporter } from './stats-exporter.js'
 import { MonitorServer } from './monitor-server.js'
 import { WebhookServer } from './webhook-server.js'
 import { createLogger } from './logger.js'
+import { getConfig } from './config-manager.js'
 
 const logger = createLogger('MainProcess')
 
@@ -21,21 +22,28 @@ process.on('unhandledRejection', (reason, promise) => {
   // 不退出进程，继续运行
 })
 
-// 配置
-const PORT = 9527
-const MONITOR_PORT = 9528
-const WEBHOOK_PORT = 9530
-
-// IPv6 前缀（可选，如果未设置则不使用 IPv6）
-const IPV6_PREFIX: string = process.env.IPV6_PREFIX || ''
-
-if (!IPV6_PREFIX) {
-  logger.warn('未设置 IPV6_PREFIX 环境变量，将使用默认网络')
-}
-
 // 创建并启动服务器
 async function main() {
   logger.info('ZeroMaps RPC 服务器启动中...')
+
+  // 修复：在 main() 内部加载配置，便于错误处理
+  let config
+  try {
+    config = getConfig()
+  } catch (error) {
+    logger.error('加载配置失败，请检查 config/default.json 文件', error as Error)
+    process.exit(1)
+  }
+
+  // 从配置加载参数
+  const PORT = config.get<number>('server.rpc.port')
+  const MONITOR_PORT = config.get<number>('server.monitor.port')
+  const WEBHOOK_PORT = config.get<number>('server.webhook.port')
+  const IPV6_PREFIX = config.get<string>('ipv6.prefix')
+
+  if (!IPV6_PREFIX) {
+    logger.warn('未配置 IPv6 前缀，将使用默认网络')
+  }
 
   const server = new RpcServer(PORT, IPV6_PREFIX)
 
@@ -49,6 +57,11 @@ async function main() {
     // 启动 GitHub Webhook 服务器（用于自动更新）
     const webhookServer = new WebhookServer(WEBHOOK_PORT)
     webhookServer.start()
+
+    // 监听配置变更
+    config.on('config-changed', (newConfig) => {
+      logger.info('配置已更新（需重启服务以应用某些配置）')
+    })
 
     // 定期打印统计信息
     setInterval(async () => {

@@ -49,6 +49,72 @@ http://节点域名:9528
 | tile12 | tile12.zeromaps.cn | 107.182.186.123 | 2607:8700:5500:2043 |
 | www | www.zeromaps.com.cn | 45.78.5.252 | 2607:8700:5500:d197 |
 
+## ⚙️ 配置管理
+
+### 配置文件
+
+系统支持多层配置，优先级从高到低：
+
+1. **环境变量**（最高优先级）
+2. **节点配置** `config/node-{主机名}.json`
+3. **默认配置** `config/default.json`
+
+### 快速配置
+
+#### 方式一：编辑配置文件
+
+```bash
+# 创建节点特定配置
+cp config/node-example.json config/node-$(hostname).json
+
+# 编辑配置
+vim config/node-$(hostname).json
+```
+
+#### 方式二：Web 界面管理
+
+```bash
+# 查看当前配置
+curl http://节点域名:9528/api/config
+
+# 更新配置（示例：修改并发数）
+curl -X POST http://节点域名:9528/api/config \
+  -H "Content-Type: application/json" \
+  -d '{"utls.concurrency": 15}'
+```
+
+#### 方式三：环境变量
+
+```bash
+# 在 ecosystem.config.cjs 中配置
+env: {
+  IPV6_PREFIX: '2607:8700:5500:2043',
+  UTLS_CONCURRENCY: '15',
+  WEBHOOK_SECRET: 'your-secret',
+  LOG_LEVEL: 'debug'
+}
+```
+
+### 可配置项
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `server.rpc.port` | 9527 | RPC 服务端口 |
+| `server.monitor.port` | 9528 | 监控服务端口 |
+| `server.webhook.port` | 9530 | Webhook 端口 |
+| `utls.proxyPort` | 8765 | Go uTLS 代理端口 |
+| `utls.concurrency` | 10 | 并发请求数（1-100） |
+| `ipv6.prefix` | '' | IPv6 前缀 |
+| `ipv6.count` | 100 | IPv6 地址池大小 |
+| `ipv6.start` | 1001 | IPv6 起始编号 |
+| `logging.level` | info | 日志级别（error/warn/info/debug） |
+| `performance.maxRequestLogs` | 100 | 保留的请求日志数量 |
+| `performance.healthCheckInterval` | 300000 | 健康检查间隔（毫秒） |
+
+### 热加载
+
+修改配置文件后自动重新加载，无需重启服务（部分配置需要重启生效）。
+
 ## 🔧 常见问题
 
 ### 端口被占用

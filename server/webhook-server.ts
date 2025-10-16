@@ -6,6 +6,7 @@
 import * as http from 'http'
 import * as crypto from 'crypto'
 import { createLogger } from './logger.js'
+import { getConfig } from './config-manager.js'
 
 const logger = createLogger('WebhookServer')
 
@@ -18,11 +19,14 @@ export class WebhookServer {
   constructor(
     private port: number,
     secret?: string,
-    updateScript: string = '/opt/zeromaps-rpc/auto-update.sh'
+    updateScript?: string
   ) {
-    // GitHub Webhook Secret（用于验证请求来自 GitHub）
-    this.secret = secret || process.env.WEBHOOK_SECRET || ''
-    this.updateScript = updateScript
+    // 获取配置实例（延迟初始化）
+    const config = getConfig()
+    
+    // 从配置获取 Webhook 参数
+    this.secret = secret || config.get<string>('server.webhook.secret')
+    this.updateScript = updateScript || config.get<string>('server.webhook.updateScript')
   }
 
   /**

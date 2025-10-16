@@ -10,6 +10,7 @@ import { IPv6Pool } from './ipv6-pool.js'
 import { UTLSFetcher } from './utls-fetcher.js'
 import { SystemMonitor } from './system-monitor.js'
 import { createLogger } from './logger.js'
+import { getConfig } from './config-manager.js'
 import {
   FrameType,
   DataType,
@@ -46,7 +47,7 @@ export class RpcServer extends EventEmitter {
   private fetcher: IFetcher  // 通用 fetcher 接口
   private systemMonitor: SystemMonitor
   private requestLogs: any[] = []  // 最近的请求日志
-  private maxLogs = 100  // 保留最近100条
+  private maxLogs: number  // 保留最近N条（从配置读取）
   private healthStatus: { status: number; message: string; lastCheck: number } = { status: 0, message: '未检测', lastCheck: 0 }
   private fetcherType: 'utls' = 'utls'  // 当前使用的 fetcher 类型（只支持 uTLS）
 
@@ -56,13 +57,20 @@ export class RpcServer extends EventEmitter {
   ) {
     super()
 
+    // 获取配置实例（延迟初始化，避免模块导入时失败）
+    const config = getConfig()
+
+    // 从配置获取 IPv6 池参数
+    const ipv6Start = config.get<number>('ipv6.start')
+    const ipv6Count = config.get<number>('ipv6.count')
+
     // 初始化 IPv6 地址池（如果提供了前缀）
     if (ipv6BasePrefix) {
-      this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, 1001, 100)
+      this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, ipv6Start, ipv6Count)
       logger.info('IPv6 地址池已配置', {
         prefix: ipv6BasePrefix,
-        range: '::1001 ~ ::1100',
-        count: 100
+        range: `::${ipv6Start} ~ ::${ipv6Start + ipv6Count - 1}`,
+        count: ipv6Count
       })
     } else {
       // 创建空的 IPv6 池（不使用 IPv6）
@@ -70,9 +78,10 @@ export class RpcServer extends EventEmitter {
       logger.warn('未使用 IPv6 地址池（使用默认网络）')
     }
 
-    // 只使用 uTLS 代理（完美模拟 Chrome TLS 指纹 + 会话管理）
-    const proxyPort = parseInt(process.env.UTLS_PROXY_PORT || '8765')
-    const concurrency = parseInt(process.env.UTLS_CONCURRENCY || '10')
+    // 从配置获取 uTLS 参数
+    const proxyPort = config.get<number>('utls.proxyPort')
+    const concurrency = config.get<number>('utls.concurrency')
+
     logger.info('使用 uTLS 代理', {
       browser: 'Chrome 120',
       proxyPort,
@@ -80,6 +89,9 @@ export class RpcServer extends EventEmitter {
     })
     this.fetcher = new UTLSFetcher(this.ipv6Pool, concurrency, proxyPort) as IFetcher
     this.fetcherType = 'utls'
+
+    // 从配置获取性能参数
+    this.maxLogs = config.get<number>('performance.maxRequestLogs')
 
     // 监听请求事件
     this.fetcher.on('request', (log) => {
@@ -94,7 +106,7 @@ export class RpcServer extends EventEmitter {
     // 初始化系统监控
     this.systemMonitor = new SystemMonitor()
 
-    // 启动健康检查（每5分钟检查一次）
+    // 启动健康检查（从配置获取间隔）
     this.startHealthCheck()
   }
 
@@ -383,10 +395,12 @@ export class RpcServer extends EventEmitter {
     // 立即执行一次
     this.checkHealth()
 
-    // 每5分钟检查一次
+    // 从配置获取健康检查间隔
+    const config = getConfig()
+    const interval = config.get<number>('performance.healthCheckInterval')
     setInterval(() => {
       this.checkHealth()
-    }, 5 * 60 * 1000)
+    }, interval)
   }
 
   /**

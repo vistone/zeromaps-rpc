@@ -1,0 +1,22 @@
+{
+    "$schema": "./schema.json",
+    "comment": "节点特定配置示例 - 重命名为 node-{你的主机名}.json",
+    "ipv6": {
+        "prefix": "2607:8700:5500:2043",
+        "comment": "节点特定的 IPv6 前缀"
+    },
+    "utls": {
+        "concurrency": 15,
+        "comment": "这个节点性能更好，可以提高并发数"
+    },
+    "server": {
+        "webhook": {
+            "secret": "your-webhook-secret-here",
+            "comment": "每个节点使用不同的 webhook secret"
+        }
+    },
+    "logging": {
+        "level": "debug",
+        "comment": "开发节点可以设置为 debug"
+    }
+}

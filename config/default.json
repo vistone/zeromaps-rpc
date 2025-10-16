@@ -1,0 +1,42 @@
+{
+    "$schema": "./schema.json",
+    "server": {
+        "rpc": {
+            "port": 9527,
+            "timeout": 30000
+        },
+        "monitor": {
+            "port": 9528,
+            "statsInterval": 60000
+        },
+        "webhook": {
+            "port": 9530,
+            "secret": "",
+            "updateScript": "/opt/zeromaps-rpc/auto-update.sh"
+        }
+    },
+    "utls": {
+        "proxyPort": 8765,
+        "concurrency": 10,
+        "timeout": 10000
+    },
+    "ipv6": {
+        "prefix": "",
+        "start": 1001,
+        "count": 100,
+        "healthCheck": {
+            "failureRateThreshold": 0.3,
+            "responseTimeThreshold": 3000,
+            "minRequestsBeforeCheck": 20
+        }
+    },
+    "logging": {
+        "level": "info",
+        "maxFileSize": 10485760,
+        "maxFiles": 10
+    },
+    "performance": {
+        "maxRequestLogs": 100,
+        "healthCheckInterval": 300000
+    }
+}
