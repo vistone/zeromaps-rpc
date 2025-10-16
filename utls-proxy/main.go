@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -22,6 +23,17 @@ import (
 	"golang.org/x/net/http2"
 )
 
+// 浏览器指纹配置（严格基于 uTLS v1.6.0 支持的 ClientHelloID）
+type BrowserProfile struct {
+	Name            string
+	UserAgent       string
+	SecChUa         string               // Chrome/Edge 系列特有
+	SecChUaPlatform string               // Chrome/Edge 系列特有
+	AcceptLanguage  string
+	Accept          string
+	ClientHello     utls.ClientHelloID
+}
+
 // Cookie 会话管理
 type CookieSession struct {
 	cookies    []*http.Cookie
@@ -31,67 +43,206 @@ type CookieSession struct {
 
 // 统计信息
 type Stats struct {
-	totalRequests   atomic.Int64
-	successRequests atomic.Int64
-	failedRequests  atomic.Int64
+	totalRequests       atomic.Int64
+	successRequests     atomic.Int64
+	failedRequests      atomic.Int64
 	sessionRefreshCount atomic.Int64
-	startTime       time.Time
+	startTime           time.Time
+	browserUsage        sync.Map  // 记录每个浏览器的使用次数
 }
 
 var (
-	globalSession = &CookieSession{}
-	stats         = &Stats{startTime: time.Now()}
-	clientPool    sync.Pool  // 客户端连接池
+	globalSession  = &CookieSession{}
+	stats          = &Stats{startTime: time.Now()}
+	clientPool     sync.Pool
 	allowedDomains = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
 		"www.google.com":   true,
 	}
+	
+	// 浏览器指纹库（基于 uTLS v1.6.0 官方支持）
+	browserProfiles = []BrowserProfile{
+		// ========== Chrome 系列（Chromium 内核）==========
+		{
+			Name:      "Chrome 120 (Windows 10)",
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			SecChUa:   `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`,
+			SecChUaPlatform: `"Windows"`,
+			AcceptLanguage: "zh-CN,zh;q=0.9,en;q=0.8",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+			ClientHello: utls.HelloChrome_120,
+		},
+		{
+			Name:      "Chrome 102 (Windows 10)",
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36",
+			SecChUa:   `" Not A;Brand";v="99", "Chromium";v="102", "Google Chrome";v="102"`,
+			SecChUaPlatform: `"Windows"`,
+			AcceptLanguage: "en-US,en;q=0.9",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+			ClientHello: utls.HelloChrome_102,
+		},
+		{
+			Name:      "Chrome 106 (macOS)",
+			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36",
+			SecChUa:   `"Chromium";v="106", "Google Chrome";v="106", "Not;A=Brand";v="99"`,
+			SecChUaPlatform: `"macOS"`,
+			AcceptLanguage: "en-US,en;q=0.9",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+			ClientHello: utls.HelloChrome_106_Shuffle,
+		},
+		{
+			Name:      "Chrome 100 (Linux)",
+			UserAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36",
+			SecChUa:   `" Not A;Brand";v="99", "Chromium";v="100", "Google Chrome";v="100"`,
+			SecChUaPlatform: `"Linux"`,
+			AcceptLanguage: "en-US,en;q=0.9",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+			ClientHello: utls.HelloChrome_100,
+		},
+		
+		// ========== Firefox 系列 ==========
+		{
+			Name:      "Firefox 120 (Windows 10)",
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+			SecChUa:   "",  // Firefox 不使用 Sec-Ch-Ua
+			SecChUaPlatform: "",
+			AcceptLanguage: "en-US,en;q=0.5",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+			ClientHello: utls.HelloFirefox_120,
+		},
+		{
+			Name:      "Firefox 105 (macOS)",
+			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:105.0) Gecko/20100101 Firefox/105.0",
+			SecChUa:   "",
+			SecChUaPlatform: "",
+			AcceptLanguage: "en-US,en;q=0.5",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+			ClientHello: utls.HelloFirefox_105,
+		},
+		{
+			Name:      "Firefox 102 (Linux)",
+			UserAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0",
+			SecChUa:   "",
+			SecChUaPlatform: "",
+			AcceptLanguage: "en-US,en;q=0.5",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+			ClientHello: utls.HelloFirefox_102,
+		},
+		
+		// ========== Edge 系列 ==========
+		{
+			Name:      "Edge 106 (Windows 11)",
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 Edg/106.0.1370.52",
+			SecChUa:   `"Chromium";v="106", "Microsoft Edge";v="106", "Not;A=Brand";v="99"`,
+			SecChUaPlatform: `"Windows"`,
+			AcceptLanguage: "en-US,en;q=0.9",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+			ClientHello: utls.HelloEdge_106,
+		},
+		{
+			Name:      "Edge 85 (Windows 10)",
+			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36 Edg/85.0.564.51",
+			SecChUa:   `"Chromium";v="85", "Microsoft Edge";v="85", ";Not A Brand";v="99"`,
+			SecChUaPlatform: `"Windows"`,
+			AcceptLanguage: "en-US,en;q=0.9",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+			ClientHello: utls.HelloEdge_85,
+		},
+		
+		// ========== Safari 系列 ==========
+		{
+			Name:      "Safari 16.0 (macOS)",
+			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
+			SecChUa:   "",  // Safari 不使用 Sec-Ch-Ua
+			SecChUaPlatform: "",
+			AcceptLanguage: "en-US,en;q=0.9",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			ClientHello: utls.HelloSafari_16_0,
+		},
+		
+		// ========== iOS Safari 系列 ==========
+		{
+			Name:      "iOS 14 Safari (iPhone)",
+			UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1",
+			SecChUa:   "",
+			SecChUaPlatform: "",
+			AcceptLanguage: "en-US,en;q=0.9",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			ClientHello: utls.HelloIOS_14,
+		},
+		{
+			Name:      "iOS 13 Safari (iPad)",
+			UserAgent: "Mozilla/5.0 (iPad; CPU OS 13_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Mobile/15E148 Safari/604.1",
+			SecChUa:   "",
+			SecChUaPlatform: "",
+			AcceptLanguage: "en-US,en;q=0.9",
+			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			ClientHello: utls.HelloIOS_13,
+		},
+	}
+	
+	rng *rand.Rand  // 全局随机数生成器
 )
 
-// 初始化客户端池
+// 初始化
 func init() {
+	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	
 	clientPool = sync.Pool{
 		New: func() interface{} {
 			return createUTLSClient()
 		},
 	}
+	
+	log.Printf("🎭 uTLS 浏览器指纹库已加载: %d 种配置（基于 uTLS v1.6.0）", len(browserProfiles))
+	for i, profile := range browserProfiles {
+		log.Printf("  [%d] %s", i+1, profile.Name)
+	}
 }
 
-// 创建可复用的 uTLS 客户端（无 IPv6 绑定）
+// 随机选择浏览器指纹
+func getRandomBrowserProfile() BrowserProfile {
+	index := rng.Intn(len(browserProfiles))
+	profile := browserProfiles[index]
+	
+	// 统计使用情况
+	count, _ := stats.browserUsage.LoadOrStore(profile.Name, new(atomic.Int64))
+	count.(*atomic.Int64).Add(1)
+	
+	return profile
+}
+
+// 创建可复用的 uTLS 客户端（使用随机浏览器指纹）
 func createUTLSClient() *http.Client {
-	// 创建 HTTP/2 Transport（支持连接复用）
+	profile := getRandomBrowserProfile()
+	
 	transport := &http2.Transport{
 		AllowHTTP: false,
-		// 连接池配置
 		MaxHeaderListSize: 262144,
 		ReadIdleTimeout:   60 * time.Second,
 		PingTimeout:       15 * time.Second,
 		
 		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
-			// 使用默认 dialer（不绑定 IPv6）
 			dialer := &net.Dialer{
 				Timeout:   10 * time.Second,
 				KeepAlive: 30 * time.Second,
 			}
 
-			// 建立 TCP 连接
 			rawConn, err := dialer.Dial("tcp", addr)
 			if err != nil {
 				return nil, fmt.Errorf("TCP 连接失败: %w", err)
 			}
 
-			// 使用 uTLS 模拟 Chrome 120 的 TLS 指纹
 			tlsConfig := &utls.Config{
 				ServerName:         getHostFromAddr(addr),
-				InsecureSkipVerify: false,  // 修复：验证证书
+				InsecureSkipVerify: false,
 				MinVersion:         tls.VersionTLS12,
 				NextProtos:         []string{"h2", "http/1.1"},
 			}
 
-			tlsConn := utls.UClient(rawConn, tlsConfig, utls.HelloChrome_120)
+			tlsConn := utls.UClient(rawConn, tlsConfig, profile.ClientHello)
 
-			// 执行 TLS 握手
 			err = tlsConn.Handshake()
 			if err != nil {
 				rawConn.Close()
@@ -108,13 +259,14 @@ func createUTLSClient() *http.Client {
 	}
 }
 
-// 创建带 IPv6 绑定的客户端（用于特定请求）
+// 创建带 IPv6 绑定的客户端（使用随机浏览器指纹）
 func createUTLSClientWithIPv6(ipv6 string) (*http.Client, error) {
-	// 验证 IPv6 地址
 	localAddr, err := net.ResolveIPAddr("ip6", ipv6)
 	if err != nil {
 		return nil, fmt.Errorf("无效的 IPv6 地址: %w", err)
 	}
+
+	profile := getRandomBrowserProfile()
 
 	transport := &http2.Transport{
 		AllowHTTP: false,
@@ -141,7 +293,7 @@ func createUTLSClientWithIPv6(ipv6 string) (*http.Client, error) {
 				NextProtos:         []string{"h2", "http/1.1"},
 			}
 
-			tlsConn := utls.UClient(rawConn, tlsConfig, utls.HelloChrome_120)
+			tlsConn := utls.UClient(rawConn, tlsConfig, profile.ClientHello)
 
 			err = tlsConn.Handshake()
 			if err != nil {
@@ -180,21 +332,23 @@ func decompressGzip(data []byte) ([]byte, error) {
 
 // 初始化或刷新会话（访问 earth.google.com 获取 Cookie）
 func refreshSession(ipv6 string) error {
-	// 单一锁保护（修复死锁问题）
 	globalSession.mu.Lock()
 	defer globalSession.mu.Unlock()
 
 	// 检查会话是否有效（5分钟内不重复刷新）
 	if time.Since(globalSession.lastUpdate) < 5*time.Minute && len(globalSession.cookies) > 0 {
-		log.Printf("✓ 使用缓存的会话 Cookie（%d 个，剩余 %.0f 秒）", 
-			len(globalSession.cookies), 
-			(5*time.Minute - time.Since(globalSession.lastUpdate)).Seconds())
+		remaining := (5*time.Minute - time.Since(globalSession.lastUpdate)).Seconds()
+		log.Printf("✓ 使用缓存的会话 Cookie（%d 个，剩余 %.0f 秒）",
+			len(globalSession.cookies), remaining)
 		return nil
 	}
 
 	log.Printf("🔄 刷新会话：访问 earth.google.com...")
 
-	// 获取或创建客户端
+	// 随机选择浏览器指纹用于会话刷新
+	profile := getRandomBrowserProfile()
+	log.Printf("🎭 使用浏览器指纹: %s", profile.Name)
+
 	var client *http.Client
 	var err error
 	
@@ -210,23 +364,16 @@ func refreshSession(ipv6 string) error {
 		defer clientPool.Put(client)
 	}
 
-	// 创建带超时的上下文
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// 访问 Google Earth 主页建立会话
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://earth.google.com/web/", nil)
 	if err != nil {
 		return fmt.Errorf("创建会话请求失败: %w", err)
 	}
 
-	// 设置基本 Headers
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-	req.Header.Set("Sec-Ch-Ua", `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`)
-	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
-	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
+	// 使用随机选择的浏览器指纹设置 Headers
+	setHeaders(req, profile, true)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -234,15 +381,12 @@ func refreshSession(ipv6 string) error {
 	}
 	defer resp.Body.Close()
 
-	// 检查响应状态
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("会话请求失败: HTTP %d", resp.StatusCode)
 	}
 
-	// 读取并丢弃响应体（我们只要 Cookie）
 	io.Copy(io.Discard, resp.Body)
 
-	// 保存 Cookie
 	cookies := resp.Cookies()
 	if len(cookies) == 0 {
 		return fmt.Errorf("未获取到 Cookie")
@@ -260,6 +404,45 @@ func refreshSession(ipv6 string) error {
 	return nil
 }
 
+// 设置 HTTP Headers（根据浏览器指纹）
+func setHeaders(req *http.Request, profile BrowserProfile, isSessionRequest bool) {
+	// 基础 Headers
+	req.Header.Set("User-Agent", profile.UserAgent)
+	req.Header.Set("Accept-Language", profile.AcceptLanguage)
+	
+	// Chrome/Edge 特有的 Sec-Ch-Ua Headers
+	if profile.SecChUa != "" {
+		req.Header.Set("Sec-Ch-Ua", profile.SecChUa)
+		req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
+		req.Header.Set("Sec-Ch-Ua-Platform", profile.SecChUaPlatform)
+	}
+	
+	// Accept 头
+	if isSessionRequest {
+		req.Header.Set("Accept", profile.Accept)
+		req.Header.Set("Sec-Fetch-Dest", "document")
+		req.Header.Set("Sec-Fetch-Mode", "navigate")
+		req.Header.Set("Sec-Fetch-Site", "none")
+		req.Header.Set("Sec-Fetch-User", "?1")
+		req.Header.Set("Upgrade-Insecure-Requests", "1")
+	} else {
+		req.Header.Set("Accept", "*/*")
+		req.Header.Set("Accept-Encoding", "gzip, deflate, br")
+		req.Header.Set("Sec-Fetch-Dest", "empty")
+		req.Header.Set("Sec-Fetch-Mode", "cors")
+		req.Header.Set("Sec-Fetch-Site", "same-site")
+	}
+	
+	// 通用 Headers
+	req.Header.Set("Cache-Control", "no-cache")
+	req.Header.Set("Pragma", "no-cache")
+	
+	// 随机添加一些可选 Headers（增加真实性）
+	if rng.Float32() < 0.5 {
+		req.Header.Set("DNT", "1")  // Do Not Track
+	}
+}
+
 // 安全的字符串截取
 func safeSubstring(s string, length int) string {
 	if len(s) <= length {
@@ -275,12 +458,10 @@ func isAllowedURL(targetURL string) error {
 		return fmt.Errorf("无效的 URL: %w", err)
 	}
 
-	// 必须是 HTTPS
 	if parsedURL.Scheme != "https" {
-		return fmt.Errorf("只允许 HTTPS 协议，当前: %s", parsedURL.Scheme)
+		return fmt.Errorf("只允许 HTTPS 协议")
 	}
 
-	// 检查域名白名单
 	if !allowedDomains[parsedURL.Host] {
 		return fmt.Errorf("域名不在白名单中: %s", parsedURL.Host)
 	}
@@ -293,7 +474,6 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	startTime := time.Now()
 	stats.totalRequests.Add(1)
 
-	// 获取参数
 	targetURL := r.URL.Query().Get("url")
 	ipv6 := r.URL.Query().Get("ipv6")
 
@@ -302,7 +482,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证 URL（增强安全性）
+	// 验证 URL
 	if err := isAllowedURL(targetURL); err != nil {
 		log.Printf("❌ URL 验证失败: %v", err)
 		http.Error(w, "Invalid URL", http.StatusBadRequest)
@@ -310,7 +490,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 验证 IPv6 地址格式（如果提供）
+	// 验证 IPv6 地址
 	if ipv6 != "" {
 		if _, err := net.ResolveIPAddr("ip6", ipv6); err != nil {
 			log.Printf("❌ 无效的 IPv6 地址: %s", ipv6)
@@ -320,12 +500,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 获取客户端（从池中获取或创建新的）
+	// 随机选择浏览器指纹
+	profile := getRandomBrowserProfile()
+	
+	// 获取客户端
 	var client *http.Client
 	var shouldReturn bool
 	
 	if ipv6 != "" {
-		// 需要 IPv6 绑定，创建专用客户端
 		var err error
 		client, err = createUTLSClientWithIPv6(ipv6)
 		if err != nil {
@@ -334,9 +516,8 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			stats.failedRequests.Add(1)
 			return
 		}
-		shouldReturn = false  // IPv6 客户端不返回池
+		shouldReturn = false
 	} else {
-		// 使用连接池
 		client = clientPool.Get().(*http.Client)
 		shouldReturn = true
 		defer func() {
@@ -346,26 +527,23 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 
-	// 检查是否需要刷新会话（针对 kh.google.com 的请求）
+	// 刷新会话（针对 kh.google.com）
 	parsedURL, _ := url.Parse(targetURL)
 	if parsedURL.Host == "kh.google.com" {
-		// 修复：带重试的会话刷新
 		for attempt := 1; attempt <= 3; attempt++ {
 			if err := refreshSession(ipv6); err != nil {
 				log.Printf("⚠️  会话刷新失败（尝试 %d/3）: %v", attempt, err)
-				if attempt == 3 {
-					// 3次都失败，继续请求但记录警告
-					log.Printf("⚠️  会话刷新连续失败，使用旧 Cookie（可能导致 403）")
-				} else {
+				if attempt < 3 {
 					time.Sleep(time.Duration(attempt) * time.Second)
 					continue
 				}
+				log.Printf("⚠️  会话刷新连续失败，使用旧 Cookie")
 			}
 			break
 		}
 	}
 
-	// 创建带超时的请求
+	// 创建请求
 	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
@@ -377,28 +555,16 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 设置完整的 Google Earth Web 客户端 Headers
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "*/*")
-	req.Header.Set("Accept-Encoding", "gzip, deflate, br")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-
-	// 关键：必须有 Referer 和 Origin，否则会被识别为爬虫
+	// 使用随机浏览器指纹设置 Headers
+	setHeaders(req, profile, false)
+	
+	// 关键：必须有 Referer 和 Origin
 	if !strings.Contains(targetURL, "www.google.com") {
 		req.Header.Set("Referer", "https://earth.google.com/")
 		req.Header.Set("Origin", "https://earth.google.com")
 	}
 
-	req.Header.Set("Sec-Fetch-Dest", "empty")
-	req.Header.Set("Sec-Fetch-Mode", "cors")
-	req.Header.Set("Sec-Fetch-Site", "same-site")
-	req.Header.Set("Sec-Ch-Ua", `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`)
-	req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
-	req.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
-	req.Header.Set("Cache-Control", "no-cache")
-	req.Header.Set("Pragma", "no-cache")
-
-	// 添加从 earth.google.com 获取的会话 Cookie
+	// 添加会话 Cookie
 	globalSession.mu.RLock()
 	for _, cookie := range globalSession.cookies {
 		req.AddCookie(cookie)
@@ -415,11 +581,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// 检查是否需要刷新会话（403 表示 Cookie 失效）
+	// 检测 403 自动清空会话
 	if resp.StatusCode == 403 {
 		log.Printf("⚠️  收到 403，Cookie 可能失效，强制刷新会话")
 		globalSession.mu.Lock()
-		globalSession.lastUpdate = time.Time{}  // 清空时间，下次必定刷新
+		globalSession.lastUpdate = time.Time{}
 		globalSession.mu.Unlock()
 	}
 
@@ -432,7 +598,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 如果是 gzip 编码，解压
+	// 解压 gzip
 	if resp.Header.Get("Content-Encoding") == "gzip" {
 		body, err = decompressGzip(body)
 		if err != nil {
@@ -446,22 +612,22 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	duration := time.Since(startTime)
 	stats.successRequests.Add(1)
 
-	// 安全的日志输出
 	ipv6Display := safeSubstring(ipv6, 20)
 	if ipv6Display == "" {
 		ipv6Display = "default"
 	}
 	urlDisplay := safeSubstring(targetURL, 60)
 
-	log.Printf("✅ [%s] %d - %s (%dms, %d bytes)",
-		ipv6Display, resp.StatusCode, urlDisplay, duration.Milliseconds(), len(body))
+	log.Printf("✅ [%s] [%s] %d - %s (%dms, %d bytes)",
+		ipv6Display, profile.Name, resp.StatusCode, urlDisplay, 
+		duration.Milliseconds(), len(body))
 
 	// 返回响应
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("X-Status-Code", strconv.Itoa(resp.StatusCode))
 	w.Header().Set("X-Duration-Ms", strconv.FormatInt(duration.Milliseconds(), 10))
+	w.Header().Set("X-Browser-Profile", profile.Name)
 
-	// 复制原始响应头
 	for key, values := range resp.Header {
 		for _, value := range values {
 			w.Header().Add("X-Origin-"+key, value)
@@ -490,36 +656,45 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	lastRefresh := globalSession.lastUpdate
 	globalSession.mu.RUnlock()
 
-	status := map[string]interface{}{
-		"status":       "ok",
-		"uptime":       uptime.Seconds(),
-		"totalRequests": total,
-		"successRequests": success,
-		"failedRequests": failed,
-		"successRate":  fmt.Sprintf("%.2f%%", successRate),
-		"session": map[string]interface{}{
-			"cookieCount":     cookieCount,
-			"lastRefresh":     lastRefresh,
-			"sessionRefreshCount": sessionRefresh,
-		},
-	}
+	// 统计浏览器使用情况
+	browserUsage := make(map[string]int64)
+	stats.browserUsage.Range(func(key, value interface{}) bool {
+		browserUsage[key.(string)] = value.(*atomic.Int64).Load()
+		return true
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{
-		"status": "%s",
-		"uptime": %.0f,
-		"totalRequests": %d,
-		"successRequests": %d,
-		"failedRequests": %d,
-		"successRate": "%.2f%%",
-		"session": {
-			"cookieCount": %d,
-			"lastRefresh": "%s",
-			"sessionRefreshCount": %d
+	
+	// 构建浏览器使用统计
+	browserStats := "{"
+	first := true
+	for name, count := range browserUsage {
+		if !first {
+			browserStats += ", "
 		}
-	}`,
-		status["status"],
+		browserStats += fmt.Sprintf(`"%s": %d`, name, count)
+		first = false
+	}
+	browserStats += "}"
+	
+	fmt.Fprintf(w, `{
+	"status": "ok",
+	"uptime": %.0f,
+	"totalRequests": %d,
+	"successRequests": %d,
+	"failedRequests": %d,
+	"successRate": "%.2f%%",
+	"session": {
+		"cookieCount": %d,
+		"lastRefresh": "%s",
+		"sessionRefreshCount": %d
+	},
+	"browserProfiles": {
+		"available": %d,
+		"usage": %s
+	}
+}`,
 		uptime.Seconds(),
 		total,
 		success,
@@ -528,6 +703,8 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		cookieCount,
 		lastRefresh.Format(time.RFC3339),
 		sessionRefresh,
+		len(browserProfiles),
+		browserStats,
 	)
 }
 
@@ -537,12 +714,12 @@ func main() {
 		port = "8765"
 	}
 
-	// 路由配置
 	http.HandleFunc("/proxy", proxyHandler)
 	http.HandleFunc("/health", healthHandler)
 
 	log.Printf("🚀 uTLS Proxy Server starting on :%s", port)
-	log.Printf("📋 模拟浏览器: Chrome 120")
+	log.Printf("📦 uTLS 版本: v1.6.0 (github.com/refraction-networking/utls)")
+	log.Printf("🎭 浏览器指纹库: %d 种官方支持的配置", len(browserProfiles))
 	log.Printf("🌐 代理端点: http://localhost:%s/proxy?url=<URL>&ipv6=<IPv6>", port)
 	log.Printf("💚 健康检查: http://localhost:%s/health", port)
 
