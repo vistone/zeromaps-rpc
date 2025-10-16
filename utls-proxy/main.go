@@ -27,8 +27,8 @@ import (
 type BrowserProfile struct {
 	Name            string
 	UserAgent       string
-	SecChUa         string               // Chrome/Edge 系列特有
-	SecChUaPlatform string               // Chrome/Edge 系列特有
+	SecChUa         string // Chrome/Edge 系列特有
+	SecChUaPlatform string // Chrome/Edge 系列特有
 	AcceptLanguage  string
 	Accept          string
 	ClientHello     utls.ClientHelloID
@@ -48,7 +48,7 @@ type Stats struct {
 	failedRequests      atomic.Int64
 	sessionRefreshCount atomic.Int64
 	startTime           time.Time
-	browserUsage        sync.Map  // 记录每个浏览器的使用次数
+	browserUsage        sync.Map // 记录每个浏览器的使用次数
 }
 
 var (
@@ -60,142 +60,160 @@ var (
 		"earth.google.com": true,
 		"www.google.com":   true,
 	}
-	
-	// 浏览器指纹库（基于 uTLS v1.6.0 官方支持）
+
+	// 浏览器指纹库（基于 uTLS v1.8.1 官方支持）
 	browserProfiles = []BrowserProfile{
 		// ========== Chrome 系列（Chromium 内核）==========
 		{
-			Name:      "Chrome 120 (Windows 10)",
-			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-			SecChUa:   `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`,
+			Name:            "Chrome 133 (Windows 11)",
+			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+			SecChUa:         `"Chromium";v="133", "Not(A:Brand";v="24", "Google Chrome";v="133"`,
 			SecChUaPlatform: `"Windows"`,
-			AcceptLanguage: "zh-CN,zh;q=0.9,en;q=0.8",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-			ClientHello: utls.HelloChrome_120,
+			AcceptLanguage:  "zh-CN,zh;q=0.9,en;q=0.8",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+			ClientHello:     utls.HelloChrome_133,
 		},
 		{
-			Name:      "Chrome 102 (Windows 10)",
-			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36",
-			SecChUa:   `" Not A;Brand";v="99", "Chromium";v="102", "Google Chrome";v="102"`,
+			Name:            "Chrome 131 (Windows 10)",
+			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+			SecChUa:         `"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"`,
 			SecChUaPlatform: `"Windows"`,
-			AcceptLanguage: "en-US,en;q=0.9",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-			ClientHello: utls.HelloChrome_102,
+			AcceptLanguage:  "zh-CN,zh;q=0.9,en;q=0.8",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+			ClientHello:     utls.HelloChrome_131,
 		},
 		{
-			Name:      "Chrome 106 (macOS)",
-			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36",
-			SecChUa:   `"Chromium";v="106", "Google Chrome";v="106", "Not;A=Brand";v="99"`,
+			Name:            "Chrome 120 (Windows 10)",
+			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			SecChUa:         `"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"`,
+			SecChUaPlatform: `"Windows"`,
+			AcceptLanguage:  "zh-CN,zh;q=0.9,en;q=0.8",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+			ClientHello:     utls.HelloChrome_120,
+		},
+		{
+			Name:            "Chrome 102 (Windows 10)",
+			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36",
+			SecChUa:         `" Not A;Brand";v="99", "Chromium";v="102", "Google Chrome";v="102"`,
+			SecChUaPlatform: `"Windows"`,
+			AcceptLanguage:  "en-US,en;q=0.9",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+			ClientHello:     utls.HelloChrome_102,
+		},
+		{
+			Name:            "Chrome 106 (macOS)",
+			UserAgent:       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36",
+			SecChUa:         `"Chromium";v="106", "Google Chrome";v="106", "Not;A=Brand";v="99"`,
 			SecChUaPlatform: `"macOS"`,
-			AcceptLanguage: "en-US,en;q=0.9",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-			ClientHello: utls.HelloChrome_106_Shuffle,
+			AcceptLanguage:  "en-US,en;q=0.9",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+			ClientHello:     utls.HelloChrome_106_Shuffle,
 		},
 		{
-			Name:      "Chrome 100 (Linux)",
-			UserAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36",
-			SecChUa:   `" Not A;Brand";v="99", "Chromium";v="100", "Google Chrome";v="100"`,
+			Name:            "Chrome 100 (Linux)",
+			UserAgent:       "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36",
+			SecChUa:         `" Not A;Brand";v="99", "Chromium";v="100", "Google Chrome";v="100"`,
 			SecChUaPlatform: `"Linux"`,
-			AcceptLanguage: "en-US,en;q=0.9",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-			ClientHello: utls.HelloChrome_100,
+			AcceptLanguage:  "en-US,en;q=0.9",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+			ClientHello:     utls.HelloChrome_100,
 		},
-		
+
 		// ========== Firefox 系列 ==========
 		{
-			Name:      "Firefox 120 (Windows 10)",
-			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
-			SecChUa:   "",  // Firefox 不使用 Sec-Ch-Ua
+			Name:            "Firefox 120 (Windows 10)",
+			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:120.0) Gecko/20100101 Firefox/120.0",
+			SecChUa:         "", // Firefox 不使用 Sec-Ch-Ua
 			SecChUaPlatform: "",
-			AcceptLanguage: "en-US,en;q=0.5",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-			ClientHello: utls.HelloFirefox_120,
+			AcceptLanguage:  "en-US,en;q=0.5",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+			ClientHello:     utls.HelloFirefox_120,
 		},
 		{
-			Name:      "Firefox 105 (macOS)",
-			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:105.0) Gecko/20100101 Firefox/105.0",
-			SecChUa:   "",
+			Name:            "Firefox 105 (macOS)",
+			UserAgent:       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:105.0) Gecko/20100101 Firefox/105.0",
+			SecChUa:         "",
 			SecChUaPlatform: "",
-			AcceptLanguage: "en-US,en;q=0.5",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-			ClientHello: utls.HelloFirefox_105,
+			AcceptLanguage:  "en-US,en;q=0.5",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+			ClientHello:     utls.HelloFirefox_105,
 		},
 		{
-			Name:      "Firefox 102 (Linux)",
-			UserAgent: "Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0",
-			SecChUa:   "",
+			Name:            "Firefox 102 (Linux)",
+			UserAgent:       "Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0",
+			SecChUa:         "",
 			SecChUaPlatform: "",
-			AcceptLanguage: "en-US,en;q=0.5",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-			ClientHello: utls.HelloFirefox_102,
+			AcceptLanguage:  "en-US,en;q=0.5",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+			ClientHello:     utls.HelloFirefox_102,
 		},
-		
+
 		// ========== Edge 系列 ==========
 		{
-			Name:      "Edge 106 (Windows 11)",
-			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 Edg/106.0.1370.52",
-			SecChUa:   `"Chromium";v="106", "Microsoft Edge";v="106", "Not;A=Brand";v="99"`,
+			Name:            "Edge 106 (Windows 11)",
+			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/106.0.0.0 Safari/537.36 Edg/106.0.1370.52",
+			SecChUa:         `"Chromium";v="106", "Microsoft Edge";v="106", "Not;A=Brand";v="99"`,
 			SecChUaPlatform: `"Windows"`,
-			AcceptLanguage: "en-US,en;q=0.9",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-			ClientHello: utls.HelloEdge_106,
+			AcceptLanguage:  "en-US,en;q=0.9",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+			ClientHello:     utls.HelloEdge_106,
 		},
 		{
-			Name:      "Edge 85 (Windows 10)",
-			UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36 Edg/85.0.564.51",
-			SecChUa:   `"Chromium";v="85", "Microsoft Edge";v="85", ";Not A Brand";v="99"`,
+			Name:            "Edge 85 (Windows 10)",
+			UserAgent:       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.102 Safari/537.36 Edg/85.0.564.51",
+			SecChUa:         `"Chromium";v="85", "Microsoft Edge";v="85", ";Not A Brand";v="99"`,
 			SecChUaPlatform: `"Windows"`,
-			AcceptLanguage: "en-US,en;q=0.9",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-			ClientHello: utls.HelloEdge_85,
+			AcceptLanguage:  "en-US,en;q=0.9",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+			ClientHello:     utls.HelloEdge_85,
 		},
-		
+
 		// ========== Safari 系列 ==========
 		{
-			Name:      "Safari 16.0 (macOS)",
-			UserAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
-			SecChUa:   "",  // Safari 不使用 Sec-Ch-Ua
+			Name:            "Safari 16.0 (macOS)",
+			UserAgent:       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Safari/605.1.15",
+			SecChUa:         "", // Safari 不使用 Sec-Ch-Ua
 			SecChUaPlatform: "",
-			AcceptLanguage: "en-US,en;q=0.9",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-			ClientHello: utls.HelloSafari_16_0,
+			AcceptLanguage:  "en-US,en;q=0.9",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			ClientHello:     utls.HelloSafari_16_0,
 		},
-		
+
 		// ========== iOS Safari 系列 ==========
 		{
-			Name:      "iOS 14 Safari (iPhone)",
-			UserAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1",
-			SecChUa:   "",
+			Name:            "iOS 14 Safari (iPhone)",
+			UserAgent:       "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1",
+			SecChUa:         "",
 			SecChUaPlatform: "",
-			AcceptLanguage: "en-US,en;q=0.9",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-			ClientHello: utls.HelloIOS_14,
+			AcceptLanguage:  "en-US,en;q=0.9",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			ClientHello:     utls.HelloIOS_14,
 		},
 		{
-			Name:      "iOS 13 Safari (iPad)",
-			UserAgent: "Mozilla/5.0 (iPad; CPU OS 13_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Mobile/15E148 Safari/604.1",
-			SecChUa:   "",
+			Name:            "iOS 13 Safari (iPad)",
+			UserAgent:       "Mozilla/5.0 (iPad; CPU OS 13_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.1.2 Mobile/15E148 Safari/604.1",
+			SecChUa:         "",
 			SecChUaPlatform: "",
-			AcceptLanguage: "en-US,en;q=0.9",
-			Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-			ClientHello: utls.HelloIOS_13,
+			AcceptLanguage:  "en-US,en;q=0.9",
+			Accept:          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+			ClientHello:     utls.HelloIOS_13,
 		},
 	}
-	
-	rng *rand.Rand  // 全局随机数生成器
+
+	rng *rand.Rand // 全局随机数生成器
 )
 
 // 初始化
 func init() {
 	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-	
+
 	clientPool = sync.Pool{
 		New: func() interface{} {
 			return createUTLSClient()
 		},
 	}
-	
-	log.Printf("🎭 uTLS 浏览器指纹库已加载: %d 种配置（基于 uTLS v1.6.0）", len(browserProfiles))
+
+	log.Printf("🎭 uTLS 浏览器指纹库已加载: %d 种配置（基于 uTLS v1.8.1）", len(browserProfiles))
 	for i, profile := range browserProfiles {
 		log.Printf("  [%d] %s", i+1, profile.Name)
 	}
@@ -205,24 +223,24 @@ func init() {
 func getRandomBrowserProfile() BrowserProfile {
 	index := rng.Intn(len(browserProfiles))
 	profile := browserProfiles[index]
-	
+
 	// 统计使用情况
 	count, _ := stats.browserUsage.LoadOrStore(profile.Name, new(atomic.Int64))
 	count.(*atomic.Int64).Add(1)
-	
+
 	return profile
 }
 
 // 创建可复用的 uTLS 客户端（使用随机浏览器指纹）
 func createUTLSClient() *http.Client {
 	profile := getRandomBrowserProfile()
-	
+
 	transport := &http2.Transport{
-		AllowHTTP: false,
+		AllowHTTP:         false,
 		MaxHeaderListSize: 262144,
 		ReadIdleTimeout:   60 * time.Second,
 		PingTimeout:       15 * time.Second,
-		
+
 		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
 			dialer := &net.Dialer{
 				Timeout:   10 * time.Second,
@@ -269,11 +287,11 @@ func createUTLSClientWithIPv6(ipv6 string) (*http.Client, error) {
 	profile := getRandomBrowserProfile()
 
 	transport := &http2.Transport{
-		AllowHTTP: false,
+		AllowHTTP:         false,
 		MaxHeaderListSize: 262144,
 		ReadIdleTimeout:   60 * time.Second,
 		PingTimeout:       15 * time.Second,
-		
+
 		DialTLS: func(network, addr string, cfg *tls.Config) (net.Conn, error) {
 			dialer := &net.Dialer{
 				Timeout:   10 * time.Second,
@@ -351,7 +369,7 @@ func refreshSession(ipv6 string) error {
 
 	var client *http.Client
 	var err error
-	
+
 	if ipv6 != "" {
 		client, err = createUTLSClientWithIPv6(ipv6)
 		if err != nil {
@@ -409,14 +427,14 @@ func setHeaders(req *http.Request, profile BrowserProfile, isSessionRequest bool
 	// 基础 Headers
 	req.Header.Set("User-Agent", profile.UserAgent)
 	req.Header.Set("Accept-Language", profile.AcceptLanguage)
-	
+
 	// Chrome/Edge 特有的 Sec-Ch-Ua Headers
 	if profile.SecChUa != "" {
 		req.Header.Set("Sec-Ch-Ua", profile.SecChUa)
 		req.Header.Set("Sec-Ch-Ua-Mobile", "?0")
 		req.Header.Set("Sec-Ch-Ua-Platform", profile.SecChUaPlatform)
 	}
-	
+
 	// Accept 头
 	if isSessionRequest {
 		req.Header.Set("Accept", profile.Accept)
@@ -432,14 +450,14 @@ func setHeaders(req *http.Request, profile BrowserProfile, isSessionRequest bool
 		req.Header.Set("Sec-Fetch-Mode", "cors")
 		req.Header.Set("Sec-Fetch-Site", "same-site")
 	}
-	
+
 	// 通用 Headers
 	req.Header.Set("Cache-Control", "no-cache")
 	req.Header.Set("Pragma", "no-cache")
-	
+
 	// 随机添加一些可选 Headers（增加真实性）
 	if rng.Float32() < 0.5 {
-		req.Header.Set("DNT", "1")  // Do Not Track
+		req.Header.Set("DNT", "1") // Do Not Track
 	}
 }
 
@@ -502,11 +520,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 随机选择浏览器指纹
 	profile := getRandomBrowserProfile()
-	
+
 	// 获取客户端
 	var client *http.Client
 	var shouldReturn bool
-	
+
 	if ipv6 != "" {
 		var err error
 		client, err = createUTLSClientWithIPv6(ipv6)
@@ -557,7 +575,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 使用随机浏览器指纹设置 Headers
 	setHeaders(req, profile, false)
-	
+
 	// 关键：必须有 Referer 和 Origin
 	if !strings.Contains(targetURL, "www.google.com") {
 		req.Header.Set("Referer", "https://earth.google.com/")
@@ -619,7 +637,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	urlDisplay := safeSubstring(targetURL, 60)
 
 	log.Printf("✅ [%s] [%s] %d - %s (%dms, %d bytes)",
-		ipv6Display, profile.Name, resp.StatusCode, urlDisplay, 
+		ipv6Display, profile.Name, resp.StatusCode, urlDisplay,
 		duration.Milliseconds(), len(body))
 
 	// 返回响应
@@ -645,7 +663,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	success := stats.successRequests.Load()
 	failed := stats.failedRequests.Load()
 	sessionRefresh := stats.sessionRefreshCount.Load()
-	
+
 	var successRate float64
 	if total > 0 {
 		successRate = float64(success) / float64(total) * 100
@@ -665,7 +683,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	
+
 	// 构建浏览器使用统计
 	browserStats := "{"
 	first := true
@@ -677,7 +695,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		first = false
 	}
 	browserStats += "}"
-	
+
 	fmt.Fprintf(w, `{
 	"status": "ok",
 	"uptime": %.0f,
@@ -718,7 +736,7 @@ func main() {
 	http.HandleFunc("/health", healthHandler)
 
 	log.Printf("🚀 uTLS Proxy Server starting on :%s", port)
-	log.Printf("📦 uTLS 版本: v1.6.0 (github.com/refraction-networking/utls)")
+	log.Printf("📦 uTLS 版本: v1.8.1 (github.com/refraction-networking/utls)")
 	log.Printf("🎭 浏览器指纹库: %d 种官方支持的配置", len(browserProfiles))
 	log.Printf("🌐 代理端点: http://localhost:%s/proxy?url=<URL>&ipv6=<IPv6>", port)
 	log.Printf("💚 健康检查: http://localhost:%s/health", port)
