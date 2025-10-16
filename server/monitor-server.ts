@@ -311,7 +311,7 @@ export class MonitorServer {
   private async serveConfig(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     try {
       const config = getConfig()
-      
+
       // GET - 获取配置
       if (req.method === 'GET') {
         const configData = config.getAll()

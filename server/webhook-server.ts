@@ -23,7 +23,7 @@ export class WebhookServer {
   ) {
     // 获取配置实例（延迟初始化）
     const config = getConfig()
-    
+
     // 从配置获取 Webhook 参数
     this.secret = secret || config.get<string>('server.webhook.secret')
     this.updateScript = updateScript || config.get<string>('server.webhook.updateScript')
