@@ -1,40 +1,39 @@
 {
-  "nodes": [
-    {
-      "name": "tile0",
-      "domain": "tile0.zeromaps.cn",
-      "webhookUrl": "https://tile0.zeromaps.cn/webhook"
-    },
-    {
-      "name": "tile3",
-      "domain": "tile3.zeromaps.cn",
-      "webhookUrl": "https://tile3.zeromaps.cn/webhook"
-    },
-    {
-      "name": "tile4",
-      "domain": "tile4.zeromaps.cn",
-      "webhookUrl": "https://tile4.zeromaps.cn/webhook"
-    },
-    {
-      "name": "tile5",
-      "domain": "tile5.zeromaps.cn",
-      "webhookUrl": "https://tile5.zeromaps.cn/webhook"
-    },
-    {
-      "name": "tile6",
-      "domain": "tile6.zeromaps.cn",
-      "webhookUrl": "https://tile6.zeromaps.cn/webhook"
-    },
-    {
-      "name": "tile12",
-      "domain": "tile12.zeromaps.cn",
-      "webhookUrl": "https://tile12.zeromaps.cn/webhook"
-    },
-    {
-      "name": "www",
-      "domain": "www.zeromaps.com.cn",
-      "webhookUrl": "https://www.zeromaps.com.cn/webhook"
-    }
-  ]
+    "nodes": [
+        {
+            "name": "tile0",
+            "domain": "tile0.zeromaps.cn",
+            "webhookUrl": "https://tile0.zeromaps.cn/webhook"
+        },
+        {
+            "name": "tile3",
+            "domain": "tile3.zeromaps.cn",
+            "webhookUrl": "https://tile3.zeromaps.cn/webhook"
+        },
+        {
+            "name": "tile4",
+            "domain": "tile4.zeromaps.cn",
+            "webhookUrl": "https://tile4.zeromaps.cn/webhook"
+        },
+        {
+            "name": "tile5",
+            "domain": "tile5.zeromaps.cn",
+            "webhookUrl": "https://tile5.zeromaps.cn/webhook"
+        },
+        {
+            "name": "tile6",
+            "domain": "tile6.zeromaps.cn",
+            "webhookUrl": "https://tile6.zeromaps.cn/webhook"
+        },
+        {
+            "name": "tile12",
+            "domain": "tile12.zeromaps.cn",
+            "webhookUrl": "https://tile12.zeromaps.cn/webhook"
+        },
+        {
+            "name": "www",
+            "domain": "www.zeromaps.com.cn",
+            "webhookUrl": "https://www.zeromaps.com.cn/webhook"
+        }
+    ]
 }
-

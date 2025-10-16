@@ -33,7 +33,7 @@ export class WebhookServer {
   ) {
     // 获取配置实例（延迟初始化）
     const config = getConfig()
-    
+
     // 从配置获取 Webhook 参数
     this.secret = secret || config.get<string>('server.webhook.secret')
     this.updateScript = updateScript || config.get<string>('server.webhook.updateScript')
@@ -210,9 +210,9 @@ export class WebhookServer {
     // 获取当前节点域名（优先从配置，其次环境变量）
     const config = getConfig()
     const currentDomain = config.get<string>('server.domain') || process.env.SERVER_DOMAIN || ''
-    
+
     // 过滤出其他节点（排除当前节点）
-    const otherNodes = this.allNodes.filter(node => 
+    const otherNodes = this.allNodes.filter(node =>
       node.domain !== currentDomain && node.webhookUrl
     )
 
@@ -227,7 +227,7 @@ export class WebhookServer {
     })
 
     // 并发转发到所有节点
-    const forwardPromises = otherNodes.map(node => 
+    const forwardPromises = otherNodes.map(node =>
       this.forwardToNode(node, body, headers)
     )
 
