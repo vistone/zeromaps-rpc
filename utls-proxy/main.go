@@ -36,11 +36,11 @@ type BrowserProfile struct {
 
 // Cookie 会话管理
 type CookieSession struct {
-	cookies      []*http.Cookie
-	lastUpdate   time.Time
-	earliestExpiry time.Time  // 最早过期的 Cookie 的过期时间
-	refreshing   atomic.Bool  // 是否正在刷新（防止并发刷新）
-	mu           sync.RWMutex
+	cookies        []*http.Cookie
+	lastUpdate     time.Time
+	earliestExpiry time.Time   // 最早过期的 Cookie 的过期时间
+	refreshing     atomic.Bool // 是否正在刷新（防止并发刷新）
+	mu             sync.RWMutex
 }
 
 // 统计信息
@@ -54,10 +54,10 @@ type Stats struct {
 }
 
 var (
-	globalSession   = &CookieSession{}
 	stats           = &Stats{startTime: time.Now()}
 	clientPool      sync.Pool // 无 IPv6 绑定的客户端池
 	ipv6ClientCache sync.Map  // IPv6 地址 -> *http.Client 的缓存
+	sessionManager  sync.Map  // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
 	allowedDomains  = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
@@ -379,39 +379,59 @@ func decompressGzip(data []byte) ([]byte, error) {
 	return io.ReadAll(reader)
 }
 
-// 检查 Cookie 是否需要刷新
-func needsRefresh() bool {
-	globalSession.mu.RLock()
-	defer globalSession.mu.RUnlock()
+// 获取或创建指定 IPv6 的 Session
+func getOrCreateSession(ipv6 string) *CookieSession {
+	// 无 IPv6 时使用默认 Session（key = ""）
+	if ipv6 == "" {
+		ipv6 = "default"
+	}
+	
+	// 先查缓存
+	if cached, ok := sessionManager.Load(ipv6); ok {
+		return cached.(*CookieSession)
+	}
+	
+	// 创建新 Session
+	session := &CookieSession{}
+	sessionManager.Store(ipv6, session)
+	log.Printf("✓ 为 IPv6 %s 创建新 Session", ipv6[:min(20, len(ipv6))])
+	
+	return session
+}
+
+// 检查指定 Session 的 Cookie 是否需要刷新
+func needsRefresh(session *CookieSession) bool {
+	session.mu.RLock()
+	defer session.mu.RUnlock()
 	
 	// 1. 没有 Cookie，需要刷新
-	if len(globalSession.cookies) == 0 {
+	if len(session.cookies) == 0 {
 		return true
 	}
 	
 	// 2. 检查是否有 Cookie 已经过期或即将过期（提前 30 秒刷新）
 	now := time.Now()
-	if !globalSession.earliestExpiry.IsZero() && now.Add(30*time.Second).After(globalSession.earliestExpiry) {
+	if !session.earliestExpiry.IsZero() && now.Add(30*time.Second).After(session.earliestExpiry) {
 		return true
 	}
 	
 	// 3. 兜底：如果 10 分钟内没有刷新过，强制刷新
-	if time.Since(globalSession.lastUpdate) > 10*time.Minute {
+	if time.Since(session.lastUpdate) > 10*time.Minute {
 		return true
 	}
 	
 	return false
 }
 
-// 清理已过期的 Cookie
-func cleanExpiredCookies() {
-	globalSession.mu.Lock()
-	defer globalSession.mu.Unlock()
+// 清理指定 Session 中已过期的 Cookie
+func cleanExpiredCookies(session *CookieSession) {
+	session.mu.Lock()
+	defer session.mu.Unlock()
 	
 	now := time.Now()
-	validCookies := make([]*http.Cookie, 0, len(globalSession.cookies))
+	validCookies := make([]*http.Cookie, 0, len(session.cookies))
 	
-	for _, cookie := range globalSession.cookies {
+	for _, cookie := range session.cookies {
 		// Cookie 没有设置过期时间，或者还未过期
 		if cookie.Expires.IsZero() || cookie.Expires.After(now) {
 			validCookies = append(validCookies, cookie)
@@ -421,43 +441,47 @@ func cleanExpiredCookies() {
 		}
 	}
 	
-	if len(validCookies) < len(globalSession.cookies) {
+	if len(validCookies) < len(session.cookies) {
 		log.Printf("✓ Cookie 清理完成：%d 个有效，%d 个已过期", 
-			len(validCookies), len(globalSession.cookies)-len(validCookies))
-		globalSession.cookies = validCookies
+			len(validCookies), len(session.cookies)-len(validCookies))
+		session.cookies = validCookies
 	}
 }
 
-// 初始化或刷新会话（访问 earth.google.com 获取 Cookie）
+// 初始化或刷新指定 IPv6 的会话（访问 earth.google.com 获取 Cookie）
 func refreshSession(ipv6 string, force bool) error {
+	// 获取或创建该 IPv6 的 Session
+	session := getOrCreateSession(ipv6)
+	
 	// 先清理过期的 Cookie
-	cleanExpiredCookies()
+	cleanExpiredCookies(session)
 	
 	// 检查是否需要刷新
-	if !force && !needsRefresh() {
-		globalSession.mu.RLock()
-		remaining := time.Until(globalSession.earliestExpiry).Seconds()
-		globalSession.mu.RUnlock()
+	if !force && !needsRefresh(session) {
+		session.mu.RLock()
+		remaining := time.Until(session.earliestExpiry).Seconds()
+		session.mu.RUnlock()
 		
 		if remaining > 0 {
-			log.Printf("✓ Cookie 仍然有效（最早过期时间: %.0f 秒后）", remaining)
+			log.Printf("✓ [%s] Cookie 仍然有效（剩余 %.0f 秒）", 
+				ipv6[:min(20, len(ipv6))], remaining)
 			return nil
 		}
 	}
 	
 	// 使用 CAS 操作防止并发刷新
-	if !globalSession.refreshing.CompareAndSwap(false, true) {
-		log.Printf("⏳ 其他 goroutine 正在刷新会话，等待...")
+	if !session.refreshing.CompareAndSwap(false, true) {
+		log.Printf("⏳ [%s] 其他 goroutine 正在刷新会话，等待...", ipv6[:min(20, len(ipv6))])
 		// 等待其他 goroutine 完成刷新
-		for globalSession.refreshing.Load() {
+		for session.refreshing.Load() {
 			time.Sleep(100 * time.Millisecond)
 		}
-		log.Printf("✓ 会话刷新完成，使用新 Cookie")
+		log.Printf("✓ [%s] 会话刷新完成，使用新 Cookie", ipv6[:min(20, len(ipv6))])
 		return nil
 	}
-	defer globalSession.refreshing.Store(false)
+	defer session.refreshing.Store(false)
 	
-	log.Printf("🔄 刷新会话：访问 earth.google.com...")
+	log.Printf("🔄 [%s] 刷新会话：访问 earth.google.com...", ipv6[:min(20, len(ipv6))])
 
 	// 随机选择浏览器指纹用于会话刷新
 	profile := getRandomBrowserProfile()
@@ -517,13 +541,13 @@ func refreshSession(ipv6 string, force bool) error {
 	// 计算最早过期时间
 	now := time.Now()
 	earliestExpiry := time.Time{}
-	
+
 	for _, cookie := range cookies {
 		// 如果 Cookie 没有设置过期时间，使用 MaxAge
 		if cookie.Expires.IsZero() && cookie.MaxAge > 0 {
 			cookie.Expires = now.Add(time.Duration(cookie.MaxAge) * time.Second)
 		}
-		
+
 		// 记录最早过期时间（排除 session cookie）
 		if !cookie.Expires.IsZero() {
 			if earliestExpiry.IsZero() || cookie.Expires.Before(earliestExpiry) {
@@ -531,30 +555,30 @@ func refreshSession(ipv6 string, force bool) error {
 			}
 		}
 	}
-	
+
 	// 如果所有 Cookie 都是 session cookie（没有过期时间），默认 1 小时后过期
 	if earliestExpiry.IsZero() {
 		earliestExpiry = now.Add(1 * time.Hour)
 	}
 	
-	globalSession.mu.Lock()
-	globalSession.cookies = cookies
-	globalSession.lastUpdate = now
-	globalSession.earliestExpiry = earliestExpiry
-	globalSession.mu.Unlock()
+	session.mu.Lock()
+	session.cookies = cookies
+	session.lastUpdate = now
+	session.earliestExpiry = earliestExpiry
+	session.mu.Unlock()
 	
 	stats.sessionRefreshCount.Add(1)
 
-	log.Printf("✓ 会话已刷新，获得 %d 个 Cookie", len(cookies))
+	log.Printf("✓ [%s] 会话已刷新，获得 %d 个 Cookie", ipv6[:min(20, len(ipv6))], len(cookies))
 	for _, cookie := range cookies {
 		expiryInfo := "Session"
 		if !cookie.Expires.IsZero() {
 			expiryInfo = fmt.Sprintf("过期: %s", cookie.Expires.Format("15:04:05"))
 		}
-		log.Printf("  - %s=%s... (%s)", 
+		log.Printf("  - %s=%s... (%s)",
 			cookie.Name, safeSubstring(cookie.Value, 20), expiryInfo)
 	}
-	log.Printf("  ⏰ 最早过期时间: %s（%d 秒后）", 
+	log.Printf("  ⏰ 最早过期时间: %s（%d 秒后）",
 		earliestExpiry.Format("15:04:05"), int(time.Until(earliestExpiry).Seconds()))
 
 	return nil
@@ -681,7 +705,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// 刷新会话（针对 kh.google.com）
 	parsedURL, _ := url.Parse(targetURL)
 	needsSession := parsedURL.Host == "kh.google.com"
-	
+
 	if needsSession {
 		for attempt := 1; attempt <= 3; attempt++ {
 			if err := refreshSession(ipv6, false); err != nil {
@@ -717,17 +741,18 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("Origin", "https://earth.google.com")
 	}
 
-	// 添加会话 Cookie
-	globalSession.mu.RLock()
-	for _, cookie := range globalSession.cookies {
+	// 获取该 IPv6 的 Session 并添加 Cookie
+	session := getOrCreateSession(ipv6)
+	session.mu.RLock()
+	for _, cookie := range session.cookies {
 		req.AddCookie(cookie)
 	}
-	globalSession.mu.RUnlock()
+	session.mu.RUnlock()
 
 	// 发送请求（支持 403 自动重试）
 	var resp *http.Response
-	maxRetries := 1  // 403 时最多重试 1 次
-	
+	maxRetries := 1 // 403 时最多重试 1 次
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		resp, err = client.Do(req)
 		if err != nil {
@@ -736,12 +761,12 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			stats.failedRequests.Add(1)
 			return
 		}
-		
+
 		// 如果是 403 且是第一次尝试，立即刷新 Cookie 并重试
 		if resp.StatusCode == 403 && attempt == 0 && needsSession {
 			log.Printf("⚠️  收到 403，Cookie 可能失效，立即刷新并重试...")
 			resp.Body.Close()
-			
+
 			// 强制刷新 Session
 			if err := refreshSession(ipv6, true); err != nil {
 				log.Printf("❌ 强制刷新会话失败: %v", err)
@@ -749,7 +774,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				stats.failedRequests.Add(1)
 				return
 			}
-			
+
 			// 重新创建请求（需要重新添加 Cookie）
 			req, _ = http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 			setHeaders(req, profile, false)
@@ -757,18 +782,18 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				req.Header.Set("Referer", "https://earth.google.com/")
 				req.Header.Set("Origin", "https://earth.google.com")
 			}
-			
+
 			// 添加新刷新的 Cookie
-			globalSession.mu.RLock()
-			for _, cookie := range globalSession.cookies {
+			session.mu.RLock()
+			for _, cookie := range session.cookies {
 				req.AddCookie(cookie)
 			}
-			globalSession.mu.RUnlock()
-			
+			session.mu.RUnlock()
+
 			log.Printf("🔄 使用新 Cookie 重试请求...")
-			continue  // 重试
+			continue // 重试
 		}
-		
+
 		// 成功或非 403 错误，跳出循环
 		break
 	}
@@ -836,11 +861,33 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		successRate = float64(success) / float64(total) * 100
 	}
 
-	globalSession.mu.RLock()
-	cookieCount := len(globalSession.cookies)
-	lastRefresh := globalSession.lastUpdate
-	earliestExpiry := globalSession.earliestExpiry
-	globalSession.mu.RUnlock()
+	// 统计所有 Session 的信息
+	var totalCookies int64
+	var totalSessions int64
+	var oldestRefresh time.Time
+	var earliestExpiry time.Time
+	
+	sessionManager.Range(func(key, value interface{}) bool {
+		session := value.(*CookieSession)
+		session.mu.RLock()
+		totalCookies += int64(len(session.cookies))
+		
+		// 记录最旧的刷新时间
+		if oldestRefresh.IsZero() || session.lastUpdate.Before(oldestRefresh) {
+			oldestRefresh = session.lastUpdate
+		}
+		
+		// 记录最早的过期时间
+		if !session.earliestExpiry.IsZero() {
+			if earliestExpiry.IsZero() || session.earliestExpiry.Before(earliestExpiry) {
+				earliestExpiry = session.earliestExpiry
+			}
+		}
+		session.mu.RUnlock()
+		
+		totalSessions++
+		return true
+	})
 	
 	// 计算 Cookie 剩余有效时间
 	var cookieValidSeconds int64
@@ -888,8 +935,9 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	"failedRequests": %d,
 	"successRate": "%.2f%%",
 	"session": {
-		"cookieCount": %d,
-		"lastRefresh": "%s",
+		"totalSessions": %d,
+		"totalCookies": %d,
+		"oldestRefresh": "%s",
 		"earliestExpiry": "%s",
 		"cookieValidSeconds": %d,
 		"sessionRefreshCount": %d
@@ -907,8 +955,9 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		success,
 		failed,
 		successRate,
-		cookieCount,
-		lastRefresh.Format(time.RFC3339),
+		totalSessions,
+		totalCookies,
+		oldestRefresh.Format(time.RFC3339),
 		earliestExpiry.Format(time.RFC3339),
 		cookieValidSeconds,
 		sessionRefresh,
