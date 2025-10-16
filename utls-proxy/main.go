@@ -54,11 +54,12 @@ type Stats struct {
 }
 
 var (
-	stats           = &Stats{startTime: time.Now()}
-	clientPool      sync.Pool // 无 IPv6 绑定的客户端池
-	ipv6ClientCache sync.Map  // IPv6 地址 -> *http.Client 的缓存
-	sessionManager  sync.Map  // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
-	allowedDomains  = map[string]bool{
+	stats              = &Stats{startTime: time.Now()}
+	clientPool         sync.Pool // 无 IPv6 绑定的客户端池
+	ipv6ClientCache    sync.Map  // IPv6 地址 -> *http.Client 的缓存
+	sessionManager     sync.Map  // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
+	browserProfileMap  sync.Map  // IPv6 地址 -> BrowserProfile 的缓存（每个 IPv6 固定浏览器指纹）
+	allowedDomains     = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
 		"www.google.com":   true,
@@ -222,15 +223,44 @@ func init() {
 	}
 }
 
-// 随机选择浏览器指纹
-func getRandomBrowserProfile() BrowserProfile {
+// 获取或分配 IPv6 的固定浏览器指纹
+func getBrowserProfileForIPv6(ipv6 string) BrowserProfile {
+	// 无 IPv6 时使用默认 key
+	if ipv6 == "" {
+		ipv6 = "default"
+	}
+	
+	// 先查缓存：如果已经分配过，返回固定的指纹
+	if cached, ok := browserProfileMap.Load(ipv6); ok {
+		return cached.(BrowserProfile)
+	}
+	
+	// 首次使用：随机选择一个浏览器指纹
 	index := rng.Intn(len(browserProfiles))
 	profile := browserProfiles[index]
-
+	
+	// 存入缓存，后续该 IPv6 一直使用这个指纹
+	browserProfileMap.Store(ipv6, profile)
+	
+	log.Printf("✓ 为 IPv6 %s 分配浏览器指纹: %s", 
+		ipv6[:min(20, len(ipv6))], profile.Name)
+	
 	// 统计使用情况
 	count, _ := stats.browserUsage.LoadOrStore(profile.Name, new(atomic.Int64))
 	count.(*atomic.Int64).Add(1)
+	
+	return profile
+}
 
+// 随机选择浏览器指纹（仅用于无 IPv6 的场景）
+func getRandomBrowserProfile() BrowserProfile {
+	index := rng.Intn(len(browserProfiles))
+	profile := browserProfiles[index]
+	
+	// 统计使用情况
+	count, _ := stats.browserUsage.LoadOrStore(profile.Name, new(atomic.Int64))
+	count.(*atomic.Int64).Add(1)
+	
 	return profile
 }
 
@@ -300,14 +330,15 @@ func getOrCreateIPv6Client(ipv6 string) (*http.Client, error) {
 	return client, nil
 }
 
-// 创建带 IPv6 绑定的客户端（使用随机浏览器指纹）
+// 创建带 IPv6 绑定的客户端（使用该 IPv6 固定的浏览器指纹）
 func createUTLSClientWithIPv6(ipv6 string) (*http.Client, error) {
 	localAddr, err := net.ResolveIPAddr("ip6", ipv6)
 	if err != nil {
 		return nil, fmt.Errorf("无效的 IPv6 地址: %w", err)
 	}
 
-	profile := getRandomBrowserProfile()
+	// 获取该 IPv6 固定的浏览器指纹
+	profile := getBrowserProfileForIPv6(ipv6)
 
 	transport := &http2.Transport{
 		AllowHTTP:         false,
@@ -483,8 +514,8 @@ func refreshSession(ipv6 string, force bool) error {
 
 	log.Printf("🔄 [%s] 刷新会话：访问 earth.google.com...", ipv6[:min(20, len(ipv6))])
 
-	// 随机选择浏览器指纹用于会话刷新
-	profile := getRandomBrowserProfile()
+	// 使用该 IPv6 固定的浏览器指纹
+	profile := getBrowserProfileForIPv6(ipv6)
 	log.Printf("🎭 使用浏览器指纹: %s", profile.Name)
 
 	var client *http.Client
@@ -575,17 +606,17 @@ func refreshSession(ipv6 string, force bool) error {
 		if !cookie.Expires.IsZero() {
 			expiryInfo = fmt.Sprintf("过期: %s", cookie.Expires.Format("15:04:05"))
 		}
-		
+
 		// 显示 Cookie 的 Domain，确认可以跨域使用
 		domainInfo := cookie.Domain
 		if domainInfo == "" {
-			domainInfo = "earth.google.com"  // 默认域
+			domainInfo = "earth.google.com" // 默认域
 		}
-		
-		log.Printf("  - %s=%s... (Domain: %s, %s)", 
+
+		log.Printf("  - %s=%s... (Domain: %s, %s)",
 			cookie.Name, safeSubstring(cookie.Value, 20), domainInfo, expiryInfo)
 	}
-	log.Printf("  ⏰ 最早过期时间: %s（%d 秒后）", 
+	log.Printf("  ⏰ 最早过期时间: %s（%d 秒后）",
 		earliestExpiry.Format("15:04:05"), int(time.Until(earliestExpiry).Seconds()))
 
 	return nil
@@ -644,14 +675,14 @@ func cookieMatchesDomain(cookie *http.Cookie, targetDomain string) bool {
 	if cookie.Domain == "" {
 		return false
 	}
-	
+
 	// Cookie Domain 以 . 开头表示适用于所有子域名
 	// 例如 .google.com 适用于 kh.google.com, earth.google.com 等
 	if strings.HasPrefix(cookie.Domain, ".") {
-		return strings.HasSuffix(targetDomain, cookie.Domain) || 
-		       targetDomain == strings.TrimPrefix(cookie.Domain, ".")
+		return strings.HasSuffix(targetDomain, cookie.Domain) ||
+			targetDomain == strings.TrimPrefix(cookie.Domain, ".")
 	}
-	
+
 	// 完全匹配
 	return cookie.Domain == targetDomain
 }
@@ -659,13 +690,13 @@ func cookieMatchesDomain(cookie *http.Cookie, targetDomain string) bool {
 // 过滤适用于目标域名的 Cookie
 func filterCookiesForDomain(cookies []*http.Cookie, targetDomain string) []*http.Cookie {
 	validCookies := make([]*http.Cookie, 0, len(cookies))
-	
+
 	for _, cookie := range cookies {
 		if cookieMatchesDomain(cookie, targetDomain) {
 			validCookies = append(validCookies, cookie)
 		}
 	}
-	
+
 	return validCookies
 }
 
@@ -718,8 +749,8 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 随机选择浏览器指纹
-	profile := getRandomBrowserProfile()
+	// 使用该 IPv6 固定的浏览器指纹
+	profile := getBrowserProfileForIPv6(ipv6)
 
 	// 获取客户端（优先从缓存获取）
 	var client *http.Client
