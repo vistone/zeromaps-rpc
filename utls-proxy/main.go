@@ -50,8 +50,8 @@ type CookieSession struct {
 type IPv6Health struct {
 	totalRequests  atomic.Int64
 	failedRequests atomic.Int64
-	circuitOpen    atomic.Bool   // 熔断器是否打开（true = 熔断中）
-	circuitOpenAt  time.Time     // 熔断器打开时间
+	circuitOpen    atomic.Bool // 熔断器是否打开（true = 熔断中）
+	circuitOpenAt  time.Time   // 熔断器打开时间
 	mu             sync.RWMutex
 }
 
@@ -72,16 +72,16 @@ type Stats struct {
 }
 
 var (
-	stats              = &Stats{startTime: time.Now()}
-	clientPool         sync.Pool  // 无 IPv6 绑定的客户端池
-	ipv6ClientCache    sync.Map   // IPv6 地址 -> *http.Client 的缓存
-	sessionManager     sync.Map   // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
-	browserProfileMap  sync.Map   // IPv6 地址 -> BrowserProfile 的缓存（每个 IPv6 固定浏览器指纹）
-	ipv6HealthMap      sync.Map   // IPv6 地址 -> *IPv6Health 的健康状态（熔断器）
-	sessionRefreshSem  chan struct{} // 并发刷新控制信号量（最多 5 个同时刷新）
-	activeRequests     atomic.Int64  // 当前正在处理的请求数
-	shutdownFlag       atomic.Bool   // 关闭标志
-	allowedDomains     = map[string]bool{
+	stats             = &Stats{startTime: time.Now()}
+	clientPool        sync.Pool     // 无 IPv6 绑定的客户端池
+	ipv6ClientCache   sync.Map      // IPv6 地址 -> *http.Client 的缓存
+	sessionManager    sync.Map      // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
+	browserProfileMap sync.Map      // IPv6 地址 -> BrowserProfile 的缓存（每个 IPv6 固定浏览器指纹）
+	ipv6HealthMap     sync.Map      // IPv6 地址 -> *IPv6Health 的健康状态（熔断器）
+	sessionRefreshSem chan struct{} // 并发刷新控制信号量（最多 5 个同时刷新）
+	activeRequests    atomic.Int64  // 当前正在处理的请求数
+	shutdownFlag      atomic.Bool   // 关闭标志
+	allowedDomains    = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
 		"www.google.com":   true,
@@ -227,19 +227,19 @@ var (
 	}
 
 	rng *rand.Rand // 全局随机数生成器
-	
+
 	// 可配置参数（从环境变量读取，带默认值）
 	config struct {
-		maxRetries            int           // 最大重试次数
-		baseRetryDelay        time.Duration // 基础重试延迟
-		requestTimeout        time.Duration // 请求超时时间
-		sessionRefreshTimeout time.Duration // 会话刷新超时
-		maxConcurrentRefresh  int           // 最大并发刷新数
-		resourceCleanInterval time.Duration // 资源清理间隔
-		sessionInactiveTime   time.Duration // Session 不活跃清理时间
-		circuitBreakerThreshold float64     // 熔断器失败率阈值
-		circuitBreakerWindow  int64         // 熔断器最小请求数
-		circuitRecoveryTime   time.Duration // 熔断恢复时间
+		maxRetries              int           // 最大重试次数
+		baseRetryDelay          time.Duration // 基础重试延迟
+		requestTimeout          time.Duration // 请求超时时间
+		sessionRefreshTimeout   time.Duration // 会话刷新超时
+		maxConcurrentRefresh    int           // 最大并发刷新数
+		resourceCleanInterval   time.Duration // 资源清理间隔
+		sessionInactiveTime     time.Duration // Session 不活跃清理时间
+		circuitBreakerThreshold float64       // 熔断器失败率阈值
+		circuitBreakerWindow    int64         // 熔断器最小请求数
+		circuitRecoveryTime     time.Duration // 熔断恢复时间
 	}
 )
 
@@ -252,70 +252,70 @@ func loadConfig() {
 			config.maxRetries = v
 		}
 	}
-	
+
 	config.baseRetryDelay = 100 * time.Millisecond
 	if val := os.Getenv("UTLS_BASE_RETRY_DELAY_MS"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.baseRetryDelay = time.Duration(v) * time.Millisecond
 		}
 	}
-	
+
 	config.requestTimeout = 30 * time.Second
 	if val := os.Getenv("UTLS_REQUEST_TIMEOUT"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.requestTimeout = time.Duration(v) * time.Second
 		}
 	}
-	
+
 	config.sessionRefreshTimeout = 15 * time.Second
 	if val := os.Getenv("UTLS_SESSION_TIMEOUT"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.sessionRefreshTimeout = time.Duration(v) * time.Second
 		}
 	}
-	
+
 	config.maxConcurrentRefresh = 5
 	if val := os.Getenv("UTLS_MAX_CONCURRENT_REFRESH"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.maxConcurrentRefresh = v
 		}
 	}
-	
+
 	config.resourceCleanInterval = 5 * time.Minute
 	if val := os.Getenv("UTLS_CLEAN_INTERVAL_MIN"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.resourceCleanInterval = time.Duration(v) * time.Minute
 		}
 	}
-	
+
 	config.sessionInactiveTime = 30 * time.Minute
 	if val := os.Getenv("UTLS_SESSION_INACTIVE_MIN"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.sessionInactiveTime = time.Duration(v) * time.Minute
 		}
 	}
-	
+
 	config.circuitBreakerThreshold = 0.8
 	if val := os.Getenv("UTLS_CIRCUIT_THRESHOLD"); val != "" {
 		if v, err := strconv.ParseFloat(val, 64); err == nil && v > 0 && v < 1 {
 			config.circuitBreakerThreshold = v
 		}
 	}
-	
+
 	config.circuitBreakerWindow = 20
 	if val := os.Getenv("UTLS_CIRCUIT_MIN_REQUESTS"); val != "" {
 		if v, err := strconv.ParseInt(val, 10, 64); err == nil && v > 0 {
 			config.circuitBreakerWindow = v
 		}
 	}
-	
+
 	config.circuitRecoveryTime = 5 * time.Minute
 	if val := os.Getenv("UTLS_CIRCUIT_RECOVERY_MIN"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.circuitRecoveryTime = time.Duration(v) * time.Minute
 		}
 	}
-	
+
 	log.Printf("📝 配置已加载:")
 	log.Printf("  - 最大重试次数: %d", config.maxRetries)
 	log.Printf("  - 基础重试延迟: %v", config.baseRetryDelay)
@@ -332,7 +332,7 @@ func loadConfig() {
 // 初始化
 func init() {
 	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-	
+
 	// 加载配置
 	loadConfig()
 
@@ -341,7 +341,7 @@ func init() {
 			return createUTLSClient()
 		},
 	}
-	
+
 	// 初始化并发刷新控制信号量（使用配置的值）
 	sessionRefreshSem = make(chan struct{}, config.maxConcurrentRefresh)
 
@@ -434,7 +434,7 @@ func createUTLSClient() *http.Client {
 	}
 
 	return &http.Client{
-		Timeout:   30 * time.Second,
+		Timeout:   config.requestTimeout,
 		Transport: transport,
 	}
 }
@@ -507,7 +507,7 @@ func createUTLSClientWithIPv6(ipv6 string) (*http.Client, error) {
 	}
 
 	return &http.Client{
-		Timeout:   30 * time.Second,
+		Timeout:   config.requestTimeout,
 		Transport: transport,
 	}, nil
 }
@@ -545,19 +545,19 @@ func getOrCreateSession(ipv6 string) *CookieSession {
 	if ipv6 == "" {
 		ipv6 = "default"
 	}
-	
+
 	// 先查缓存
 	if cached, ok := sessionManager.Load(ipv6); ok {
 		return cached.(*CookieSession)
 	}
-	
+
 	// 创建新 Session
 	session := &CookieSession{
 		lastAccess: time.Now(),
 	}
 	sessionManager.Store(ipv6, session)
 	log.Printf("✓ 为 IPv6 %s 创建新 Session", ipv6[:min(20, len(ipv6))])
-	
+
 	return session
 }
 
@@ -566,11 +566,11 @@ func getOrCreateIPv6Health(ipv6 string) *IPv6Health {
 	if ipv6 == "" {
 		ipv6 = "default"
 	}
-	
+
 	if cached, ok := ipv6HealthMap.Load(ipv6); ok {
 		return cached.(*IPv6Health)
 	}
-	
+
 	health := &IPv6Health{}
 	ipv6HealthMap.Store(ipv6, health)
 	return health
@@ -579,54 +579,60 @@ func getOrCreateIPv6Health(ipv6 string) *IPv6Health {
 // 检查 IPv6 是否被熔断
 func isCircuitOpen(ipv6 string) bool {
 	health := getOrCreateIPv6Health(ipv6)
-	
+
 	// 检查熔断器是否打开
 	if !health.circuitOpen.Load() {
 		return false
 	}
-	
+
 	// 检查是否可以尝试恢复（使用配置的恢复时间）
 	health.mu.RLock()
 	openAt := health.circuitOpenAt
 	health.mu.RUnlock()
-	
+
 	if time.Since(openAt) > config.circuitRecoveryTime {
-		log.Printf("🔄 [%s] 熔断器尝试恢复（已熔断 5 分钟）", ipv6[:min(20, len(ipv6))])
+		log.Printf("🔄 [%s] 熔断器尝试恢复（已熔断 %v）", ipv6[:min(20, len(ipv6))], config.circuitRecoveryTime)
+		
+		// 重置计数器，给 IPv6 一个全新的机会
+		health.totalRequests.Store(0)
+		health.failedRequests.Store(0)
 		health.circuitOpen.Store(false)
+		
+		log.Printf("✓ [%s] 熔断器已重置计数器，开始重新评估", ipv6[:min(20, len(ipv6))])
 		return false
 	}
-	
+
 	return true
 }
 
 // 记录请求结果并检查是否需要熔断
 func recordRequestResult(ipv6 string, success bool) {
 	health := getOrCreateIPv6Health(ipv6)
-	
+
 	health.totalRequests.Add(1)
 	if !success {
 		health.failedRequests.Add(1)
 	}
-	
+
 	total := health.totalRequests.Load()
 	failed := health.failedRequests.Load()
-	
+
 	// 使用配置的最小请求数
 	if total < config.circuitBreakerWindow {
 		return
 	}
-	
+
 	// 计算失败率
 	failureRate := float64(failed) / float64(total)
-	
+
 	// 使用配置的失败率阈值
 	if failureRate > config.circuitBreakerThreshold && !health.circuitOpen.Load() {
 		health.circuitOpen.Store(true)
 		health.mu.Lock()
 		health.circuitOpenAt = time.Now()
 		health.mu.Unlock()
-		
-		log.Printf("⚠️  [%s] 触发熔断！失败率: %.2f%% (%d/%d)，暂停使用 %v", 
+
+		log.Printf("⚠️  [%s] 触发熔断！失败率: %.2f%% (%d/%d)，暂停使用 %v",
 			ipv6[:min(20, len(ipv6))], failureRate*100, failed, total, config.circuitRecoveryTime)
 	}
 }
@@ -712,12 +718,12 @@ func refreshSession(ipv6 string, force bool) error {
 		return nil
 	}
 	defer session.refreshing.Store(false)
-	
+
 	// 获取全局并发刷新槽位（最多 5 个同时刷新）
 	sessionRefreshSem <- struct{}{}
 	defer func() { <-sessionRefreshSem }()
-	
-	log.Printf("🔄 [%s] 刷新会话：访问 earth.google.com... (刷新槽位: %d/5 使用中)", 
+
+	log.Printf("🔄 [%s] 刷新会话：访问 earth.google.com... (刷新槽位: %d/5 使用中)",
 		ipv6[:min(20, len(ipv6))], len(sessionRefreshSem))
 
 	// 使用该 IPv6 固定的浏览器指纹
@@ -774,7 +780,7 @@ func refreshSession(ipv6 string, force bool) error {
 	if len(cookies) == 0 {
 		return fmt.Errorf("未获取到 Cookie")
 	}
-	
+
 	// 验证必需的 Cookie（NID 和 1P_JAR 至少要有一个）
 	hasNID := false
 	has1PJAR := false
@@ -786,7 +792,7 @@ func refreshSession(ipv6 string, force bool) error {
 			has1PJAR = true
 		}
 	}
-	
+
 	if !hasNID && !has1PJAR {
 		log.Printf("⚠️  警告：未获取到关键 Cookie (NID 或 1P_JAR)，但有 %d 个其他 Cookie", len(cookies))
 		// 不返回错误，只记录警告（因为可能有其他有效的 Cookie）
@@ -892,37 +898,6 @@ func safeSubstring(s string, length int) string {
 	return s[:length]
 }
 
-// 检查 Cookie 是否适用于目标域名
-func cookieMatchesDomain(cookie *http.Cookie, targetDomain string) bool {
-	// 如果 Cookie 没有设置 Domain，则只适用于设置它的域名
-	if cookie.Domain == "" {
-		return false
-	}
-
-	// Cookie Domain 以 . 开头表示适用于所有子域名
-	// 例如 .google.com 适用于 kh.google.com, earth.google.com 等
-	if strings.HasPrefix(cookie.Domain, ".") {
-		return strings.HasSuffix(targetDomain, cookie.Domain) ||
-			targetDomain == strings.TrimPrefix(cookie.Domain, ".")
-	}
-
-	// 完全匹配
-	return cookie.Domain == targetDomain
-}
-
-// 过滤适用于目标域名的 Cookie
-func filterCookiesForDomain(cookies []*http.Cookie, targetDomain string) []*http.Cookie {
-	validCookies := make([]*http.Cookie, 0, len(cookies))
-
-	for _, cookie := range cookies {
-		if cookieMatchesDomain(cookie, targetDomain) {
-			validCookies = append(validCookies, cookie)
-		}
-	}
-
-	return validCookies
-}
-
 // 验证 URL 是否允许访问
 func isAllowedURL(targetURL string) error {
 	parsedURL, err := url.Parse(targetURL)
@@ -948,10 +923,10 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server is shutting down", http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	activeRequests.Add(1)
 	defer activeRequests.Add(-1)
-	
+
 	startTime := time.Now()
 	stats.totalRequests.Add(1)
 
@@ -979,7 +954,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			stats.failedRequests.Add(1)
 			return
 		}
-		
+
 		// 检查熔断器状态
 		if isCircuitOpen(ipv6) {
 			log.Printf("⛔ [%s] 熔断器已打开，拒绝请求", ipv6[:min(20, len(ipv6))])
@@ -1029,8 +1004,9 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 创建请求
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	// 创建请求（使用配置的超时，并留出重试时间）
+	requestContextTimeout := config.requestTimeout + time.Duration(config.maxRetries)*config.baseRetryDelay*8
+	ctx, cancel := context.WithTimeout(context.Background(), requestContextTimeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
@@ -1052,13 +1028,13 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 获取该 IPv6 的 Session 并添加 Cookie
 	session := getOrCreateSession(ipv6)
-	
+
 	// 更新最后访问时间
 	session.mu.Lock()
 	session.lastAccess = time.Now()
 	cookies := session.cookies
 	session.mu.Unlock()
-	
+
 	for _, cookie := range cookies {
 		req.AddCookie(cookie)
 	}
@@ -1067,28 +1043,29 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	var resp *http.Response
 	maxRetries := config.maxRetries
 	baseDelay := config.baseRetryDelay
+	hasRefreshedCookie := false // 标记是否已经刷新过 Cookie（403 时）
 
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		resp, err = client.Do(req)
-		
+
 		// 网络错误处理
 		if err != nil {
 			// 检查是否超时
-			if strings.Contains(err.Error(), "timeout") || 
-			   strings.Contains(err.Error(), "deadline exceeded") {
+			if strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "deadline exceeded") {
 				stats.timeoutCount.Add(1)
 				log.Printf("⏱️  请求超时 (尝试 %d/%d): %v", attempt+1, maxRetries+1, err)
 			} else {
 				stats.networkErrorCount.Add(1)
 				log.Printf("❌ 网络错误 (尝试 %d/%d): %v", attempt+1, maxRetries+1, err)
 			}
-			
+
 			// 如果还有重试机会，等待后重试
 			if attempt < maxRetries {
 				delay := baseDelay * time.Duration(1<<uint(attempt)) // 指数退避: 100ms, 200ms, 400ms
 				log.Printf("⏳ 等待 %v 后重试...", delay)
 				time.Sleep(delay)
-				
+
 				// 重新创建请求
 				req, _ = http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 				setHeaders(req, profile, false)
@@ -1103,7 +1080,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				session.mu.RUnlock()
 				continue
 			}
-			
+
 			// 重试次数用尽
 			http.Error(w, "Request failed after retries", http.StatusBadGateway)
 			stats.failedRequests.Add(1)
@@ -1113,43 +1090,56 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 		// HTTP 错误码处理
 		statusCode := resp.StatusCode
-		
-		// 403 Forbidden - 刷新 Cookie 重试
-		if statusCode == 403 && attempt == 0 && needsSession {
+
+		// 403 Forbidden - 刷新 Cookie 重试（只刷新一次，避免死循环）
+		if statusCode == 403 && needsSession {
 			stats.error403Count.Add(1)
-			log.Printf("⚠️  收到 403，Cookie 可能失效，立即刷新并重试...")
 			resp.Body.Close()
-
-			if err := refreshSession(ipv6, true); err != nil {
-				log.Printf("❌ 强制刷新会话失败: %v", err)
-				http.Error(w, "Session refresh failed", http.StatusServiceUnavailable)
-				stats.failedRequests.Add(1)
-				recordRequestResult(ipv6, false) // 记录失败到熔断器
-				return
-			}
-
-			// 重新创建请求
-			req, _ = http.NewRequestWithContext(ctx, "GET", targetURL, nil)
-			setHeaders(req, profile, false)
-			if !strings.Contains(targetURL, "www.google.com") {
-				req.Header.Set("Referer", "https://earth.google.com/")
-				req.Header.Set("Origin", "https://earth.google.com")
-			}
-			session.mu.RLock()
-			for _, cookie := range session.cookies {
-				req.AddCookie(cookie)
-			}
-			session.mu.RUnlock()
 			
-			log.Printf("🔄 使用新 Cookie 重试请求...")
-			continue
+			// 如果还没刷新过 Cookie，尝试刷新
+			if !hasRefreshedCookie && attempt < maxRetries {
+				log.Printf("⚠️  收到 403 (尝试 %d/%d)，Cookie 可能失效，立即刷新并重试...", attempt+1, maxRetries+1)
+
+				if err := refreshSession(ipv6, true); err != nil {
+					log.Printf("❌ 强制刷新会话失败: %v", err)
+					http.Error(w, "Session refresh failed", http.StatusServiceUnavailable)
+					stats.failedRequests.Add(1)
+					recordRequestResult(ipv6, false) // 记录失败到熔断器
+					return
+				}
+				
+				hasRefreshedCookie = true // 标记已刷新
+
+				// 重新创建请求
+				req, _ = http.NewRequestWithContext(ctx, "GET", targetURL, nil)
+				setHeaders(req, profile, false)
+				if !strings.Contains(targetURL, "www.google.com") {
+					req.Header.Set("Referer", "https://earth.google.com/")
+					req.Header.Set("Origin", "https://earth.google.com")
+				}
+				session.mu.RLock()
+				for _, cookie := range session.cookies {
+					req.AddCookie(cookie)
+				}
+				session.mu.RUnlock()
+
+				log.Printf("🔄 使用新 Cookie 重试请求...")
+				continue
+			}
+			
+			// 已刷新过或无重试机会
+			log.Printf("❌ 403 错误，Cookie 刷新后仍然失败")
+			http.Error(w, "Forbidden after refresh", http.StatusForbidden)
+			stats.failedRequests.Add(1)
+			recordRequestResult(ipv6, false)
+			return
 		}
-		
+
 		// 429 Too Many Requests - 指数退避重试
 		if statusCode == 429 {
 			stats.error429Count.Add(1)
 			resp.Body.Close()
-			
+
 			if attempt < maxRetries {
 				// 检查 Retry-After 头
 				retryAfter := resp.Header.Get("Retry-After")
@@ -1164,10 +1154,10 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				} else {
 					delay = baseDelay * time.Duration(1<<uint(attempt+2)) // 429 使用更长的退避: 400ms, 800ms, 1600ms
 				}
-				
+
 				log.Printf("⚠️  收到 429 (Too Many Requests)，等待 %v 后重试 (尝试 %d/%d)...", delay, attempt+1, maxRetries+1)
 				time.Sleep(delay)
-				
+
 				// 重新创建请求
 				req, _ = http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 				setHeaders(req, profile, false)
@@ -1182,24 +1172,24 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				session.mu.RUnlock()
 				continue
 			}
-			
+
 			log.Printf("❌ 429 错误，重试次数用尽")
 			http.Error(w, "Too many requests", http.StatusTooManyRequests)
 			stats.failedRequests.Add(1)
 			recordRequestResult(ipv6, false) // 记录失败到熔断器
 			return
 		}
-		
+
 		// 503 Service Unavailable - 短暂等待重试
 		if statusCode == 503 {
 			stats.error503Count.Add(1)
 			resp.Body.Close()
-			
+
 			if attempt < maxRetries {
 				delay := baseDelay * time.Duration(1<<uint(attempt+1)) // 200ms, 400ms, 800ms
 				log.Printf("⚠️  收到 503 (Service Unavailable)，等待 %v 后重试 (尝试 %d/%d)...", delay, attempt+1, maxRetries+1)
 				time.Sleep(delay)
-				
+
 				// 重新创建请求
 				req, _ = http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 				setHeaders(req, profile, false)
@@ -1214,24 +1204,24 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				session.mu.RUnlock()
 				continue
 			}
-			
+
 			log.Printf("❌ 503 错误，重试次数用尽")
 			http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
 			stats.failedRequests.Add(1)
 			recordRequestResult(ipv6, false) // 记录失败到熔断器
 			return
 		}
-		
+
 		// 其他 5xx 错误 - 短暂等待重试
 		if statusCode >= 500 && statusCode < 600 {
 			stats.error5xxCount.Add(1)
 			resp.Body.Close()
-			
+
 			if attempt < maxRetries {
 				delay := baseDelay * time.Duration(1<<uint(attempt)) // 100ms, 200ms, 400ms
 				log.Printf("⚠️  收到 %d 错误，等待 %v 后重试 (尝试 %d/%d)...", statusCode, delay, attempt+1, maxRetries+1)
 				time.Sleep(delay)
-				
+
 				// 重新创建请求
 				req, _ = http.NewRequestWithContext(ctx, "GET", targetURL, nil)
 				setHeaders(req, profile, false)
@@ -1246,7 +1236,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				session.mu.RUnlock()
 				continue
 			}
-			
+
 			log.Printf("❌ %d 错误，重试次数用尽", statusCode)
 			http.Error(w, fmt.Sprintf("Server error: %d", statusCode), statusCode)
 			stats.failedRequests.Add(1)
@@ -1265,6 +1255,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("❌ 读取响应失败: %v", err)
 		http.Error(w, "Failed to read response", http.StatusInternalServerError)
 		stats.failedRequests.Add(1)
+		recordRequestResult(ipv6, false) // 记录失败到熔断器
 		return
 	}
 
@@ -1275,13 +1266,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			log.Printf("❌ 解压失败: %v", err)
 			http.Error(w, "Failed to decompress response", http.StatusInternalServerError)
 			stats.failedRequests.Add(1)
+			recordRequestResult(ipv6, false) // 记录失败到熔断器
 			return
 		}
 	}
 
 	duration := time.Since(startTime)
 	stats.successRequests.Add(1)
-	
+
 	// 记录成功结果到熔断器
 	recordRequestResult(ipv6, true)
 
@@ -1324,7 +1316,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	timeoutErr := stats.timeoutCount.Load()
 	networkErr := stats.networkErrorCount.Load()
 	sessionRefresh := stats.sessionRefreshCount.Load()
-	
+
 	var successRate float64
 	if total > 0 {
 		successRate = float64(success) / float64(total) * 100
@@ -1489,36 +1481,36 @@ func main() {
 	// 等待关闭信号
 	sig := <-sigChan
 	log.Printf("🛑 收到信号: %v，开始优雅关闭...", sig)
-	
+
 	// 设置关闭标志，拒绝新请求
 	shutdownFlag.Store(true)
 	log.Printf("✓ 已停止接受新请求")
-	
+
 	// 等待现有请求完成（最多等待 30 秒）
 	log.Printf("⏳ 等待 %d 个活跃请求完成...", activeRequests.Load())
 	shutdownTimeout := 30 * time.Second
 	deadline := time.Now().Add(shutdownTimeout)
-	
+
 	for activeRequests.Load() > 0 && time.Now().Before(deadline) {
 		remaining := activeRequests.Load()
 		log.Printf("⏳ 还有 %d 个请求正在处理...", remaining)
 		time.Sleep(500 * time.Millisecond)
 	}
-	
+
 	if activeRequests.Load() > 0 {
 		log.Printf("⚠️  超时，仍有 %d 个请求未完成，强制关闭", activeRequests.Load())
 	} else {
 		log.Printf("✓ 所有请求已完成")
 	}
-	
+
 	// 关闭 HTTP 服务器
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := server.Shutdown(ctx); err != nil {
 		log.Printf("❌ 服务器关闭失败: %v", err)
 	}
-	
+
 	log.Printf("✓ 服务器已优雅关闭")
 	log.Printf("📊 最终统计:")
 	log.Printf("  - 总请求数: %d", stats.totalRequests.Load())
@@ -1531,14 +1523,14 @@ func main() {
 func startResourceCleanup() {
 	ticker := time.NewTicker(config.resourceCleanInterval)
 	defer ticker.Stop()
-	
+
 	log.Printf("🗑️  资源清理任务已启动（每 %v）", config.resourceCleanInterval)
-	
+
 	for range ticker.C {
 		if shutdownFlag.Load() {
 			break
 		}
-		
+
 		cleanupExpiredResources()
 	}
 }
@@ -1547,74 +1539,73 @@ func startResourceCleanup() {
 func cleanupExpiredResources() {
 	now := time.Now()
 	inactiveThreshold := config.sessionInactiveTime
-	
+
 	var cleanedSessions int
 	var cleanedClients int
 	var toDelete []string
-	
+
 	// 1. 清理过期的 Session
 	sessionManager.Range(func(key, value interface{}) bool {
 		ipv6 := key.(string)
 		session := value.(*CookieSession)
-		
+
 		session.mu.RLock()
 		lastAccess := session.lastAccess
 		session.mu.RUnlock()
-		
+
 		// 超过 30 分钟未访问，标记删除
 		if now.Sub(lastAccess) > inactiveThreshold {
 			toDelete = append(toDelete, ipv6)
 		}
-		
+
 		return true
 	})
-	
+
 	// 执行删除
 	for _, ipv6 := range toDelete {
 		sessionManager.Delete(ipv6)
 		cleanedSessions++
 		log.Printf("🗑️  清理过期 Session: %s (%v 未使用)", ipv6[:min(20, len(ipv6))], config.sessionInactiveTime)
 	}
-	
+
 	// 2. 清理对应的 Client（Session 已删除的）
 	toDelete = toDelete[:0] // 重置切片
-	
+
 	ipv6ClientCache.Range(func(key, value interface{}) bool {
 		ipv6 := key.(string)
-		
+
 		// 如果 Session 已被删除，也删除对应的 Client
 		if _, exists := sessionManager.Load(ipv6); !exists {
 			toDelete = append(toDelete, ipv6)
 		}
-		
+
 		return true
 	})
-	
+
 	for _, ipv6 := range toDelete {
 		ipv6ClientCache.Delete(ipv6)
 		cleanedClients++
 		log.Printf("🗑️  清理过期 Client: %s", ipv6[:min(20, len(ipv6))])
 	}
-	
+
 	// 3. 清理浏览器指纹映射（Session 已删除的）
 	toDelete = toDelete[:0]
-	
+
 	browserProfileMap.Range(func(key, value interface{}) bool {
 		ipv6 := key.(string)
-		
+
 		if _, exists := sessionManager.Load(ipv6); !exists {
 			toDelete = append(toDelete, ipv6)
 		}
-		
+
 		return true
 	})
-	
+
 	for _, ipv6 := range toDelete {
 		browserProfileMap.Delete(ipv6)
 	}
-	
+
 	if cleanedSessions > 0 || cleanedClients > 0 {
 		log.Printf("✓ 资源清理完成：%d 个 Session，%d 个 Client", cleanedSessions, cleanedClients)
 	}
 }
-
