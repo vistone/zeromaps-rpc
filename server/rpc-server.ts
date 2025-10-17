@@ -58,7 +58,7 @@ export class RpcServer extends EventEmitter {
     private ipv6BasePrefix: string
   ) {
     super()
-    
+
     // 增加最大监听器数量限制（防止 WebSocket 连接过多时警告）
     this.setMaxListeners(50)
 

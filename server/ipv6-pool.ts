@@ -221,7 +221,9 @@ export class IPv6Pool {
   public getDetailedStats() {
     const total = this.addresses.length
     const totalRequests = Array.from(this.usageStats.values()).reduce((sum, count) => sum + count, 0)
-    const avgPerIP = Math.round(totalRequests / total)
+    
+    // 修复：当没有 IPv6 时，避免除以零
+    const avgPerIP = total > 0 ? Math.round(totalRequests / total) : totalRequests
 
     // 计算总的成功/失败次数
     let totalSuccess = 0
@@ -239,11 +241,16 @@ export class IPv6Pool {
 
     // 找出使用最多和最少的IP
     let maxUsage = 0
-    let minUsage = Infinity
+    let minUsage = total > 0 ? Infinity : 0  // 修复：无 IPv6 时 minUsage 为 0
 
     for (const usage of this.usageStats.values()) {
       if (usage > maxUsage) maxUsage = usage
       if (usage < minUsage) minUsage = usage
+    }
+    
+    // 修复：无 IPv6 时 minUsage 可能是 Infinity
+    if (!isFinite(minUsage)) {
+      minUsage = 0
     }
 
     // 运行时间
@@ -262,7 +269,8 @@ export class IPv6Pool {
       totalFailure,
       avgResponseTime,
       uptime,
-      requestsPerSecond
+      requestsPerSecond,
+      hasIPv6: total > 0  // 新增：标识是否有 IPv6
     }
   }
 

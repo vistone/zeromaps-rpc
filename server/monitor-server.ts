@@ -106,7 +106,8 @@ export class MonitorServer {
                 totalFailure: detailedStats.totalFailure,
                 avgResponseTime: detailedStats.avgResponseTime,
                 uptime: detailedStats.uptime,
-                qps: parseFloat(detailedStats.requestsPerSecond)
+                qps: parseFloat(detailedStats.requestsPerSecond),
+                hasIPv6: detailedStats.hasIPv6
               },
               system: stats.system,
               health: stats.health
@@ -283,7 +284,8 @@ export class MonitorServer {
         totalFailure: detailedStats.totalFailure,
         avgResponseTime: detailedStats.avgResponseTime,
         uptime: detailedStats.uptime,
-        qps: parseFloat(detailedStats.requestsPerSecond)
+        qps: parseFloat(detailedStats.requestsPerSecond),
+        hasIPv6: detailedStats.hasIPv6  // 标识是否有 IPv6
       },
       system: stats.system,
       health: stats.health
@@ -805,14 +807,25 @@ export class MonitorServer {
         document.getElementById('success').textContent = formatNumber(stats.ipv6.totalSuccess);
         document.getElementById('failure').textContent = formatNumber(stats.ipv6.totalFailure);
         document.getElementById('avgRT').textContent = stats.ipv6.avgResponseTime + 'ms';
-        document.getElementById('ipv6Total').textContent = formatNumber(stats.ipv6.total);
-        document.getElementById('avgPerIP').textContent = formatNumber(stats.ipv6.avgPerIP);
-        document.getElementById('balance').textContent = stats.ipv6.balance;
+        
+        // 根据是否有 IPv6 显示不同内容
+        if (stats.ipv6.hasIPv6) {
+          document.getElementById('ipv6Total').textContent = formatNumber(stats.ipv6.total);
+          document.getElementById('avgPerIP').textContent = formatNumber(stats.ipv6.avgPerIP);
+          document.getElementById('balance').textContent = stats.ipv6.balance;
+        } else {
+          document.getElementById('ipv6Total').textContent = '未启用';
+          document.getElementById('avgPerIP').textContent = 'N/A';
+          document.getElementById('balance').textContent = 'N/A';
+        }
 
         // 更新IPv6表格（按请求数排序）
-        const sorted = ipv6Data.items.sort((a, b) => b.requests - a.requests).slice(0, 20);
         const tbody = document.getElementById('ipv6Table');
-        tbody.innerHTML = sorted.map(item => \`
+        if (!stats.ipv6.hasIPv6 || ipv6Data.items.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #999;">未启用 IPv6 地址池</td></tr>';
+        } else {
+          const sorted = ipv6Data.items.sort((a, b) => b.requests - a.requests).slice(0, 20);
+          tbody.innerHTML = sorted.map(item => \`
           <tr>
             <td><code>\${item.address.substring(0, 30)}...</code></td>
             <td>\${formatNumber(item.requests)}</td>
@@ -823,6 +836,7 @@ export class MonitorServer {
             <td>\${item.lastUsed}</td>
           </tr>
         \`).join('');
+        }
 
         // 更新时间
         document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-CN');
