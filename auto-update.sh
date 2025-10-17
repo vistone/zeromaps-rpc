@@ -193,9 +193,12 @@ log "✓ 编译完成"
 log "[4.5/6] 检查日志目录..."
 if [ ! -d "/var/log/utls-proxy" ]; then
     log "创建 Go proxy 日志目录..."
-    mkdir -p /var/log/utls-proxy
-    chmod 755 /var/log/utls-proxy
-    log "✓ 日志目录已创建: /var/log/utls-proxy"
+    if mkdir -p /var/log/utls-proxy 2>&1 | tee -a $LOG_FILE; then
+        chmod 755 /var/log/utls-proxy 2>&1 | tee -a $LOG_FILE || true
+        log "✓ 日志目录已创建: /var/log/utls-proxy"
+    else
+        log "⚠️  创建日志目录失败（权限不足），Go proxy 将使用 stdout"
+    fi
 else
     log "✓ 日志目录已存在"
 fi
