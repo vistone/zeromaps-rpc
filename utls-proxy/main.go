@@ -72,16 +72,17 @@ type Stats struct {
 }
 
 var (
-	stats             = &Stats{startTime: time.Now()}
-	clientPool        sync.Pool     // 无 IPv6 绑定的客户端池
-	ipv6ClientCache   sync.Map      // IPv6 地址 -> *http.Client 的缓存
-	sessionManager    sync.Map      // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
-	browserProfileMap sync.Map      // IPv6 地址 -> BrowserProfile 的缓存（每个 IPv6 固定浏览器指纹）
-	ipv6HealthMap     sync.Map      // IPv6 地址 -> *IPv6Health 的健康状态（熔断器）
-	sessionRefreshSem chan struct{} // 并发刷新控制信号量（最多 5 个同时刷新）
-	activeRequests    atomic.Int64  // 当前正在处理的请求数
-	shutdownFlag      atomic.Bool   // 关闭标志
-	allowedDomains    = map[string]bool{
+	stats                    = &Stats{startTime: time.Now()}
+	clientPool               sync.Pool     // 无 IPv6 绑定的客户端池
+	ipv6ClientCache          sync.Map      // IPv6 地址 -> *http.Client 的缓存
+	sessionManager           sync.Map      // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
+	browserProfileMap        sync.Map      // IPv6 地址 -> BrowserProfile 的缓存（每个 IPv6 固定浏览器指纹）
+	ipv6HealthMap            sync.Map      // IPv6 地址 -> *IPv6Health 的健康状态（熔断器）
+	sessionRefreshSem        chan struct{} // 并发刷新控制信号量（动态调整大小）
+	currentMaxConcurrentRefresh atomic.Int32 // 当前最大并发刷新数（智能调整）
+	activeRequests           atomic.Int64  // 当前正在处理的请求数
+	shutdownFlag             atomic.Bool   // 关闭标志
+	allowedDomains           = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
 		"www.google.com":   true,
@@ -234,6 +235,7 @@ var (
 		baseRetryDelay          time.Duration // 基础重试延迟
 		requestTimeout          time.Duration // 请求超时时间
 		sessionRefreshTimeout   time.Duration // 会话刷新超时
+		minConcurrentRefresh    int           // 最小并发刷新数
 		maxConcurrentRefresh    int           // 最大并发刷新数
 		resourceCleanInterval   time.Duration // 资源清理间隔
 		sessionInactiveTime     time.Duration // Session 不活跃清理时间
@@ -274,7 +276,14 @@ func loadConfig() {
 		}
 	}
 
-	config.maxConcurrentRefresh = 5
+	config.minConcurrentRefresh = 2
+	if val := os.Getenv("UTLS_MIN_CONCURRENT_REFRESH"); val != "" {
+		if v, err := strconv.Atoi(val); err == nil && v > 0 {
+			config.minConcurrentRefresh = v
+		}
+	}
+	
+	config.maxConcurrentRefresh = 50
 	if val := os.Getenv("UTLS_MAX_CONCURRENT_REFRESH"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.maxConcurrentRefresh = v
@@ -321,7 +330,7 @@ func loadConfig() {
 	log.Printf("  - 基础重试延迟: %v", config.baseRetryDelay)
 	log.Printf("  - 请求超时: %v", config.requestTimeout)
 	log.Printf("  - Session 刷新超时: %v", config.sessionRefreshTimeout)
-	log.Printf("  - 最大并发刷新: %d", config.maxConcurrentRefresh)
+	log.Printf("  - 并发刷新范围: %d ~ %d（智能调整）", config.minConcurrentRefresh, config.maxConcurrentRefresh)
 	log.Printf("  - 资源清理间隔: %v", config.resourceCleanInterval)
 	log.Printf("  - Session 不活跃时间: %v", config.sessionInactiveTime)
 	log.Printf("  - 熔断器失败率阈值: %.0f%%", config.circuitBreakerThreshold*100)
@@ -341,15 +350,16 @@ func init() {
 			return createUTLSClient()
 		},
 	}
-
-	// 初始化并发刷新控制信号量（使用配置的值）
+	
+	// 初始化并发刷新控制信号量（初始值为最小值）
 	sessionRefreshSem = make(chan struct{}, config.maxConcurrentRefresh)
+	currentMaxConcurrentRefresh.Store(int32(config.minConcurrentRefresh))
 
 	log.Printf("🎭 uTLS 浏览器指纹库已加载: %d 种配置（基于 uTLS v1.8.1）", len(browserProfiles))
 	for i, profile := range browserProfiles {
 		log.Printf("  [%d] %s", i+1, profile.Name)
 	}
-	log.Printf("🔒 并发刷新控制: 最多 %d 个 Session 同时刷新", config.maxConcurrentRefresh)
+	log.Printf("🔒 并发刷新控制: 智能调整（%d ~ %d）", config.minConcurrentRefresh, config.maxConcurrentRefresh)
 }
 
 // 获取或分配 IPv6 的固定浏览器指纹
@@ -539,6 +549,32 @@ func decompressGzip(data []byte) ([]byte, error) {
 	return io.ReadAll(reader)
 }
 
+// 动态计算合适的并发刷新数
+func calculateOptimalConcurrency() int32 {
+	// 统计当前 Session 总数
+	var sessionCount int32
+	sessionManager.Range(func(key, value interface{}) bool {
+		sessionCount++
+		return true
+	})
+	
+	// 策略：Session 数量 / 20，但限制在 min ~ max 之间
+	// 10 个 Session → 2 个并发（最小值）
+	// 100 个 Session → 5 个并发
+	// 200 个 Session → 10 个并发
+	// 1000 个 Session → 50 个并发（最大值）
+	optimal := sessionCount / 20
+	
+	if optimal < int32(config.minConcurrentRefresh) {
+		optimal = int32(config.minConcurrentRefresh)
+	}
+	if optimal > int32(config.maxConcurrentRefresh) {
+		optimal = int32(config.maxConcurrentRefresh)
+	}
+	
+	return optimal
+}
+
 // 获取或创建指定 IPv6 的 Session
 func getOrCreateSession(ipv6 string) *CookieSession {
 	// 无 IPv6 时使用默认 Session（key = ""）
@@ -592,12 +628,12 @@ func isCircuitOpen(ipv6 string) bool {
 
 	if time.Since(openAt) > config.circuitRecoveryTime {
 		log.Printf("🔄 [%s] 熔断器尝试恢复（已熔断 %v）", ipv6[:min(20, len(ipv6))], config.circuitRecoveryTime)
-		
+
 		// 重置计数器，给 IPv6 一个全新的机会
 		health.totalRequests.Store(0)
 		health.failedRequests.Store(0)
 		health.circuitOpen.Store(false)
-		
+
 		log.Printf("✓ [%s] 熔断器已重置计数器，开始重新评估", ipv6[:min(20, len(ipv6))])
 		return false
 	}
@@ -719,12 +755,24 @@ func refreshSession(ipv6 string, force bool) error {
 	}
 	defer session.refreshing.Store(false)
 
-	// 获取全局并发刷新槽位（最多 5 个同时刷新）
+	// 获取全局并发刷新槽位（动态并发数）
+	currentConcurrency := currentMaxConcurrentRefresh.Load()
+	
+	// 检查当前使用的槽位数
+	currentUsed := int32(len(sessionRefreshSem))
+	
+	// 如果当前槽位使用数已经达到或超过动态计算的并发数，等待
+	for currentUsed >= currentConcurrency {
+		time.Sleep(50 * time.Millisecond)
+		currentUsed = int32(len(sessionRefreshSem))
+		currentConcurrency = currentMaxConcurrentRefresh.Load() // 重新读取，可能已调整
+	}
+	
 	sessionRefreshSem <- struct{}{}
 	defer func() { <-sessionRefreshSem }()
-
-	log.Printf("🔄 [%s] 刷新会话：访问 earth.google.com... (刷新槽位: %d/5 使用中)",
-		ipv6[:min(20, len(ipv6))], len(sessionRefreshSem))
+	
+	log.Printf("🔄 [%s] 刷新会话：访问 earth.google.com... (槽位: %d/%d)", 
+		ipv6[:min(20, len(ipv6))], len(sessionRefreshSem), currentConcurrency)
 
 	// 使用该 IPv6 固定的浏览器指纹
 	profile := getBrowserProfileForIPv6(ipv6)
@@ -1095,7 +1143,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		if statusCode == 403 && needsSession {
 			stats.error403Count.Add(1)
 			resp.Body.Close()
-			
+
 			// 如果还没刷新过 Cookie，尝试刷新
 			if !hasRefreshedCookie && attempt < maxRetries {
 				log.Printf("⚠️  收到 403 (尝试 %d/%d)，Cookie 可能失效，立即刷新并重试...", attempt+1, maxRetries+1)
@@ -1107,7 +1155,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 					recordRequestResult(ipv6, false) // 记录失败到熔断器
 					return
 				}
-				
+
 				hasRefreshedCookie = true // 标记已刷新
 
 				// 重新创建请求
@@ -1126,7 +1174,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				log.Printf("🔄 使用新 Cookie 重试请求...")
 				continue
 			}
-			
+
 			// 已刷新过或无重试机会
 			log.Printf("❌ 403 错误，Cookie 刷新后仍然失败")
 			http.Error(w, "Forbidden after refresh", http.StatusForbidden)
@@ -1372,6 +1420,10 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		ipv6ClientCount++
 		return true
 	})
+	
+	// 当前并发刷新数（智能调整的值）
+	currentConcurrency := currentMaxConcurrentRefresh.Load()
+	activeRefreshCount := int32(len(sessionRefreshSem))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -1414,6 +1466,12 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 	"clientPool": {
 		"ipv6ClientsCached": %d
 	},
+	"concurrencyControl": {
+		"currentMaxConcurrent": %d,
+		"activeRefreshCount": %d,
+		"minConcurrent": %d,
+		"maxConcurrent": %d
+	},
 	"browserProfiles": {
 		"available": %d,
 		"usage": %s
@@ -1437,6 +1495,10 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		cookieValidSeconds,
 		sessionRefresh,
 		ipv6ClientCount,
+		currentConcurrency,
+		activeRefreshCount,
+		config.minConcurrentRefresh,
+		config.maxConcurrentRefresh,
 		len(browserProfiles),
 		browserStats,
 	)
@@ -1464,6 +1526,9 @@ func main() {
 
 	// 启动定期资源清理任务
 	go startResourceCleanup()
+	
+	// 启动并发数动态调整任务
+	go startConcurrencyAdjustment()
 
 	// 在 goroutine 中启动服务器
 	go func() {
@@ -1517,6 +1582,28 @@ func main() {
 	log.Printf("  - 成功: %d", stats.successRequests.Load())
 	log.Printf("  - 失败: %d", stats.failedRequests.Load())
 	log.Printf("  - Session 刷新次数: %d", stats.sessionRefreshCount.Load())
+}
+
+// 定期调整并发刷新数
+func startConcurrencyAdjustment() {
+	ticker := time.NewTicker(1 * time.Minute) // 每分钟调整一次
+	defer ticker.Stop()
+	
+	log.Printf("🎚️  并发数自动调整任务已启动（每 1 分钟）")
+	
+	for range ticker.C {
+		if shutdownFlag.Load() {
+			break
+		}
+		
+		oldConcurrency := currentMaxConcurrentRefresh.Load()
+		newConcurrency := calculateOptimalConcurrency()
+		
+		if oldConcurrency != newConcurrency {
+			currentMaxConcurrentRefresh.Store(newConcurrency)
+			log.Printf("🎚️  并发数已调整: %d → %d", oldConcurrency, newConcurrency)
+		}
+	}
 }
 
 // 定期资源清理任务
