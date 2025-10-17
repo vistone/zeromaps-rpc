@@ -199,13 +199,29 @@ else
     log "⚠️  PM2 配置文件不存在，将在重启时自动生成"
 fi
 
-# 3. 安装依赖（始终执行）
+# 3. 安装依赖（始终执行，包括 devDependencies）
 log "[3/6] 安装依赖..."
+# 临时取消 NODE_ENV，确保安装 devDependencies（包括 TypeScript）
+SAVED_NODE_ENV=$NODE_ENV
+unset NODE_ENV
 if ! npm install 2>&1 | tee -a $LOG_FILE; then
     log "❌ 依赖安装失败"
+    export NODE_ENV=$SAVED_NODE_ENV
     rollback
 fi
+export NODE_ENV=$SAVED_NODE_ENV
 log "✓ 依赖安装完成"
+
+# 3.1 验证 TypeScript 是否已安装
+if [ ! -f "$INSTALL_DIR/node_modules/.bin/tsc" ]; then
+    log "❌ TypeScript 未安装，尝试手动安装..."
+    npm install typescript --save-dev 2>&1 | tee -a $LOG_FILE
+    if [ ! -f "$INSTALL_DIR/node_modules/.bin/tsc" ]; then
+        log "❌ TypeScript 安装失败"
+        rollback
+    fi
+fi
+log "✓ TypeScript 已就绪"
 
 # 4. 编译代码（必须执行）
 log "[4/6] 编译代码..."
