@@ -1214,16 +1214,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	needsSession := parsedURL.Host == "kh.google.com"
 
 	if needsSession {
-		for attempt := 1; attempt <= 3; attempt++ {
-			if err := refreshSession(ipv6, false); err != nil {
-				log.Printf("⚠️  会话刷新失败（尝试 %d/3）: %v", attempt, err)
-				if attempt < 3 {
-					time.Sleep(time.Duration(attempt) * time.Second)
-					continue
-				}
-				log.Printf("⚠️  会话刷新连续失败，使用旧 Cookie")
-			}
-			break
+		// 尝试刷新会话（内部会检查是否真的需要刷新）
+		// 如果失败，使用旧 Cookie 继续（不重试，避免延迟）
+		if err := refreshSession(ipv6, false); err != nil {
+			// 只记录一次，不重试，使用旧 Cookie
+			log.Printf("⚠️  会话刷新失败，使用旧 Cookie: %v", err)
 		}
 	}
 
