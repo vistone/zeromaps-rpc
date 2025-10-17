@@ -15,6 +15,11 @@ module.exports = {
       error_file: '/opt/zeromaps-rpc/logs/utls-error.log',
       out_file: '/opt/zeromaps-rpc/logs/utls-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      // PM2 日志轮转配置（防止日志文件过大）
+      log_type: 'json',
+      merge_logs: true,
+      max_log_size: '50M', // 单个日志文件最大 50M
+      log_rotate_retries: 3, // 保留 3 个旧日志
       env: {
         UTLS_PROXY_PORT: '8765',
         UTLS_LOG_FILE: '/opt/zeromaps-rpc/logs/utls-proxy.log',
@@ -39,6 +44,11 @@ module.exports = {
       error_file: '/opt/zeromaps-rpc/logs/zeromaps-error.log',
       out_file: '/opt/zeromaps-rpc/logs/zeromaps-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      // PM2 日志轮转配置
+      log_type: 'json',
+      merge_logs: true,
+      max_log_size: '50M',
+      log_rotate_retries: 3,
       env: {
         NODE_ENV: 'production',
         LOG_LEVEL: 'info'
