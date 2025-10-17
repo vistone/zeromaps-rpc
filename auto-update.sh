@@ -309,23 +309,6 @@ if pm2 list | grep -q "online\|stopped"; then
     
     pm2 save >/dev/null 2>&1
     log "✓ 服务重启完成"
-    
-    # 5.1 验证服务启动（等待 3 秒后检查）
-    sleep 3
-    
-    # 检查 Go proxy 端口
-    if ! ss -tlnp 2>/dev/null | grep -q 8765; then
-        log "⚠️  Go proxy 端口 8765 未监听，尝试重启..."
-        pm2 restart utls-proxy 2>&1 | tee -a $LOG_FILE || true
-        sleep 2
-    fi
-    
-    # 健康检查
-    if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
-        log "✓ Go proxy 健康检查通过"
-    else
-        log "⚠️  Go proxy 健康检查失败，但继续更新"
-    fi
 else
     log "⚠️  未找到 PM2 进程，跳过重启"
 fi
