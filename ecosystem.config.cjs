@@ -17,7 +17,7 @@ module.exports = {
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       env: {
         UTLS_PROXY_PORT: '8765',
-        UTLS_LOG_FILE: '/var/log/utls-proxy/utls-proxy.log',
+        UTLS_LOG_FILE: '/opt/zeromaps-rpc/logs/utls-proxy.log',
         UTLS_LOG_MAX_SIZE_MB: '100',
         UTLS_LOG_MAX_BACKUPS: '5',
         UTLS_LOG_MAX_AGE_DAYS: '7',

@@ -331,7 +331,7 @@ func loadConfig() {
 		}
 	}
 
-	config.logFile = "/var/log/utls-proxy/utls-proxy.log"
+	config.logFile = "/opt/zeromaps-rpc/logs/utls-proxy.log"
 	if val := os.Getenv("UTLS_LOG_FILE"); val != "" {
 		config.logFile = val
 	}

@@ -54,11 +54,10 @@ fi
 # 4. 确保日志目录存在（防止 Go proxy 崩溃）
 echo ""
 echo "[4/5] 检查日志目录..."
-if [ ! -d "/var/log/utls-proxy" ]; then
-  echo "创建 Go proxy 日志目录..."
-  mkdir -p /var/log/utls-proxy
-  chmod 755 /var/log/utls-proxy
-  echo -e "${GREEN}✓ 日志目录已创建: /var/log/utls-proxy${NC}"
+if [ ! -d "$INSTALL_DIR/logs" ]; then
+  echo "创建日志目录..."
+  mkdir -p $INSTALL_DIR/logs
+  echo -e "${GREEN}✓ 日志目录已创建: $INSTALL_DIR/logs${NC}"
 else
   echo -e "${GREEN}✓ 日志目录已存在${NC}"
 fi

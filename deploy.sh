@@ -507,11 +507,12 @@ fi
 echo ""
 echo "配置 uTLS 代理服务..."
 
-# 创建 Go 代理的日志目录
-echo "创建日志目录..."
-mkdir -p /var/log/utls-proxy
-chmod 755 /var/log/utls-proxy
-echo -e "${GREEN}✓ 日志目录已创建: /var/log/utls-proxy${NC}"
+# 日志目录已存在（与 Node.js 统一使用 logs/ 目录）
+echo "检查日志目录..."
+if [ ! -d "$INSTALL_DIR/logs" ]; then
+  mkdir -p $INSTALL_DIR/logs
+fi
+echo -e "${GREEN}✓ 日志目录: $INSTALL_DIR/logs${NC}"
 
 # 停止旧的 uTLS 代理
 pm2 delete utls-proxy 2>/dev/null || true
