@@ -97,6 +97,11 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
     
     if [ $CLEANED_COUNT -gt 0 ]; then
         log "✓ 日志清理完成：清空 $CLEANED_COUNT 个文件，释放 ${TOTAL_SAVED_MB}MB 空间"
+        # 清理日志后重置 PM2 计数器
+        if command -v pm2 >/dev/null 2>&1; then
+            pm2 reset all >/dev/null 2>&1
+            log "✓ 已重置 PM2 重启计数器"
+        fi
     else
         log "✓ 所有日志文件大小正常"
     fi
@@ -329,6 +334,11 @@ done
 
 if [ $CLEANED_COUNT -gt 0 ]; then
     log "✓ 日志清理完成：清空 $CLEANED_COUNT 个文件，释放 ${TOTAL_SAVED_MB}MB 空间"
+    # 清理日志后重置 PM2 计数器
+    if command -v pm2 >/dev/null 2>&1; then
+        pm2 reset all >/dev/null 2>&1
+        log "✓ 已重置 PM2 重启计数器"
+    fi
 else
     log "✓ 所有日志文件大小正常"
 fi
