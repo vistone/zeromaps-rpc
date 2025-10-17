@@ -858,14 +858,14 @@ func needsRefresh(session *CookieSession) bool {
 		return true
 	}
 
-	// 2. 检查是否有 Cookie 已经过期或即将过期（提前 30 秒刷新）
+	// 2. 检查是否有 Cookie 已经过期或即将过期（提前 5 分钟刷新）
 	now := time.Now()
-	if !session.earliestExpiry.IsZero() && now.Add(30*time.Second).After(session.earliestExpiry) {
+	if !session.earliestExpiry.IsZero() && now.Add(5*time.Minute).After(session.earliestExpiry) {
 		return true
 	}
 
-	// 3. 兜底：如果 10 分钟内没有刷新过，强制刷新
-	if time.Since(session.lastUpdate) > 10*time.Minute {
+	// 3. 兜底：如果 24 小时内没有刷新过，强制刷新（Google Cookie 有效期很长，不需要频繁刷新）
+	if time.Since(session.lastUpdate) > 24*time.Hour {
 		return true
 	}
 
