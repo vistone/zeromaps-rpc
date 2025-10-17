@@ -182,8 +182,20 @@ log "✓ 依赖安装完成"
 log "[4/6] 编译代码..."
 
 # 始终执行编译，即使使用 tsx 也需要编译
-if ! npm run build 2>&1 | tee -a $LOG_FILE; then
-    log "❌ 编译失败"
+# 使用临时变量捕获退出码，避免管道影响
+set +e  # 暂时允许命令失败
+npm run build 2>&1 | tee -a $LOG_FILE
+BUILD_EXIT_CODE=${PIPESTATUS[0]}  # 获取 npm run build 的退出码
+set -e  # 恢复严格模式
+
+if [ $BUILD_EXIT_CODE -ne 0 ]; then
+    log "❌ 编译失败（退出码: $BUILD_EXIT_CODE）"
+    rollback
+fi
+
+# 二次验证：检查编译产物是否存在
+if [ ! -f "$INSTALL_DIR/dist/server/index.js" ]; then
+    log "❌ 编译失败：未生成 dist/server/index.js"
     rollback
 fi
 
