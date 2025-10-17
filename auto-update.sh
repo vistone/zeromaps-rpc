@@ -201,6 +201,30 @@ fi
 
 log "✓ 编译完成"
 
+# 4.1. 编译 Go proxy
+log "[4.1/6] 编译 Go proxy..."
+
+if [ -f "$INSTALL_DIR/utls-proxy/build.sh" ]; then
+    cd $INSTALL_DIR/utls-proxy
+    
+    # 使用 bash 执行编译脚本
+    if bash build.sh 2>&1 | tee -a $LOG_FILE; then
+        if [ -f "utls-proxy" ]; then
+            log "✓ Go proxy 编译成功"
+        else
+            log "❌ Go proxy 编译失败：未生成二进制文件"
+            rollback
+        fi
+    else
+        log "❌ Go proxy 编译失败"
+        rollback
+    fi
+    
+    cd $INSTALL_DIR
+else
+    log "⚠️  未找到 Go proxy 构建脚本，跳过编译"
+fi
+
 # 4.5. 环境检查和修复（防止 Go proxy 崩溃）
 log "[4.5/6] 环境检查..."
 
