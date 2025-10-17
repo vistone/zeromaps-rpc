@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -72,17 +73,18 @@ type Stats struct {
 }
 
 var (
-	stats                    = &Stats{startTime: time.Now()}
-	clientPool               sync.Pool     // 无 IPv6 绑定的客户端池
-	ipv6ClientCache          sync.Map      // IPv6 地址 -> *http.Client 的缓存
-	sessionManager           sync.Map      // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
-	browserProfileMap        sync.Map      // IPv6 地址 -> BrowserProfile 的缓存（每个 IPv6 固定浏览器指纹）
-	ipv6HealthMap            sync.Map      // IPv6 地址 -> *IPv6Health 的健康状态（熔断器）
-	sessionRefreshSem        chan struct{} // 并发刷新控制信号量（动态调整大小）
-	currentMaxConcurrentRefresh atomic.Int32 // 当前最大并发刷新数（智能调整）
-	activeRequests           atomic.Int64  // 当前正在处理的请求数
-	shutdownFlag             atomic.Bool   // 关闭标志
-	allowedDomains           = map[string]bool{
+	stats                       = &Stats{startTime: time.Now()}
+	clientPool                  sync.Pool     // 无 IPv6 绑定的客户端池
+	ipv6ClientCache             sync.Map      // IPv6 地址 -> *http.Client 的缓存
+	sessionManager              sync.Map      // IPv6 地址 -> *CookieSession 的缓存（每个 IPv6 独立 Session）
+	browserProfileMap           sync.Map      // IPv6 地址 -> BrowserProfile 的缓存（每个 IPv6 固定浏览器指纹）
+	ipv6HealthMap               sync.Map      // IPv6 地址 -> *IPv6Health 的健康状态（熔断器）
+	sessionRefreshSem           chan struct{} // 并发刷新控制信号量（动态调整大小）
+	currentMaxConcurrentRefresh atomic.Int32  // 当前最大并发刷新数（智能调整）
+	activeRequests              atomic.Int64  // 当前正在处理的请求数
+	shutdownFlag                atomic.Bool   // 关闭标志
+	logFileHandle               *os.File      // 日志文件句柄（用于日志轮转）
+	allowedDomains              = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
 		"www.google.com":   true,
@@ -242,6 +244,10 @@ var (
 		circuitBreakerThreshold float64       // 熔断器失败率阈值
 		circuitBreakerWindow    int64         // 熔断器最小请求数
 		circuitRecoveryTime     time.Duration // 熔断恢复时间
+		logFile                 string        // 日志文件路径
+		logMaxSize              int           // 日志文件最大大小（MB）
+		logMaxBackups           int           // 保留的旧日志文件数
+		logMaxAge               int           // 日志文件保留天数
 	}
 )
 
@@ -282,7 +288,7 @@ func loadConfig() {
 			config.minConcurrentRefresh = v
 		}
 	}
-	
+
 	config.maxConcurrentRefresh = 50
 	if val := os.Getenv("UTLS_MAX_CONCURRENT_REFRESH"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
@@ -324,6 +330,32 @@ func loadConfig() {
 			config.circuitRecoveryTime = time.Duration(v) * time.Minute
 		}
 	}
+	
+	config.logFile = "/var/log/utls-proxy/utls-proxy.log"
+	if val := os.Getenv("UTLS_LOG_FILE"); val != "" {
+		config.logFile = val
+	}
+	
+	config.logMaxSize = 100 // MB
+	if val := os.Getenv("UTLS_LOG_MAX_SIZE_MB"); val != "" {
+		if v, err := strconv.Atoi(val); err == nil && v > 0 {
+			config.logMaxSize = v
+		}
+	}
+	
+	config.logMaxBackups = 5
+	if val := os.Getenv("UTLS_LOG_MAX_BACKUPS"); val != "" {
+		if v, err := strconv.Atoi(val); err == nil && v > 0 {
+			config.logMaxBackups = v
+		}
+	}
+	
+	config.logMaxAge = 7 // 天
+	if val := os.Getenv("UTLS_LOG_MAX_AGE_DAYS"); val != "" {
+		if v, err := strconv.Atoi(val); err == nil && v > 0 {
+			config.logMaxAge = v
+		}
+	}
 
 	log.Printf("📝 配置已加载:")
 	log.Printf("  - 最大重试次数: %d", config.maxRetries)
@@ -336,6 +368,140 @@ func loadConfig() {
 	log.Printf("  - 熔断器失败率阈值: %.0f%%", config.circuitBreakerThreshold*100)
 	log.Printf("  - 熔断器最小请求数: %d", config.circuitBreakerWindow)
 	log.Printf("  - 熔断恢复时间: %v", config.circuitRecoveryTime)
+	log.Printf("  - 日志文件: %s", config.logFile)
+	log.Printf("  - 日志最大大小: %d MB", config.logMaxSize)
+	log.Printf("  - 日志保留文件数: %d", config.logMaxBackups)
+	log.Printf("  - 日志保留天数: %d", config.logMaxAge)
+}
+
+// 初始化日志
+func initLogger() {
+	// 如果配置了日志文件，输出到文件；否则输出到 stdout
+	if config.logFile != "" {
+		// 创建日志目录
+		logDir := filepath.Dir(config.logFile)
+		if err := os.MkdirAll(logDir, 0755); err != nil {
+			log.Printf("⚠️  创建日志目录失败: %v，日志将输出到 stdout", err)
+			return
+		}
+		
+		// 打开日志文件（追加模式）
+		logFile, err := os.OpenFile(config.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			log.Printf("⚠️  打开日志文件失败: %v，日志将输出到 stdout", err)
+			return
+		}
+		
+		logFileHandle = logFile // 保存句柄供后续轮转使用
+		
+		// 设置日志输出到文件
+		log.SetOutput(logFile)
+		log.Printf("📝 日志已配置: %s (最大 %d MB, 保留 %d 个文件, %d 天)", 
+			config.logFile, config.logMaxSize, config.logMaxBackups, config.logMaxAge)
+	} else {
+		log.Printf("📝 日志输出到 stdout（建议在生产环境配置 UTLS_LOG_FILE）")
+	}
+}
+
+// 定期检查并轮转日志
+func startLogRotation() {
+	if config.logFile == "" {
+		return // 未配置日志文件，不需要轮转
+	}
+	
+	ticker := time.NewTicker(1 * time.Hour) // 每小时检查一次
+	defer ticker.Stop()
+	
+	log.Printf("📝 日志轮转任务已启动（每 1 小时检查）")
+	
+	for range ticker.C {
+		if shutdownFlag.Load() {
+			break
+		}
+		
+		rotateLogIfNeeded()
+	}
+}
+
+// 检查并轮转日志文件
+func rotateLogIfNeeded() {
+	if config.logFile == "" || logFileHandle == nil {
+		return
+	}
+	
+	// 检查文件大小
+	fileInfo, err := os.Stat(config.logFile)
+	if err != nil {
+		log.Printf("⚠️  无法获取日志文件信息: %v", err)
+		return
+	}
+	
+	maxBytes := int64(config.logMaxSize) * 1024 * 1024 // MB 转 字节
+	
+	if fileInfo.Size() >= maxBytes {
+		log.Printf("📝 日志文件达到 %d MB，开始轮转...", config.logMaxSize)
+		
+		// 关闭当前文件
+		if logFileHandle != nil {
+			logFileHandle.Close()
+		}
+		
+		// 轮转日志文件（重命名为 .1, .2, .3...）
+		for i := config.logMaxBackups - 1; i >= 1; i-- {
+			oldName := fmt.Sprintf("%s.%d", config.logFile, i)
+			newName := fmt.Sprintf("%s.%d", config.logFile, i+1)
+			
+			if _, err := os.Stat(oldName); err == nil {
+				os.Rename(oldName, newName)
+			}
+		}
+		
+		// 当前日志文件重命名为 .1
+		os.Rename(config.logFile, config.logFile+".1")
+		
+		// 创建新的日志文件
+		newLogFile, err := os.OpenFile(config.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			log.Printf("❌ 创建新日志文件失败: %v", err)
+			// 回退到 stdout
+			log.SetOutput(os.Stdout)
+			logFileHandle = nil
+			return
+		}
+		
+		logFileHandle = newLogFile
+		log.SetOutput(newLogFile)
+		log.Printf("✓ 日志轮转完成")
+		
+		// 清理超过保留天数的旧日志
+		cleanOldLogs()
+	}
+}
+
+// 清理超过保留天数的旧日志
+func cleanOldLogs() {
+	if config.logMaxAge <= 0 {
+		return
+	}
+	
+	cutoffTime := time.Now().AddDate(0, 0, -config.logMaxAge)
+	
+	// 检查所有 .1, .2, .3... 文件
+	for i := 1; i <= config.logMaxBackups+10; i++ {
+		logPath := fmt.Sprintf("%s.%d", config.logFile, i)
+		
+		fileInfo, err := os.Stat(logPath)
+		if err != nil {
+			continue // 文件不存在
+		}
+		
+		// 检查文件修改时间
+		if fileInfo.ModTime().Before(cutoffTime) {
+			if err := os.Remove(logPath); err == nil {
+				log.Printf("🗑️  清理过期日志: %s (超过 %d 天)", filepath.Base(logPath), config.logMaxAge)
+			}
+		}
+	}
 }
 
 // 初始化
@@ -344,13 +510,16 @@ func init() {
 
 	// 加载配置
 	loadConfig()
+	
+	// 初始化日志
+	initLogger()
 
 	clientPool = sync.Pool{
 		New: func() interface{} {
 			return createUTLSClient()
 		},
 	}
-	
+
 	// 初始化并发刷新控制信号量（初始值为最小值）
 	sessionRefreshSem = make(chan struct{}, config.maxConcurrentRefresh)
 	currentMaxConcurrentRefresh.Store(int32(config.minConcurrentRefresh))
@@ -557,21 +726,21 @@ func calculateOptimalConcurrency() int32 {
 		sessionCount++
 		return true
 	})
-	
+
 	// 策略：Session 数量 / 20，但限制在 min ~ max 之间
 	// 10 个 Session → 2 个并发（最小值）
 	// 100 个 Session → 5 个并发
 	// 200 个 Session → 10 个并发
 	// 1000 个 Session → 50 个并发（最大值）
 	optimal := sessionCount / 20
-	
+
 	if optimal < int32(config.minConcurrentRefresh) {
 		optimal = int32(config.minConcurrentRefresh)
 	}
 	if optimal > int32(config.maxConcurrentRefresh) {
 		optimal = int32(config.maxConcurrentRefresh)
 	}
-	
+
 	return optimal
 }
 
@@ -757,21 +926,21 @@ func refreshSession(ipv6 string, force bool) error {
 
 	// 获取全局并发刷新槽位（动态并发数）
 	currentConcurrency := currentMaxConcurrentRefresh.Load()
-	
+
 	// 检查当前使用的槽位数
 	currentUsed := int32(len(sessionRefreshSem))
-	
+
 	// 如果当前槽位使用数已经达到或超过动态计算的并发数，等待
 	for currentUsed >= currentConcurrency {
 		time.Sleep(50 * time.Millisecond)
 		currentUsed = int32(len(sessionRefreshSem))
 		currentConcurrency = currentMaxConcurrentRefresh.Load() // 重新读取，可能已调整
 	}
-	
+
 	sessionRefreshSem <- struct{}{}
 	defer func() { <-sessionRefreshSem }()
-	
-	log.Printf("🔄 [%s] 刷新会话：访问 earth.google.com... (槽位: %d/%d)", 
+
+	log.Printf("🔄 [%s] 刷新会话：访问 earth.google.com... (槽位: %d/%d)",
 		ipv6[:min(20, len(ipv6))], len(sessionRefreshSem), currentConcurrency)
 
 	// 使用该 IPv6 固定的浏览器指纹
@@ -1420,7 +1589,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		ipv6ClientCount++
 		return true
 	})
-	
+
 	// 当前并发刷新数（智能调整的值）
 	currentConcurrency := currentMaxConcurrentRefresh.Load()
 	activeRefreshCount := int32(len(sessionRefreshSem))
@@ -1529,6 +1698,9 @@ func main() {
 	
 	// 启动并发数动态调整任务
 	go startConcurrencyAdjustment()
+	
+	// 启动日志轮转任务
+	go startLogRotation()
 
 	// 在 goroutine 中启动服务器
 	go func() {
@@ -1582,23 +1754,28 @@ func main() {
 	log.Printf("  - 成功: %d", stats.successRequests.Load())
 	log.Printf("  - 失败: %d", stats.failedRequests.Load())
 	log.Printf("  - Session 刷新次数: %d", stats.sessionRefreshCount.Load())
+	
+	// 关闭日志文件
+	if logFileHandle != nil {
+		logFileHandle.Close()
+	}
 }
 
 // 定期调整并发刷新数
 func startConcurrencyAdjustment() {
 	ticker := time.NewTicker(1 * time.Minute) // 每分钟调整一次
 	defer ticker.Stop()
-	
+
 	log.Printf("🎚️  并发数自动调整任务已启动（每 1 分钟）")
-	
+
 	for range ticker.C {
 		if shutdownFlag.Load() {
 			break
 		}
-		
+
 		oldConcurrency := currentMaxConcurrentRefresh.Load()
 		newConcurrency := calculateOptimalConcurrency()
-		
+
 		if oldConcurrency != newConcurrency {
 			currentMaxConcurrentRefresh.Store(newConcurrency)
 			log.Printf("🎚️  并发数已调整: %d → %d", oldConcurrency, newConcurrency)
