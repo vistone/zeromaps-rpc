@@ -5,3 +5,8 @@ dist/
 .env
 .env.local
 
+# PM2 配置文件（每个服务器独立配置）
+ecosystem.config.cjs
+
+# 备份文件
+*.backup
