@@ -68,7 +68,7 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
     log "✅ 已是最新版本，但仍然重启服务以确保代码生效"
     
     # 即使是最新版本，也执行环境检查和修复
-    log "执行环境检查..."
+    log "执行环境检查和日志清理..."
     
     # 确保日志目录存在
     if [ ! -d "$INSTALL_DIR/logs" ]; then
@@ -76,6 +76,20 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
         mkdir -p $INSTALL_DIR/logs
         log "✓ 日志目录已创建"
     fi
+    
+    # 清理超大的日志文件（防止占满磁盘）
+    cd $INSTALL_DIR/logs
+    for logfile in utls-error.log utls-out.log zeromaps-error.log zeromaps-out.log out.log error.log; do
+        if [ -f "$logfile" ]; then
+            SIZE_MB=$(du -m "$logfile" 2>/dev/null | awk '{print $1}')
+            if [ -n "$SIZE_MB" ] && [ "$SIZE_MB" -gt 100 ]; then
+                log "⚠️  $logfile 过大 (${SIZE_MB}MB)，清空..."
+                echo "" > "$logfile"
+                log "✓ 已清空 $logfile"
+            fi
+        fi
+    done
+    cd $INSTALL_DIR
     
     # 检查 Go proxy 重启次数
     if command -v pm2 >/dev/null 2>&1; then
@@ -271,7 +285,7 @@ else
 fi
 
 # 4.5. 环境检查和修复（防止 Go proxy 崩溃）
-log "[4.5/6] 环境检查..."
+log "[4.5/6] 环境检查和日志清理..."
 
 # 4.5.1 确保日志目录存在
 if [ ! -d "$INSTALL_DIR/logs" ]; then
@@ -282,13 +296,45 @@ else
     log "✓ 日志目录已存在"
 fi
 
+# 4.5.1.1 清理超大的日志文件（防止占满磁盘）
+cd $INSTALL_DIR/logs
+for logfile in utls-error.log utls-out.log zeromaps-error.log zeromaps-out.log out.log error.log; do
+    if [ -f "$logfile" ]; then
+        # 获取文件大小（MB）
+        SIZE_MB=$(du -m "$logfile" 2>/dev/null | awk '{print $1}')
+        if [ -n "$SIZE_MB" ] && [ "$SIZE_MB" -gt 100 ]; then
+            log "⚠️  $logfile 过大 (${SIZE_MB}MB)，清空..."
+            echo "" > "$logfile"
+            log "✓ 已清空 $logfile"
+        fi
+    fi
+done
+cd $INSTALL_DIR
+
 # 4.5.2 检查 Go proxy 重启次数（如果过高，说明有问题）
 if command -v pm2 >/dev/null 2>&1; then
     RESTART_COUNT=$(pm2 list 2>/dev/null | grep utls-proxy | awk '{print $8}' | head -1 | grep -E '^[0-9]+$' || echo "0")
     # 确保 RESTART_COUNT 是数字且大于 20
     if [ "$RESTART_COUNT" -gt 20 ] 2>/dev/null; then
-        log "⚠️  检测到 Go proxy 重启次数过高 ($RESTART_COUNT)，重置计数器"
+        log "⚠️  检测到 Go proxy 重启次数过高 ($RESTART_COUNT)，执行修复..."
+        
+        # 重新编译 Go proxy（可能是二进制文件有问题）
+        if [ -f "$INSTALL_DIR/utls-proxy/build.sh" ]; then
+            log "重新编译 Go proxy..."
+            cd $INSTALL_DIR/utls-proxy
+            if bash build.sh 2>&1 | tee -a $LOG_FILE; then
+                log "✓ Go proxy 重新编译成功"
+            else
+                log "⚠️  Go proxy 重新编译失败"
+            fi
+            cd $INSTALL_DIR
+        fi
+        
+        # 重置计数器
         pm2 reset utls-proxy 2>&1 | tee -a $LOG_FILE || true
+        log "✓ 已重置 Go proxy 重启计数器"
+    else
+        log "✓ Go proxy 重启次数正常 ($RESTART_COUNT)"
     fi
 fi
 
@@ -325,6 +371,32 @@ if pm2 list | grep -q "online\|stopped"; then
     
     pm2 save >/dev/null 2>&1
     log "✓ 服务重启完成"
+    
+    # 5.1 验证服务启动（等待 2 秒后检查）
+    sleep 2
+    
+    # 检查 PM2 状态
+    if pm2 list | grep -q "online.*zeromaps-rpc"; then
+        log "✓ zeromaps-rpc 启动成功"
+    else
+        log "⚠️  zeromaps-rpc 启动异常"
+    fi
+    
+    # 检查 Go proxy 端口
+    if ss -tlnp 2>/dev/null | grep -q 8765; then
+        log "✓ Go proxy 端口 8765 正常监听"
+    else
+        log "⚠️  Go proxy 端口 8765 未监听，尝试重启..."
+        pm2 restart utls-proxy 2>&1 | tee -a $LOG_FILE || true
+        sleep 1
+    fi
+    
+    # 健康检查
+    if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+        log "✓ Go proxy 健康检查通过"
+    else
+        log "⚠️  Go proxy 健康检查失败"
+    fi
 else
     log "⚠️  未找到 PM2 进程，跳过重启"
 fi
