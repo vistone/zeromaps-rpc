@@ -127,26 +127,26 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
         fi
     fi
     
-    # 即使是最新版本，也重启PM2（因为可能代码已被外部更新）
-    if pm2 list | grep -q "zeromaps-rpc"; then
+    # 即使是最新版本，也重启PM2（因为可能代码已被外部更新或修复）
+    if pm2 list | grep -q "online\|stopped"; then
         # 检查是否使用 tsx（需要彻底重启清除缓存）
         PM2_INTERPRETER=$(pm2 jlist 2>/dev/null | grep -o '"interpreter":"[^"]*"' | head -1 | cut -d'"' -f4)
         
         if [ "$PM2_INTERPRETER" = "tsx" ]; then
             log "检测到 tsx 运行模式，彻底重启以清除缓存..."
             rm -rf node_modules/.cache 2>/dev/null || true
-            pm2 delete zeromaps-rpc 2>&1 | tee -a $LOG_FILE
+            pm2 delete all 2>&1 | tee -a $LOG_FILE
             sleep 1
             if [ -f "ecosystem.config.cjs" ]; then
                 pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE
             fi
         else
-            log "重启 zeromaps-rpc 进程..."
-            pm2 restart zeromaps-rpc 2>&1 | tee -a $LOG_FILE
+            log "重启所有服务（包括 Go proxy）..."
+            pm2 restart all 2>&1 | tee -a $LOG_FILE
         fi
         
         pm2 save >/dev/null 2>&1
-        log "✓ PM2 重启完成"
+        log "✓ 所有服务重启完成"
     fi
     
     # 检查并重启 Caddy
@@ -372,8 +372,8 @@ if command -v pm2 >/dev/null 2>&1; then
     fi
 fi
 
-# 5. 重启PM2服务（彻底重启，清除 tsx 缓存）
-log "[5/6] 重启服务..."
+# 5. 重启PM2服务（重启所有服务以加载最新代码）
+log "[5/6] 重启所有服务..."
 
 if pm2 list | grep -q "online\|stopped"; then
     # 检查是否使用 tsx（需要彻底重启清除缓存）
@@ -383,8 +383,8 @@ if pm2 list | grep -q "online\|stopped"; then
         log "检测到 tsx 运行模式，彻底重启以清除缓存..."
         # 清理 node 缓存
         rm -rf node_modules/.cache 2>/dev/null || true
-        # 只删除 zeromaps-rpc（而不是 all）
-        pm2 delete zeromaps-rpc 2>&1 | tee -a $LOG_FILE
+        # 删除所有服务
+        pm2 delete all 2>&1 | tee -a $LOG_FILE
         sleep 1
         if [ -f "ecosystem.config.cjs" ]; then
             if ! pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE; then
@@ -396,15 +396,15 @@ if pm2 list | grep -q "online\|stopped"; then
             rollback
         fi
     else
-        log "重启 zeromaps-rpc 进程..."
-        if ! pm2 restart zeromaps-rpc 2>&1 | tee -a $LOG_FILE; then
+        log "重启所有服务（包括 Go proxy 加载新二进制）..."
+        if ! pm2 restart all 2>&1 | tee -a $LOG_FILE; then
             log "❌ PM2 重启失败"
             rollback
         fi
     fi
     
     pm2 save >/dev/null 2>&1
-    log "✓ 服务重启完成"
+    log "✓ 所有服务重启完成"
     
     # 5.1 验证服务启动（等待 2 秒后检查）
     sleep 2
