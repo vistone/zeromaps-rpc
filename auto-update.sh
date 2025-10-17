@@ -201,14 +201,25 @@ fi
 
 log "✓ 编译完成"
 
-# 4.5. 确保日志目录存在（防止 Go proxy 崩溃）
-log "[4.5/6] 检查日志目录..."
+# 4.5. 环境检查和修复（防止 Go proxy 崩溃）
+log "[4.5/6] 环境检查..."
+
+# 4.5.1 确保日志目录存在
 if [ ! -d "$INSTALL_DIR/logs" ]; then
     log "创建日志目录..."
     mkdir -p $INSTALL_DIR/logs 2>&1 | tee -a $LOG_FILE
-    log "✓ 日志目录已创建: $INSTALL_DIR/logs"
+    log "✓ 日志目录已创建"
 else
     log "✓ 日志目录已存在"
+fi
+
+# 4.5.2 检查 Go proxy 重启次数（如果过高，说明有问题）
+if command -v pm2 >/dev/null 2>&1; then
+    RESTART_COUNT=$(pm2 list 2>/dev/null | grep utls-proxy | awk '{print $8}' | head -1)
+    if [ -n "$RESTART_COUNT" ] && [ "$RESTART_COUNT" -gt 20 ]; then
+        log "⚠️  检测到 Go proxy 重启次数过高 ($RESTART_COUNT)，重置计数器"
+        pm2 reset utls-proxy 2>&1 | tee -a $LOG_FILE || true
+    fi
 fi
 
 # 5. 重启PM2服务（彻底重启，清除 tsx 缓存）
@@ -244,6 +255,23 @@ if pm2 list | grep -q "online\|stopped"; then
     
     pm2 save >/dev/null 2>&1
     log "✓ 服务重启完成"
+    
+    # 5.1 验证服务启动（等待 3 秒后检查）
+    sleep 3
+    
+    # 检查 Go proxy 端口
+    if ! ss -tlnp 2>/dev/null | grep -q 8765; then
+        log "⚠️  Go proxy 端口 8765 未监听，尝试重启..."
+        pm2 restart utls-proxy 2>&1 | tee -a $LOG_FILE || true
+        sleep 2
+    fi
+    
+    # 健康检查
+    if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+        log "✓ Go proxy 健康检查通过"
+    else
+        log "⚠️  Go proxy 健康检查失败，但继续更新"
+    fi
 else
     log "⚠️  未找到 PM2 进程，跳过重启"
 fi
