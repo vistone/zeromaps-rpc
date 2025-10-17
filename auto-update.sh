@@ -79,16 +79,28 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
     
     # 清理超大的日志文件（防止占满磁盘）
     cd $INSTALL_DIR/logs
-    for logfile in utls-error.log utls-out.log zeromaps-error.log zeromaps-out.log out.log error.log; do
+    CLEANED_COUNT=0
+    TOTAL_SAVED_MB=0
+    
+    for logfile in utls-error.log utls-out.log zeromaps-error.log zeromaps-out.log out.log error.log combined.log; do
         if [ -f "$logfile" ]; then
             SIZE_MB=$(du -m "$logfile" 2>/dev/null | awk '{print $1}')
             if [ -n "$SIZE_MB" ] && [ "$SIZE_MB" -gt 100 ]; then
                 log "⚠️  $logfile 过大 (${SIZE_MB}MB)，清空..."
                 echo "" > "$logfile"
+                CLEANED_COUNT=$((CLEANED_COUNT + 1))
+                TOTAL_SAVED_MB=$((TOTAL_SAVED_MB + SIZE_MB))
                 log "✓ 已清空 $logfile"
             fi
         fi
     done
+    
+    if [ $CLEANED_COUNT -gt 0 ]; then
+        log "✓ 日志清理完成：清空 $CLEANED_COUNT 个文件，释放 ${TOTAL_SAVED_MB}MB 空间"
+    else
+        log "✓ 所有日志文件大小正常"
+    fi
+    
     cd $INSTALL_DIR
     
     # 检查 Go proxy 重启次数
@@ -298,17 +310,29 @@ fi
 
 # 4.5.1.1 清理超大的日志文件（防止占满磁盘）
 cd $INSTALL_DIR/logs
-for logfile in utls-error.log utls-out.log zeromaps-error.log zeromaps-out.log out.log error.log; do
+CLEANED_COUNT=0
+TOTAL_SAVED_MB=0
+
+for logfile in utls-error.log utls-out.log zeromaps-error.log zeromaps-out.log out.log error.log combined.log; do
     if [ -f "$logfile" ]; then
         # 获取文件大小（MB）
         SIZE_MB=$(du -m "$logfile" 2>/dev/null | awk '{print $1}')
         if [ -n "$SIZE_MB" ] && [ "$SIZE_MB" -gt 100 ]; then
             log "⚠️  $logfile 过大 (${SIZE_MB}MB)，清空..."
             echo "" > "$logfile"
+            CLEANED_COUNT=$((CLEANED_COUNT + 1))
+            TOTAL_SAVED_MB=$((TOTAL_SAVED_MB + SIZE_MB))
             log "✓ 已清空 $logfile"
         fi
     fi
 done
+
+if [ $CLEANED_COUNT -gt 0 ]; then
+    log "✓ 日志清理完成：清空 $CLEANED_COUNT 个文件，释放 ${TOTAL_SAVED_MB}MB 空间"
+else
+    log "✓ 所有日志文件大小正常"
+fi
+
 cd $INSTALL_DIR
 
 # 4.5.2 检查 Go proxy 重启次数（如果过高，说明有问题）
