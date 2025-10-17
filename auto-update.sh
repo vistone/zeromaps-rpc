@@ -215,8 +215,9 @@ fi
 
 # 4.5.2 检查 Go proxy 重启次数（如果过高，说明有问题）
 if command -v pm2 >/dev/null 2>&1; then
-    RESTART_COUNT=$(pm2 list 2>/dev/null | grep utls-proxy | awk '{print $8}' | head -1)
-    if [ -n "$RESTART_COUNT" ] && [ "$RESTART_COUNT" -gt 20 ]; then
+    RESTART_COUNT=$(pm2 list 2>/dev/null | grep utls-proxy | awk '{print $8}' | head -1 | grep -E '^[0-9]+$' || echo "0")
+    # 确保 RESTART_COUNT 是数字且大于 20
+    if [ "$RESTART_COUNT" -gt 20 ] 2>/dev/null; then
         log "⚠️  检测到 Go proxy 重启次数过高 ($RESTART_COUNT)，重置计数器"
         pm2 reset utls-proxy 2>&1 | tee -a $LOG_FILE || true
     fi
