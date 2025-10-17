@@ -101,7 +101,7 @@ export class RpcServer extends EventEmitter {
       if (this.requestLogs.length > this.maxLogs) {
         this.requestLogs.pop()  // 移除最旧的
       }
-      
+
       // 如果是错误请求（statusCode 非 200 或有 error），也添加到错误日志
       if (log.statusCode !== 200 || log.error) {
         this.errorLogs.unshift(log)
@@ -111,7 +111,7 @@ export class RpcServer extends EventEmitter {
         // 发送错误日志事件
         this.emit('errorLog', log)
       }
-      
+
       // 转发事件
       this.emit('requestLog', log)
     })

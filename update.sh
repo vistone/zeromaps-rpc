@@ -42,7 +42,7 @@ echo -e "${GREEN}✓ 依赖更新完成${NC}"
 
 # 3. 编译代码
 echo ""
-echo "[3/4] 编译 TypeScript 代码..."
+echo "[3/5] 编译 TypeScript 代码..."
 npm run build
 if [ $? -eq 0 ]; then
   echo -e "${GREEN}✓ 代码编译成功${NC}"
@@ -51,9 +51,21 @@ else
   exit 1
 fi
 
-# 4. 重启pm2服务
+# 4. 确保日志目录存在（防止 Go proxy 崩溃）
 echo ""
-echo "[4/4] 重启服务..."
+echo "[4/5] 检查日志目录..."
+if [ ! -d "/var/log/utls-proxy" ]; then
+  echo "创建 Go proxy 日志目录..."
+  mkdir -p /var/log/utls-proxy
+  chmod 755 /var/log/utls-proxy
+  echo -e "${GREEN}✓ 日志目录已创建: /var/log/utls-proxy${NC}"
+else
+  echo -e "${GREEN}✓ 日志目录已存在${NC}"
+fi
+
+# 5. 重启pm2服务
+echo ""
+echo "[5/5] 重启服务..."
 
 # 清理可能冲突的systemd服务
 if systemctl list-units --full --all 2>/dev/null | grep -q "zeromaps-rpc.service"; then

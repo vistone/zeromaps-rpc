@@ -381,14 +381,20 @@ func initLogger() {
 		// 创建日志目录
 		logDir := filepath.Dir(config.logFile)
 		if err := os.MkdirAll(logDir, 0755); err != nil {
+			// ⚠️  日志目录创建失败，降级到 stdout，但不阻止程序启动
 			log.Printf("⚠️  创建日志目录失败: %v，日志将输出到 stdout", err)
+			log.Printf("⚠️  请手动创建目录: sudo mkdir -p %s", logDir)
+			config.logFile = "" // 标记为 stdout 模式
 			return
 		}
 
 		// 打开日志文件（追加模式）
 		logFile, err := os.OpenFile(config.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
+			// ⚠️  日志文件打开失败，降级到 stdout，但不阻止程序启动
 			log.Printf("⚠️  打开日志文件失败: %v，日志将输出到 stdout", err)
+			log.Printf("⚠️  请检查文件权限: sudo chmod 644 %s", config.logFile)
+			config.logFile = "" // 标记为 stdout 模式
 			return
 		}
 

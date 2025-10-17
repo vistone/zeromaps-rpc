@@ -189,6 +189,17 @@ fi
 
 log "✓ 编译完成"
 
+# 4.5. 确保日志目录存在（防止 Go proxy 崩溃）
+log "[4.5/6] 检查日志目录..."
+if [ ! -d "/var/log/utls-proxy" ]; then
+    log "创建 Go proxy 日志目录..."
+    mkdir -p /var/log/utls-proxy
+    chmod 755 /var/log/utls-proxy
+    log "✓ 日志目录已创建: /var/log/utls-proxy"
+else
+    log "✓ 日志目录已存在"
+fi
+
 # 5. 重启PM2服务（彻底重启，清除 tsx 缓存）
 log "[5/6] 重启服务..."
 

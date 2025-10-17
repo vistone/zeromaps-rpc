@@ -507,18 +507,35 @@ fi
 echo ""
 echo "配置 uTLS 代理服务..."
 
+# 创建 Go 代理的日志目录
+echo "创建日志目录..."
+mkdir -p /var/log/utls-proxy
+chmod 755 /var/log/utls-proxy
+echo -e "${GREEN}✓ 日志目录已创建: /var/log/utls-proxy${NC}"
+
 # 停止旧的 uTLS 代理
 pm2 delete utls-proxy 2>/dev/null || true
 
-# 启动 uTLS 代理
-pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
-    --name "utls-proxy" \
-    --time \
-    --max-memory-restart 100M \
-    --error "$INSTALL_DIR/logs/utls-error.log" \
-    --output "$INSTALL_DIR/logs/utls-out.log"
-
-pm2 save
+# 检查是否存在 ecosystem.config.cjs
+if [ -f "$INSTALL_DIR/ecosystem.config.cjs" ]; then
+  echo "使用 ecosystem.config.cjs 启动服务..."
+  cd $INSTALL_DIR
+  pm2 delete all 2>/dev/null || true
+  pm2 start ecosystem.config.cjs
+  pm2 save
+else
+  # 兼容旧方式
+  echo "使用命令行方式启动 uTLS 代理..."
+  pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
+      --name "utls-proxy" \
+      --time \
+      --max-memory-restart 200M \
+      --max-restarts 10 \
+      --min-uptime 10000 \
+      --error "$INSTALL_DIR/logs/utls-error.log" \
+      --output "$INSTALL_DIR/logs/utls-out.log"
+  pm2 save
+fi
 
 echo -e "${GREEN}✓ uTLS 代理已启动${NC}"
 

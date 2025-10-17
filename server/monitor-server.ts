@@ -126,7 +126,7 @@ export class MonitorServer {
         }
       }
       this.rpcServer.on('requestLog', requestLogHandler)
-      
+
       // 监听错误日志事件
       const errorLogHandler = (log: any) => {
         if (ws.readyState === WebSocket.OPEN) {
@@ -324,7 +324,7 @@ export class MonitorServer {
    */
   private serveErrorLogs(res: http.ServerResponse): void {
     const errorLogs = this.rpcServer.getErrorLogs()
-    
+
     const data = {
       timestamp: Date.now(),
       total: errorLogs.length,
