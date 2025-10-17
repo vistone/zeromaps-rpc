@@ -47,7 +47,9 @@ export class RpcServer extends EventEmitter {
   private fetcher: IFetcher  // 通用 fetcher 接口
   private systemMonitor: SystemMonitor
   private requestLogs: any[] = []  // 最近的请求日志
+  private errorLogs: any[] = []    // 错误日志（单独存储）
   private maxLogs: number  // 保留最近N条（从配置读取）
+  private maxErrorLogs = 50 // 错误日志最多保留50条
   private healthStatus: { status: number; message: string; lastCheck: number } = { status: 0, message: '未检测', lastCheck: 0 }
   private fetcherType: 'utls' = 'utls'  // 当前使用的 fetcher 类型（只支持 uTLS）
 
@@ -99,6 +101,17 @@ export class RpcServer extends EventEmitter {
       if (this.requestLogs.length > this.maxLogs) {
         this.requestLogs.pop()  // 移除最旧的
       }
+      
+      // 如果是错误请求（statusCode 非 200 或有 error），也添加到错误日志
+      if (log.statusCode !== 200 || log.error) {
+        this.errorLogs.unshift(log)
+        if (this.errorLogs.length > this.maxErrorLogs) {
+          this.errorLogs.pop()
+        }
+        // 发送错误日志事件
+        this.emit('errorLog', log)
+      }
+      
       // 转发事件
       this.emit('requestLog', log)
     })
@@ -386,6 +399,13 @@ export class RpcServer extends EventEmitter {
    */
   public getRequestLogs(): any[] {
     return this.requestLogs
+  }
+
+  /**
+   * 获取错误日志（单独的错误日志列表）
+   */
+  public getErrorLogs(): any[] {
+    return this.errorLogs
   }
 
   /**

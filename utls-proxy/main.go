@@ -330,26 +330,26 @@ func loadConfig() {
 			config.circuitRecoveryTime = time.Duration(v) * time.Minute
 		}
 	}
-	
+
 	config.logFile = "/var/log/utls-proxy/utls-proxy.log"
 	if val := os.Getenv("UTLS_LOG_FILE"); val != "" {
 		config.logFile = val
 	}
-	
+
 	config.logMaxSize = 100 // MB
 	if val := os.Getenv("UTLS_LOG_MAX_SIZE_MB"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.logMaxSize = v
 		}
 	}
-	
+
 	config.logMaxBackups = 5
 	if val := os.Getenv("UTLS_LOG_MAX_BACKUPS"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
 			config.logMaxBackups = v
 		}
 	}
-	
+
 	config.logMaxAge = 7 // 天
 	if val := os.Getenv("UTLS_LOG_MAX_AGE_DAYS"); val != "" {
 		if v, err := strconv.Atoi(val); err == nil && v > 0 {
@@ -384,19 +384,19 @@ func initLogger() {
 			log.Printf("⚠️  创建日志目录失败: %v，日志将输出到 stdout", err)
 			return
 		}
-		
+
 		// 打开日志文件（追加模式）
 		logFile, err := os.OpenFile(config.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
 			log.Printf("⚠️  打开日志文件失败: %v，日志将输出到 stdout", err)
 			return
 		}
-		
+
 		logFileHandle = logFile // 保存句柄供后续轮转使用
-		
+
 		// 设置日志输出到文件
 		log.SetOutput(logFile)
-		log.Printf("📝 日志已配置: %s (最大 %d MB, 保留 %d 个文件, %d 天)", 
+		log.Printf("📝 日志已配置: %s (最大 %d MB, 保留 %d 个文件, %d 天)",
 			config.logFile, config.logMaxSize, config.logMaxBackups, config.logMaxAge)
 	} else {
 		log.Printf("📝 日志输出到 stdout（建议在生产环境配置 UTLS_LOG_FILE）")
@@ -408,17 +408,17 @@ func startLogRotation() {
 	if config.logFile == "" {
 		return // 未配置日志文件，不需要轮转
 	}
-	
+
 	ticker := time.NewTicker(1 * time.Hour) // 每小时检查一次
 	defer ticker.Stop()
-	
+
 	log.Printf("📝 日志轮转任务已启动（每 1 小时检查）")
-	
+
 	for range ticker.C {
 		if shutdownFlag.Load() {
 			break
 		}
-		
+
 		rotateLogIfNeeded()
 	}
 }
@@ -428,37 +428,37 @@ func rotateLogIfNeeded() {
 	if config.logFile == "" || logFileHandle == nil {
 		return
 	}
-	
+
 	// 检查文件大小
 	fileInfo, err := os.Stat(config.logFile)
 	if err != nil {
 		log.Printf("⚠️  无法获取日志文件信息: %v", err)
 		return
 	}
-	
+
 	maxBytes := int64(config.logMaxSize) * 1024 * 1024 // MB 转 字节
-	
+
 	if fileInfo.Size() >= maxBytes {
 		log.Printf("📝 日志文件达到 %d MB，开始轮转...", config.logMaxSize)
-		
+
 		// 关闭当前文件
 		if logFileHandle != nil {
 			logFileHandle.Close()
 		}
-		
+
 		// 轮转日志文件（重命名为 .1, .2, .3...）
 		for i := config.logMaxBackups - 1; i >= 1; i-- {
 			oldName := fmt.Sprintf("%s.%d", config.logFile, i)
 			newName := fmt.Sprintf("%s.%d", config.logFile, i+1)
-			
+
 			if _, err := os.Stat(oldName); err == nil {
 				os.Rename(oldName, newName)
 			}
 		}
-		
+
 		// 当前日志文件重命名为 .1
 		os.Rename(config.logFile, config.logFile+".1")
-		
+
 		// 创建新的日志文件
 		newLogFile, err := os.OpenFile(config.logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 		if err != nil {
@@ -468,11 +468,11 @@ func rotateLogIfNeeded() {
 			logFileHandle = nil
 			return
 		}
-		
+
 		logFileHandle = newLogFile
 		log.SetOutput(newLogFile)
 		log.Printf("✓ 日志轮转完成")
-		
+
 		// 清理超过保留天数的旧日志
 		cleanOldLogs()
 	}
@@ -483,18 +483,18 @@ func cleanOldLogs() {
 	if config.logMaxAge <= 0 {
 		return
 	}
-	
+
 	cutoffTime := time.Now().AddDate(0, 0, -config.logMaxAge)
-	
+
 	// 检查所有 .1, .2, .3... 文件
 	for i := 1; i <= config.logMaxBackups+10; i++ {
 		logPath := fmt.Sprintf("%s.%d", config.logFile, i)
-		
+
 		fileInfo, err := os.Stat(logPath)
 		if err != nil {
 			continue // 文件不存在
 		}
-		
+
 		// 检查文件修改时间
 		if fileInfo.ModTime().Before(cutoffTime) {
 			if err := os.Remove(logPath); err == nil {
@@ -510,7 +510,7 @@ func init() {
 
 	// 加载配置
 	loadConfig()
-	
+
 	// 初始化日志
 	initLogger()
 
@@ -1695,10 +1695,10 @@ func main() {
 
 	// 启动定期资源清理任务
 	go startResourceCleanup()
-	
+
 	// 启动并发数动态调整任务
 	go startConcurrencyAdjustment()
-	
+
 	// 启动日志轮转任务
 	go startLogRotation()
 
@@ -1754,7 +1754,7 @@ func main() {
 	log.Printf("  - 成功: %d", stats.successRequests.Load())
 	log.Printf("  - 失败: %d", stats.failedRequests.Load())
 	log.Printf("  - Session 刷新次数: %d", stats.sessionRefreshCount.Load())
-	
+
 	// 关闭日志文件
 	if logFileHandle != nil {
 		logFileHandle.Close()

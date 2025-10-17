@@ -126,6 +126,17 @@ export class MonitorServer {
         }
       }
       this.rpcServer.on('requestLog', requestLogHandler)
+      
+      // 监听错误日志事件
+      const errorLogHandler = (log: any) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'errorLog',
+            data: log
+          }))
+        }
+      }
+      this.rpcServer.on('errorLog', errorLogHandler)
 
       // 处理消息
       ws.on('message', async (data: Buffer) => {
@@ -194,6 +205,7 @@ export class MonitorServer {
         logger.info('WebSocket 客户端断开', { clientIP })
         clearInterval(statsInterval)  // 清理统计推送定时器
         this.rpcServer.off('requestLog', requestLogHandler)  // 移除请求日志监听器
+        this.rpcServer.off('errorLog', errorLogHandler)  // 移除错误日志监听器
       })
 
       ws.on('error', (error) => {
@@ -222,6 +234,8 @@ export class MonitorServer {
       await this.serveStats(res)
     } else if (url === '/api/ipv6') {
       this.serveIPv6Stats(res)
+    } else if (url === '/api/errorLogs') {
+      this.serveErrorLogs(res)
     } else if (url === '/api/config') {
       await this.serveConfig(req, res)
     } else if (url.startsWith('/api/fetch')) {
@@ -299,6 +313,22 @@ export class MonitorServer {
         avgRT: stat.avgResponseTime,
         lastUsed: stat.lastUsedAgo
       }))
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify(data, null, 2))
+  }
+
+  /**
+   * 返回错误日志
+   */
+  private serveErrorLogs(res: http.ServerResponse): void {
+    const errorLogs = this.rpcServer.getErrorLogs()
+    
+    const data = {
+      timestamp: Date.now(),
+      total: errorLogs.length,
+      logs: errorLogs
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -671,7 +701,17 @@ export class MonitorServer {
 
     <div class="logs-container">
       <div class="logs-header">
-        <div class="logs-title">📋 实时请求日志</div>
+        <div class="logs-title">❌ 错误日志（仅显示失败请求）</div>
+        <button class="clear-btn" onclick="clearErrorLogs()">清空</button>
+      </div>
+      <div id="errorLogsContent">
+        <div style="text-align: center; color: #999; padding: 20px;">暂无错误...</div>
+      </div>
+    </div>
+
+    <div class="logs-container">
+      <div class="logs-header">
+        <div class="logs-title">📋 实时请求日志（所有请求）</div>
         <button class="clear-btn" onclick="clearLogs()">清空</button>
       </div>
       <div id="logsContent">
@@ -799,7 +839,9 @@ export class MonitorServer {
 
     // WebSocket 连接，接收实时请求日志
     const requestLogs = [];
+    const errorLogs = [];
     const maxLogs = 50;
+    const maxErrorLogs = 30;
 
     function connectWebSocket() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -814,6 +856,8 @@ export class MonitorServer {
           const msg = JSON.parse(event.data);
           if (msg.type === 'requestLog') {
             addRequestLog(msg.data);
+          } else if (msg.type === 'errorLog') {
+            addErrorLog(msg.data);
           }
         } catch (e) {
           console.error('解析消息失败:', e);
@@ -885,9 +929,60 @@ export class MonitorServer {
       }).join('');
     }
 
+    function addErrorLog(log) {
+      errorLogs.unshift(log);
+      if (errorLogs.length > maxErrorLogs) {
+        errorLogs.pop();
+      }
+      renderErrorLogs();
+    }
+
+    function renderErrorLogs() {
+      const errorLogsContent = document.getElementById('errorLogsContent');
+      if (errorLogs.length === 0) {
+        errorLogsContent.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无错误</div>';
+        return;
+      }
+
+      function formatBytes(bytes) {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+      }
+
+      errorLogsContent.innerHTML = errorLogs.map(log => {
+        const statusText = log.statusCode || 'ERR';
+        const statusColor = log.statusCode >= 500 ? '#dc2626' : log.statusCode >= 400 ? '#ea580c' : '#ef4444';
+        const timestamp = new Date(log.timestamp).toLocaleTimeString('zh-CN');
+        const errorMsg = log.error || '请求失败';
+
+        return \`
+          <div class="log-item error">
+            <div class="log-main">
+              <div class="log-url" title="\${log.url}">\${log.url}</div>
+              <div class="log-metrics">
+                <span class="log-badge error" style="background: \${statusColor}">\${statusText}</span>
+                <span class="log-badge" style="background: #64748b; color: white;">\${log.duration || 0}ms</span>
+              </div>
+            </div>
+            <div class="log-detail">
+              ❌ 错误: \${errorMsg} | IPv6: \${log.ipv6 || 'N/A'} | 时间: \${timestamp}
+            </div>
+          </div>
+        \`;
+      }).join('');
+    }
+
     function clearLogs() {
       requestLogs.length = 0;
       renderLogs();
+    }
+
+    function clearErrorLogs() {
+      errorLogs.length = 0;
+      renderErrorLogs();
     }
 
     // 连接 WebSocket
