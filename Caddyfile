@@ -55,9 +55,14 @@
     # Caddy自动HTTPS（自动获取Let's Encrypt证书）
     # 无需手动配置证书路径
     
-    # 日志
+    # 日志配置（只记录错误，不记录成功的访问日志）
     log {
-        output file /var/log/caddy/zeromaps-rpc.log
+        output file /var/log/caddy/zeromaps-rpc.log {
+            roll_size 10MB
+            roll_keep 5
+            roll_keep_for 7d
+        }
+        level ERROR  # 只记录错误，不记录成功的请求
     }
 }
 
