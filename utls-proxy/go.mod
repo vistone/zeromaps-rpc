@@ -1,6 +1,6 @@
 module zeromaps-utls-proxy
 
-go 1.24
+go 1.21
 
 require (
 	github.com/refraction-networking/utls v1.8.1
