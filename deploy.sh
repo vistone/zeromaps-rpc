@@ -532,7 +532,7 @@ else
       --time \
       --max-memory-restart 200M \
       --max-restarts 10 \
-      --min-uptime 10000 \
+      --restart-delay 10000 \
       --error "$INSTALL_DIR/logs/utls-error.log" \
       --output "$INSTALL_DIR/logs/utls-out.log"
   pm2 save

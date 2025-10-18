@@ -221,7 +221,7 @@ export class IPv6Pool {
   public getDetailedStats() {
     const total = this.addresses.length
     const totalRequests = Array.from(this.usageStats.values()).reduce((sum, count) => sum + count, 0)
-    
+
     // 修复：当没有 IPv6 时，避免除以零
     const avgPerIP = total > 0 ? Math.round(totalRequests / total) : totalRequests
 
@@ -247,7 +247,7 @@ export class IPv6Pool {
       if (usage > maxUsage) maxUsage = usage
       if (usage < minUsage) minUsage = usage
     }
-    
+
     // 修复：无 IPv6 时 minUsage 可能是 Infinity
     if (!isFinite(minUsage)) {
       minUsage = 0
