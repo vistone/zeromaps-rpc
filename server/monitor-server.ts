@@ -48,7 +48,8 @@ export class MonitorServer {
    */
   private getVersion(): string {
     try {
-      const packagePath = path.join(__dirname, '../package.json')
+      // 修复路径：dist/server → 项目根目录
+      const packagePath = path.join(__dirname, '../../package.json')
       const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'))
       return packageJson.version || 'unknown'
     } catch (error) {
