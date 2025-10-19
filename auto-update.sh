@@ -141,6 +141,14 @@ log "[7/7] 启动所有服务..."
 
 # 7.1 先单独启动 utls-proxy（因为 zeromaps-rpc 依赖它）
 log "启动 utls-proxy..."
+
+# 确保没有同名进程（防止 webhook 多次触发冲突）
+if pm2 describe utls-proxy >/dev/null 2>&1; then
+    log "检测到 utls-proxy 已存在，先删除..."
+    pm2 delete utls-proxy 2>&1 | tee -a $LOG_FILE || true
+    sleep 1
+fi
+
 pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
     --name utls-proxy \
     --cwd $INSTALL_DIR \
@@ -176,14 +184,22 @@ if pm2 list | grep -q "utls-proxy.*online"; then
             log "✓ Go proxy 健康检查通过"
         fi
     else
-        log "⚠️  Go proxy 健康检查失败"
+        log "⚠️  Go proxy 健康检查失败（继续启动 zeromaps-rpc）"
     fi
 else
-    error "utls-proxy 启动失败"
+    log "❌ utls-proxy 启动失败（尝试继续）"
 fi
 
 # 7.2 启动 zeromaps-rpc
 log "启动 zeromaps-rpc..."
+
+# 确保没有同名进程（防止 webhook 多次触发冲突）
+if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
+    log "检测到 zeromaps-rpc 已存在，先删除..."
+    pm2 delete zeromaps-rpc 2>&1 | tee -a $LOG_FILE || true
+    sleep 1
+fi
+
 pm2 start $INSTALL_DIR/dist/server/index.js \
     --name zeromaps-rpc \
     --cwd $INSTALL_DIR \
@@ -210,7 +226,7 @@ if pm2 list | grep -q "zeromaps-rpc.*online"; then
         sleep 1
     done
 else
-    error "zeromaps-rpc 启动失败"
+    log "❌ zeromaps-rpc 启动失败"
 fi
 
 # 7.3 保存 PM2 配置
