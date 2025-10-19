@@ -264,9 +264,20 @@ log "[1/5] 更新代码..."
 
 # 直接使用强制同步（避免 go.mod/go.sum 冲突，包括 tags）
 log "使用强制同步（覆盖本地修改）..."
+
+# 记录更新前的 commit
+BEFORE_UPDATE=$CURRENT_COMMIT
+
 if git fetch origin master --tags 2>&1 | tee -a $LOG_FILE; then
     if git reset --hard origin/master 2>&1 | tee -a $LOG_FILE; then
         log "✓ 代码更新完成"
+        
+        # 检查脚本是否被更新
+        AFTER_UPDATE=$(git rev-parse HEAD)
+        if [ "$BEFORE_UPDATE" != "$AFTER_UPDATE" ]; then
+            log "🔄 脚本已更新，重新执行新版本脚本..."
+            exec "$0" "$@"
+        fi
     else
         error "git reset 失败"
     fi
