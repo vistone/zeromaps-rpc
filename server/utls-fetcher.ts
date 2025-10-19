@@ -65,11 +65,16 @@ export class UTLSFetcher extends EventEmitter {
   public async fetch(options: FetchOptions): Promise<FetchResult> {
     const requestId = ++this.requestCount
     const queuedAt = Date.now()
-    const ipv6 = options.ipv6 || (this.ipv6Pool ? this.ipv6Pool.getHealthyNext() : null)
+    
+    // 修复：明确检查 undefined，空字符串 '' 表示不使用 IPv6
+    const ipv6 = options.ipv6 !== undefined 
+      ? options.ipv6 
+      : (this.ipv6Pool ? this.ipv6Pool.getHealthyNext() : null)
 
     logger.debug('接收请求', {
       requestId,
-      url: options.url.substring(0, 80)
+      url: options.url.substring(0, 80),
+      useIPv6: ipv6 ? ipv6.substring(0, 30) : '默认网络'
     })
 
     const result = await this.queue.push({ requestId, options, ipv6, queuedAt })
@@ -104,14 +109,15 @@ export class UTLSFetcher extends EventEmitter {
       // 构建代理 URL
       const proxyURL = new URL(this.proxyUrl)
       proxyURL.searchParams.set('url', options.url)
-      if (ipv6) {
+      // 只有非空字符串才设置 IPv6 参数
+      if (ipv6 && ipv6.length > 0) {
         proxyURL.searchParams.set('ipv6', ipv6)
       }
 
       const t3 = Date.now()
       logger.debug('通过 uTLS 代理请求', {
         requestId,
-        ipv6: ipv6?.substring(0, 30)
+        network: ipv6 && ipv6.length > 0 ? ipv6.substring(0, 30) : 'IPv4 默认网络'
       })
 
       // 发送请求到 Go 代理
@@ -144,14 +150,15 @@ export class UTLSFetcher extends EventEmitter {
       // 记录统计
       const totalDuration = Date.now() - queuedAt
       const success = statusCode === 200  // 只有 200 状态码才算成功
-      if (ipv6 && this.ipv6Pool) {
+      // 只有使用 IPv6 时才记录到 IPv6 池统计
+      if (ipv6 && ipv6.length > 0 && this.ipv6Pool) {
         this.ipv6Pool.recordRequest(ipv6, statusCode, totalDuration)
       }
 
       this.emit('request', {
         requestId,
         url: options.url,
-        ipv6: ipv6?.substring(0, 30),
+        ipv6: ipv6 && ipv6.length > 0 ? ipv6.substring(0, 30) : 'IPv4',
         statusCode,
         success,
         duration: totalDuration,
@@ -174,14 +181,15 @@ export class UTLSFetcher extends EventEmitter {
         duration
       })
 
-      if (ipv6 && this.ipv6Pool) {
+      // 只有使用 IPv6 时才记录到 IPv6 池统计
+      if (ipv6 && ipv6.length > 0 && this.ipv6Pool) {
         this.ipv6Pool.recordRequest(ipv6, 0, duration)  // 0 表示网络异常
       }
 
       this.emit('request', {
         requestId,
         url: options.url,
-        ipv6: ipv6?.substring(0, 30),
+        ipv6: ipv6 && ipv6.length > 0 ? ipv6.substring(0, 30) : 'IPv4',
         statusCode: 0,
         success: false,
         duration,
