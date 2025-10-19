@@ -18,13 +18,14 @@ const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 interface WsMessage {
-  type: 'fetch' | 'ping'
+  type: 'fetch' | 'ping' | 'request_ip_pool' | 'update_ip_pool'
   id?: string
   uri?: string
+  data?: any
 }
 
 interface WsResponse {
-  type: 'response' | 'error' | 'pong' | 'stats'
+  type: 'response' | 'error' | 'pong' | 'stats' | 'ip_pool_data' | 'ip_pool_updated'
   id?: string
   data?: any
   error?: string
@@ -151,6 +152,39 @@ export class MonitorServer {
             return
           }
 
+          // IP 池同步：请求 IP 池
+          if (msg.type === 'request_ip_pool') {
+            const ipPoolPath = '/opt/zeromaps-rpc/utls-proxy/ip-pools.json'
+            try {
+              const ipPoolData = await fs.promises.readFile(ipPoolPath, 'utf-8')
+              const response: WsResponse = {
+                type: 'ip_pool_data',
+                data: JSON.parse(ipPoolData)
+              }
+              ws.send(JSON.stringify(response))
+              logger.info('发送 IP 池数据到节点', { clientIP })
+            } catch (error) {
+              logger.error('读取 IP 池文件失败', error as Error)
+            }
+            return
+          }
+
+          // IP 池同步：接收 IP 池更新
+          if (msg.type === 'update_ip_pool' && msg.data) {
+            const ipPoolPath = '/opt/zeromaps-rpc/utls-proxy/ip-pools.json'
+            try {
+              await fs.promises.writeFile(ipPoolPath, JSON.stringify(msg.data, null, 2), 'utf-8')
+              logger.info('收到 IP 池更新并已保存', { clientIP })
+              
+              // 通知 uTLS 代理重新加载（可以通过 HTTP 端点触发）
+              const response: WsResponse = { type: 'ip_pool_updated' }
+              ws.send(JSON.stringify(response))
+            } catch (error) {
+              logger.error('保存 IP 池文件失败', error as Error)
+            }
+            return
+          }
+
           // 数据请求
           if (msg.type === 'fetch' && msg.uri && msg.id) {
             logger.debug('[WS] 收到请求', {
@@ -239,11 +273,33 @@ export class MonitorServer {
       this.serveErrorLogs(res)
     } else if (url === '/api/config') {
       await this.serveConfig(req, res)
+    } else if (url === '/api/ip-pool') {
+      await this.serveIPPool(res)
     } else if (url.startsWith('/api/fetch')) {
       await this.serveFetch(req, res, url)
     } else {
       res.writeHead(404)
       res.end('Not Found')
+    }
+  }
+
+  /**
+   * 返回 IP 池数据
+   */
+  private async serveIPPool(res: http.ServerResponse): Promise<void> {
+    try {
+      const ipPoolPath = '/opt/zeromaps-rpc/utls-proxy/ip-pools.json'
+      const ipPoolData = await fs.promises.readFile(ipPoolPath, 'utf-8')
+      
+      res.writeHead(200, { 
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      })
+      res.end(ipPoolData)
+    } catch (error) {
+      logger.error('读取 IP 池文件失败', error as Error)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: '读取 IP 池文件失败' }))
     }
   }
 

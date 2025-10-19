@@ -88,7 +88,6 @@ var (
 	
 	// DNS IP 池（新增）
 	dnsIPPools = make(map[string]*DNSIPPool) // domain → DNS IP 池
-	p2pSync    *P2PSync                       // P2P 同步管理器
 	
 	allowedDomains              = map[string]bool{
 		"kh.google.com":    true,
