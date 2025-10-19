@@ -1,0 +1,24 @@
+#!/bin/bash
+# Git Post-commit Hook - 提交后自动创建 tag 并推送
+
+VERSION=$(cat package.json | grep '"version"' | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+
+echo "📦 自动创建 tag: v$VERSION"
+
+# 创建 tag（如果已存在则跳过）
+if git tag | grep -q "^v$VERSION$"; then
+    echo "⚠️  tag v$VERSION 已存在，跳过"
+else
+    git tag "v$VERSION"
+    echo "✓ Tag v$VERSION 已创建"
+fi
+
+# 提示推送命令
+echo ""
+echo "======================================"
+echo "✅ 提交完成"
+echo "======================================"
+echo "执行以下命令推送到 GitHub："
+echo "  git push origin master && git push --tags"
+echo ""
+

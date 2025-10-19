@@ -1,0 +1,32 @@
+#!/bin/bash
+# Git Pre-commit Hook - 提交前自动检查
+
+echo "🔍 执行提交前检查..."
+
+# 1. 检查版本号是否更新
+CURRENT_VERSION=$(git show HEAD:package.json | grep '"version"' | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+NEW_VERSION=$(cat package.json | grep '"version"' | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+
+if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
+    echo "❌ 错误：版本号未更新"
+    echo "   当前版本: $CURRENT_VERSION"
+    echo "   请在 package.json 中更新版本号（patch +1）"
+    exit 1
+fi
+
+echo "✓ 版本号已更新: $CURRENT_VERSION -> $NEW_VERSION"
+
+# 2. 检查 commit 消息格式（通过 commit-msg hook 检查）
+
+# 3. 运行 TypeScript 编译检查
+echo "🔧 检查 TypeScript 编译..."
+if ! npm run build > /dev/null 2>&1; then
+    echo "❌ 错误：TypeScript 编译失败"
+    echo "   请修复编译错误后再提交"
+    exit 1
+fi
+echo "✓ TypeScript 编译通过"
+
+echo "✅ 提交前检查通过"
+exit 0
+

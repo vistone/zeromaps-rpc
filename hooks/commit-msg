@@ -1,0 +1,44 @@
+#!/bin/bash
+# Git Commit Message Hook - 检查提交消息格式
+
+COMMIT_MSG_FILE=$1
+COMMIT_MSG=$(cat "$COMMIT_MSG_FILE")
+
+echo "🔍 检查 commit 消息格式..."
+
+# 读取版本号
+VERSION=$(cat package.json | grep '"version"' | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+
+# 检查格式：<type>: <description> (v<version>)
+if ! echo "$COMMIT_MSG" | grep -qE '^(feat|fix|perf|refactor|docs|chore|style): .+ \(v[0-9]+\.[0-9]+\.[0-9]+\)'; then
+    echo "❌ 错误：commit 消息格式不正确"
+    echo ""
+    echo "正确格式："
+    echo "  <type>: <description> (v$VERSION)"
+    echo ""
+    echo "Type 类型："
+    echo "  feat     - 新功能"
+    echo "  fix      - 修复 bug"
+    echo "  perf     - 性能优化"
+    echo "  refactor - 代码重构"
+    echo "  docs     - 文档更新"
+    echo "  chore    - 构建/工具更新"
+    echo "  style    - 代码格式调整"
+    echo ""
+    echo "示例："
+    echo "  feat: 添加自动更新机制 (v$VERSION)"
+    echo ""
+    exit 1
+fi
+
+# 检查版本号是否匹配
+if ! echo "$COMMIT_MSG" | grep -q "(v$VERSION)"; then
+    echo "⚠️  警告：commit 消息中的版本号与 package.json 不一致"
+    echo "   package.json: v$VERSION"
+    echo "   commit 消息: $(echo "$COMMIT_MSG" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')"
+    exit 1
+fi
+
+echo "✓ Commit 消息格式正确"
+exit 0
+

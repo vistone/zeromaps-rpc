@@ -263,7 +263,17 @@ fi
 export NODE_ENV=$SAVED_NODE_ENV
 log "✓ 依赖安装完成"
 
-# 3.1 验证 TypeScript 是否已安装
+# 3.1 安装 Git hooks
+log "[3.1/6] 安装 Git hooks..."
+if [ -d "$INSTALL_DIR/hooks" ]; then
+    cp -f $INSTALL_DIR/hooks/* $INSTALL_DIR/.git/hooks/ 2>&1 | tee -a $LOG_FILE
+    chmod +x $INSTALL_DIR/.git/hooks/* 2>&1 | tee -a $LOG_FILE
+    log "✓ Git hooks 已安装（pre-commit, commit-msg, post-commit）"
+else
+    log "⚠️  hooks 目录不存在，跳过 Git hooks 安装"
+fi
+
+# 3.2 验证 TypeScript 是否已安装
 if [ ! -f "$INSTALL_DIR/node_modules/.bin/tsc" ]; then
     log "❌ TypeScript 未安装，尝试手动安装..."
     npm install typescript --save-dev 2>&1 | tee -a $LOG_FILE
