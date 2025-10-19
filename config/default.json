@@ -20,7 +20,7 @@
     },
     "utls": {
         "proxyPort": 8765,
-        "concurrency": 100,
+        "concurrency": 20,
         "timeout": 10000
     },
     "ipv6": {
