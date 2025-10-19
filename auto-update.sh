@@ -120,34 +120,74 @@ fi
 log "[6/6] 启动所有服务..."
 
 if [ -f "ecosystem.config.cjs" ]; then
-    if pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE; then
-        pm2 save 2>&1 | tee -a $LOG_FILE
-        sleep 2
-        pm2 list | tee -a $LOG_FILE
-        log "✓ 所有服务已启动"
-    else
-        error "PM2 启动失败"
+    pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE
+    sleep 3
+    
+    # 检查是否启动了两个进程
+    PROCESS_COUNT=$(pm2 list | grep -c "online" || echo "0")
+    
+    if [ "$PROCESS_COUNT" -lt 2 ]; then
+        log "⚠️  进程数不足（只有 $PROCESS_COUNT 个），检查并补充启动..."
+        
+        # 检查 utls-proxy 是否缺失
+        if ! pm2 list | grep -q "utls-proxy"; then
+            log "utls-proxy 未启动，手动启动..."
+            pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
+                --name utls-proxy \
+                --cwd $INSTALL_DIR \
+                --error $INSTALL_DIR/logs/utls-error.log \
+                --output $INSTALL_DIR/logs/utls-out.log \
+                --log-date-format 'YYYY-MM-DD HH:mm:ss' 2>&1 | tee -a $LOG_FILE
+            sleep 2
+        fi
+        
+        # 检查 zeromaps-rpc 是否缺失
+        if ! pm2 list | grep -q "zeromaps-rpc"; then
+            log "zeromaps-rpc 未启动，手动启动..."
+            pm2 start $INSTALL_DIR/dist/server/index.js \
+                --name zeromaps-rpc \
+                --cwd $INSTALL_DIR \
+                --error $INSTALL_DIR/logs/zeromaps-error.log \
+                --output $INSTALL_DIR/logs/zeromaps-out.log \
+                --log-date-format 'YYYY-MM-DD HH:mm:ss' 2>&1 | tee -a $LOG_FILE
+            sleep 2
+        fi
     fi
+    
+    pm2 save 2>&1 | tee -a $LOG_FILE
+    pm2 list | tee -a $LOG_FILE
+    log "✓ 所有服务已启动"
 else
     error "未找到 ecosystem.config.cjs"
 fi
 
 # 验证服务状态
 sleep 3
-if pm2 list | grep -q "online"; then
-    log "✓ 服务运行正常"
+
+# 检查 zeromaps-rpc
+if pm2 list | grep -q "zeromaps-rpc.*online"; then
+    log "✓ zeromaps-rpc 运行正常"
+else
+    log "❌ zeromaps-rpc 未运行"
+fi
+
+# 检查 utls-proxy
+if pm2 list | grep -q "utls-proxy.*online"; then
+    log "✓ utls-proxy 运行正常"
     
     # 验证端口
     if ss -tlnp 2>/dev/null | grep -q 8765; then
         log "✓ Go proxy 端口 8765 已监听"
-    fi
-    
-    if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
-        GO_VERSION=$(curl -s http://127.0.0.1:8765/health 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
-        log "✓ Go proxy 版本: $GO_VERSION"
+        
+        if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+            GO_VERSION=$(curl -s http://127.0.0.1:8765/health 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+            log "✓ Go proxy 版本: $GO_VERSION"
+        fi
+    else
+        log "⚠️  Go proxy 端口 8765 未监听"
     fi
 else
-    log "⚠️  服务启动异常，请检查日志"
+    log "❌ utls-proxy 未运行"
 fi
 
 log ""
