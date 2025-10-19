@@ -51,19 +51,31 @@ rollback() {
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
-# 🔧 第一步：检查脚本是否需要更新
-# 对比磁盘上的脚本和当前执行的脚本版本
-SCRIPT_ON_DISK_HASH=$(git hash-object "$0" 2>/dev/null || echo "unknown")
-SCRIPT_IN_GIT_HASH=$(git ls-tree HEAD "$0" 2>/dev/null | awk '{print $3}' || echo "unknown")
-
-# 如果脚本不一致且还没重新执行过，说明磁盘上的脚本比执行中的新
-if [ "$SCRIPT_ON_DISK_HASH" != "$SCRIPT_IN_GIT_HASH" ] && [ "$AUTO_UPDATE_REEXEC" = "0" ]; then
-    log "🔄 检测到脚本已被更新（磁盘 vs Git），重新执行最新版本..."
-    export AUTO_UPDATE_REEXEC="1"
-    exec "$0" "$@"
+# 🔧 第一步：总是先同步最新代码（如果还没重新执行过）
+if [ "$AUTO_UPDATE_REEXEC" = "0" ]; then
+    log "🔧 启动前检查：同步最新代码和脚本..."
+    
+    # 记录当前版本
+    BEFORE_SYNC=$(git rev-parse HEAD 2>/dev/null)
+    
+    # 静默获取最新代码
+    git fetch origin master --tags >/dev/null 2>&1
+    REMOTE_VERSION=$(git rev-parse origin/master 2>/dev/null)
+    
+    # 如果远程有更新，或者有本地修改，强制同步并重新执行
+    if [ "$BEFORE_SYNC" != "$REMOTE_VERSION" ] || git status --porcelain | grep -q .; then
+        log "发现更新或本地修改，强制同步并重新执行..."
+        git reset --hard origin/master >/dev/null 2>&1
+        
+        log "🔄 使用最新脚本重新执行..."
+        export AUTO_UPDATE_REEXEC="1"
+        exec "$0" "$@"
+    else
+        log "✓ 代码已是最新，脚本无需重新执行"
+    fi
 fi
 
-# 🔧 自动修复模式：检测本地修改
+# 🔧 自动修复模式：检测本地修改（二次检查）
 log "🔧 自动修复模式：检测本地修改..."
 if git status --porcelain | grep -q .; then
     log "⚠️  检测到本地修改，执行强制同步..."
