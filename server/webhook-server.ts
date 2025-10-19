@@ -329,7 +329,7 @@ export class WebhookServer {
       // 🔧 预处理：强制同步脚本本身（避免旧脚本的 bug）
       logger.info('预处理：检查并同步更新脚本...')
       try {
-        execSync('cd /opt/zeromaps-rpc && git fetch origin master', { encoding: 'utf-8' })
+        execSync('cd /opt/zeromaps-rpc && git fetch origin master --tags', { encoding: 'utf-8' })
         
         // 检查是否有本地修改
         const hasLocalChanges = execSync('cd /opt/zeromaps-rpc && git status --porcelain', { encoding: 'utf-8' }).trim()
