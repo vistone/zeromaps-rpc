@@ -545,7 +545,7 @@ else
 fi
 
 # 6. 更新并启动 Caddy（如果已安装）
-log "[6/6] 检查Caddy配置..."
+log "[4.5/6] 检查Caddy配置..."
 
 if command -v caddy &>/dev/null; then
     # Caddy 已安装
