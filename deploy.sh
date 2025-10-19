@@ -599,46 +599,106 @@ if [ "$ENABLE_IPV6" = true ]; then
   # 有 IPv6 的配置
   cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
 module.exports = {
-  apps: [{
-    name: 'zeromaps-rpc',
-    script: 'server/index.ts',
-    interpreter: 'tsx',
-    env: {
-      NODE_ENV: 'production',
-      IPV6_PREFIX: '$IPV6_PREFIX',
-      UTLS_PROXY_PORT: '8765',  // uTLS 代理端口（默认）
-      UTLS_CONCURRENCY: '10',   // uTLS 并发数
-      // 可选：Webhook 密钥（留空则跳过签名验证）
-      // WEBHOOK_SECRET: 'your-secret-key'
+  apps: [
+    {
+      name: 'utls-proxy',
+      script: './utls-proxy/utls-proxy',
+      cwd: '$INSTALL_DIR',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '200M',
+      max_restarts: 10,
+      min_uptime: '10s',
+      restart_delay: 5000,
+      error_file: '$INSTALL_DIR/logs/utls-error.log',
+      out_file: '$INSTALL_DIR/logs/utls-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      env: {
+        UTLS_PROXY_PORT: '8765',
+        UTLS_LOG_FILE: '$INSTALL_DIR/logs/utls-proxy.log',
+        UTLS_LOG_MAX_SIZE_MB: '100',
+        UTLS_LOG_MAX_BACKUPS: '5',
+        UTLS_LOG_MAX_AGE_DAYS: '7',
+        NODE_ENV: 'production'
+      }
     },
-    max_memory_restart: '500M',
-    error_file: './logs/error.log',
-    out_file: './logs/out.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss'
-  }]
+    {
+      name: 'zeromaps-rpc',
+      script: './dist/server/index.js',
+      cwd: '$INSTALL_DIR',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '300M',
+      max_restarts: 10,
+      min_uptime: '10s',
+      restart_delay: 5000,
+      error_file: '$INSTALL_DIR/logs/zeromaps-error.log',
+      out_file: '$INSTALL_DIR/logs/zeromaps-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      env: {
+        NODE_ENV: 'production',
+        IPV6_PREFIX: '$IPV6_PREFIX',
+        LOG_LEVEL: 'info'
+      }
+    }
+  ]
 }
 PM2_END
 else
   # 没有 IPv6 的配置（使用默认网络）
   cat > $INSTALL_DIR/ecosystem.config.cjs << PM2_END
 module.exports = {
-  apps: [{
-    name: 'zeromaps-rpc',
-    script: 'server/index.ts',
-    interpreter: 'tsx',
-    env: {
-      NODE_ENV: 'production',
-      IPV6_PREFIX: '',  // 不使用 IPv6
-      UTLS_PROXY_PORT: '8765',  // uTLS 代理端口（默认）
-      UTLS_CONCURRENCY: '10',   // uTLS 并发数
-      // 可选：Webhook 密钥（留空则跳过签名验证）
-      // WEBHOOK_SECRET: 'your-secret-key'
+  apps: [
+    {
+      name: 'utls-proxy',
+      script: './utls-proxy/utls-proxy',
+      cwd: '$INSTALL_DIR',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '200M',
+      max_restarts: 10,
+      min_uptime: '10s',
+      restart_delay: 5000,
+      error_file: '$INSTALL_DIR/logs/utls-error.log',
+      out_file: '$INSTALL_DIR/logs/utls-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      env: {
+        UTLS_PROXY_PORT: '8765',
+        UTLS_LOG_FILE: '$INSTALL_DIR/logs/utls-proxy.log',
+        UTLS_LOG_MAX_SIZE_MB: '100',
+        UTLS_LOG_MAX_BACKUPS: '5',
+        UTLS_LOG_MAX_AGE_DAYS: '7',
+        NODE_ENV: 'production'
+      }
     },
-    max_memory_restart: '500M',
-    error_file: './logs/error.log',
-    out_file: './logs/out.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss'
-  }]
+    {
+      name: 'zeromaps-rpc',
+      script: './dist/server/index.js',
+      cwd: '$INSTALL_DIR',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '300M',
+      max_restarts: 10,
+      min_uptime: '10s',
+      restart_delay: 5000,
+      error_file: '$INSTALL_DIR/logs/zeromaps-error.log',
+      out_file: '$INSTALL_DIR/logs/zeromaps-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      env: {
+        NODE_ENV: 'production',
+        IPV6_PREFIX: '',
+        LOG_LEVEL: 'info'
+      }
+    }
+  ]
 }
 PM2_END
   echo -e "${YELLOW}⚠️  注意：未启用 IPv6，将使用默认网络（可能受 IP 限制）${NC}"
