@@ -48,6 +48,29 @@ async function main() {
   const server = new RpcServer(PORT, IPV6_PREFIX)
 
   try {
+    // 🔍 启动前进行健康检查
+    logger.info('执行启动前健康检查...')
+    const healthCheck = await server.performStartupHealthCheck()
+    
+    if (healthCheck.google.status !== 200) {
+      logger.error(`启动失败: Google API 不可访问 (${healthCheck.google.status})`, undefined, {
+        message: healthCheck.google.message
+      })
+      process.exit(1)
+    }
+    
+    if (healthCheck.utls.status !== 'healthy' && healthCheck.utls.status !== 'unknown') {
+      logger.error(`启动失败: uTLS 代理不可用 (${healthCheck.utls.status})`, undefined, {
+        message: healthCheck.utls.message
+      })
+      process.exit(1)
+    }
+    
+    logger.info('✅ 启动前健康检查通过', {
+      google: healthCheck.google.message,
+      utls: healthCheck.utls.message
+    })
+
     await server.start()
 
     // 启动Web监控服务器（包含 HTTP API 和 WebSocket）

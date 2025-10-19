@@ -131,6 +131,26 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
+   * 启动前健康检查（阻塞式）
+   */
+  public async performStartupHealthCheck(): Promise<{ google: any, utls: any }> {
+    logger.info('开始启动前健康检查...')
+    
+    // 检查 Google API
+    await this.checkHealth()
+    
+    // 检查 uTLS 代理（等待 2 秒让 uTLS 先启动）
+    logger.info('等待 uTLS 代理启动...')
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    await this.checkUTLSHealth()
+    
+    return {
+      google: this.healthStatus,
+      utls: this.utlsHealthStatus
+    }
+  }
+
+  /**
    * 启动服务器
    */
   public async start(): Promise<void> {
@@ -441,7 +461,7 @@ export class RpcServer extends EventEmitter {
       // 直接用 Node.js https 模块，不经过 uTLS 代理
       // 这样才能真正测试服务器主 IP 是否被拉黑（不使用任何伪装）
       const result = await this.rawHttpsRequest(testUrl, 10000)
-      
+
       this.healthStatus = {
         status: result.statusCode,
         message: result.statusCode === 200 ? '正常（原始 IPv4）' :
@@ -452,9 +472,9 @@ export class RpcServer extends EventEmitter {
       }
 
       if (result.statusCode === 403) {
-        logger.error('健康检查: 节点被拉黑（原始 IPv4，无伪装）', undefined, { 
+        logger.error('健康检查: 节点被拉黑（原始 IPv4，无伪装）', undefined, {
           statusCode: 403,
-          bodySize: result.body.length 
+          bodySize: result.body.length
         })
       } else if (result.statusCode === 200) {
         logger.info('健康检查: 节点正常（原始 IPv4，无伪装）', {
@@ -528,7 +548,7 @@ export class RpcServer extends EventEmitter {
     // 从配置获取健康检查间隔
     const config = getConfig()
     const interval = config.get<number>('performance.healthCheckInterval')
-    
+
     // 定期检查（与 Google API 健康检查间隔相同）
     setInterval(() => {
       this.checkUTLSHealth()
@@ -546,14 +566,14 @@ export class RpcServer extends EventEmitter {
 
       // 请求 uTLS 代理的健康检查端点
       const result = await this.httpGet(healthUrl, 5000)
-      
+
       if (result.statusCode === 200) {
         try {
           const healthData = JSON.parse(result.body.toString())
-          
+
           // 检查成功率
           const successRate = parseFloat(healthData.successRate)
-          
+
           if (healthData.status === 'ok') {
             if (successRate >= 80) {
               this.utlsHealthStatus = {
