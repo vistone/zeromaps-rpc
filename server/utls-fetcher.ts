@@ -166,13 +166,22 @@ export class UTLSFetcher extends EventEmitter {
         })
       }
       
-      // 如果数据无效，记录为失败
+      // 如果数据无效，触发紧急检查
       if (!isValidData && statusCode === 200) {
-        logger.error('数据验证失败：状态码 200 但返回无效数据', undefined, {
+        logger.error('🚨 数据验证失败：状态码 200 但返回无效数据，触发紧急检查', undefined, {
           requestId,
           bodySize: actualBodySize,
           warning: dataWarning,
           url: options.url.substring(0, 80)
+        })
+        
+        // 触发紧急健康检查事件
+        this.emit('invalidData', {
+          requestId,
+          statusCode,
+          bodySize: actualBodySize,
+          warning: dataWarning,
+          url: options.url
         })
       }
 

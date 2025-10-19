@@ -55,6 +55,8 @@ export class RpcServer extends EventEmitter {
   private healthStatus: { status: number; message: string; lastCheck: number } = { status: 0, message: '未检测', lastCheck: 0 }
   private utlsHealthStatus: { status: string; message: string; lastCheck: number } = { status: 'unknown', message: '未检测', lastCheck: 0 }
   private fetcherType: 'utls' = 'utls'  // 当前使用的 fetcher 类型（只支持 uTLS）
+  private emergencyStop = false  // 紧急停止标志（检测到 403 时触发）
+  private emergencyStopReason = ''  // 紧急停止原因
 
   constructor(
     private port: number,
@@ -120,6 +122,16 @@ export class RpcServer extends EventEmitter {
 
       // 转发事件
       this.emit('requestLog', log)
+    })
+
+    // 监听数据验证失败事件（触发紧急检查）
+    this.fetcher.on('invalidData', async (data: any) => {
+      logger.warn('🚨 检测到无效数据，触发紧急健康检查', {
+        statusCode: data.statusCode,
+        bodySize: data.bodySize,
+        warning: data.warning
+      })
+      await this.emergencyHealthCheck()
     })
 
     // 初始化系统监控
@@ -295,11 +307,90 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
+   * 紧急健康检查（检测到可疑数据时触发）
+   */
+  private async emergencyHealthCheck(): Promise<void> {
+    logger.error('🚨 紧急健康检查开始（检测到可疑的 200 响应）')
+    
+    try {
+      // 使用原始 https 请求检查真实状态
+      const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
+      const result = await this.rawHttpsRequest(testUrl, 5000)
+      
+      logger.info('紧急健康检查结果', {
+        statusCode: result.statusCode,
+        bodySize: result.body.length
+      })
+      
+      if (result.statusCode === 403) {
+        // 确认节点被拉黑，进入紧急停止模式
+        this.emergencyStop = true
+        this.emergencyStopReason = '节点被 Google 拉黑（403）'
+        
+        logger.error('🚨🚨🚨 紧急停止：节点已被拉黑！', undefined, {
+          statusCode: 403,
+          bodySize: result.body.length
+        })
+        
+        // 更新健康状态
+        this.healthStatus = {
+          status: 403,
+          message: '节点被拉黑（紧急检测）',
+          lastCheck: Date.now()
+        }
+        
+        // 通知所有已连接的客户端
+        this.notifyAllClients403()
+        
+      } else if (result.statusCode === 200) {
+        logger.warn('紧急健康检查通过，可能是临时问题', {
+          statusCode: 200,
+          bodySize: result.body.length
+        })
+      } else {
+        logger.warn('紧急健康检查异常', {
+          statusCode: result.statusCode
+        })
+      }
+    } catch (error) {
+      logger.error('紧急健康检查失败', error as Error)
+    }
+  }
+
+  /**
+   * 通知所有客户端 403 错误
+   */
+  private notifyAllClients403(): void {
+    logger.info(`设置紧急停止标志，后续所有请求将返回 403 (当前客户端: ${this.clients.size} 个)`)
+    // 紧急停止标志已在 emergencyHealthCheck 中设置
+    // 所有后续请求会在 handleDataRequest 中被拦截并返回 403
+  }
+
+  /**
    * 处理数据请求
    */
   private async handleDataRequest(socket: net.Socket, payload: Buffer): Promise<void> {
     try {
       const request = DataRequest.decode(payload)
+      
+      // 🚨 紧急停止检查
+      if (this.emergencyStop) {
+        logger.warn('紧急停止模式：拒绝请求', {
+          reason: this.emergencyStopReason,
+          clientID: request.clientID,
+          uri: request.uri.substring(0, 50)
+        })
+        
+        const errorResponse = DataResponse.encode({
+          clientID: request.clientID,
+          uri: request.uri,
+          statusCode: 403,
+          data: Buffer.from(`服务已停止：${this.emergencyStopReason}`)
+        }).finish()
+        
+        this.sendFrame(socket, FrameType.DATA_RESPONSE, Buffer.from(errorResponse))
+        return
+      }
 
       // 更新客户端会话
       const session = this.clients.get(request.clientID)
@@ -378,7 +469,9 @@ export class RpcServer extends EventEmitter {
       ipv6Stats: this.ipv6Pool.getDetailedStats(),
       system: systemStats,
       health: this.healthStatus,  // 保持原有字段（Google API 健康状态）
-      utlsHealth: this.utlsHealthStatus  // 新增字段（uTLS 代理健康状态）
+      utlsHealth: this.utlsHealthStatus,  // 新增字段（uTLS 代理健康状态）
+      emergencyStop: this.emergencyStop,  // 紧急停止标志
+      emergencyStopReason: this.emergencyStopReason  // 紧急停止原因
     }
   }
 
