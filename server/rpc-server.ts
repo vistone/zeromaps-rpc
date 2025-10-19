@@ -392,6 +392,24 @@ export class RpcServer extends EventEmitter {
         return
       }
 
+      // 验证请求 URI 是否有效（避免向 Google 发送无效请求）
+      if (!this.isValidURI(request.uri)) {
+        logger.warn('拒绝无效请求', {
+          clientID: request.clientID,
+          uri: request.uri.substring(0, 80)
+        })
+
+        const errorResponse = DataResponse.encode({
+          clientID: request.clientID,
+          uri: request.uri,
+          statusCode: 400,
+          data: Buffer.from('无效的请求 URI')
+        }).finish()
+
+        this.sendFrame(socket, FrameType.DATA_RESPONSE, Buffer.from(errorResponse))
+        return
+      }
+
       // 更新客户端会话
       const session = this.clients.get(request.clientID)
       if (session) {
@@ -542,6 +560,46 @@ export class RpcServer extends EventEmitter {
     setInterval(() => {
       this.checkHealth()
     }, interval)
+  }
+
+  /**
+   * 验证 URI 是否有效（防止向 Google 发送垃圾请求）
+   */
+  private isValidURI(uri: string): boolean {
+    // 拒绝明显无效的请求模式
+    
+    // 1. URI 不能为空
+    if (!uri || uri.trim().length === 0) {
+      return false
+    }
+
+    // 2. 拒绝测试用的无效节点 ID
+    // 例如：NodeData/pb=!1m2!1s0!2u0（0 是无效的节点 ID）
+    if (uri.includes('!1s0!') || uri.includes('!2s0!')) {
+      return false
+    }
+
+    // 3. 只允许特定的 API 路径
+    const validPaths = [
+      'PlanetoidMetadata',
+      'BulkMetadata',
+      'NodeData',
+      'ImageryMetadata',
+      'Imagery'
+    ]
+
+    const hasValidPath = validPaths.some(path => uri.startsWith(path))
+    if (!hasValidPath) {
+      return false
+    }
+
+    // 4. 检查是否包含合法的 protobuf 参数格式
+    if (uri.includes('/pb=') && uri.length < 20) {
+      // pb 参数太短，可能是无效请求
+      return false
+    }
+
+    return true
   }
 
   /**
