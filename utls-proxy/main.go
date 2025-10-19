@@ -28,7 +28,7 @@ import (
 )
 
 // Go proxy 版本号（与 package.json 保持一致）
-const PROXY_VERSION = "2.3.2"
+const PROXY_VERSION = "2.3.3"
 
 // 浏览器指纹配置（严格基于 uTLS v1.6.0 支持的 ClientHelloID）
 type BrowserProfile struct {

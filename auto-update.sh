@@ -19,6 +19,19 @@ error() {
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
+# 🔧 首要步骤：先同步最新代码和脚本（如果还没重新执行过）
+if [ "${AUTO_UPDATE_SYNCED}" != "1" ]; then
+    log "🔧 同步最新代码和脚本..."
+    
+    # 静默同步
+    git fetch origin master --tags >/dev/null 2>&1
+    git reset --hard origin/master >/dev/null 2>&1
+    
+    log "✅ 代码已同步，重新执行最新脚本..."
+    export AUTO_UPDATE_SYNCED="1"
+    exec bash "$0" "$@"
+fi
+
 log "======================================"
 log "🚀 开始自动更新（卸载-安装模式）"
 log "======================================"
@@ -32,12 +45,10 @@ else
     log "⚠️  PM2 未安装，跳过"
 fi
 
-# 第二步：强制同步最新代码
-log "[2/6] 强制同步最新代码..."
-git fetch origin master --tags 2>&1 | tee -a $LOG_FILE || error "git fetch 失败"
-git reset --hard origin/master 2>&1 | tee -a $LOG_FILE || error "git reset 失败"
+# 第二步：确认代码版本
+log "[2/6] 确认代码版本..."
 CURRENT_VERSION=$(cat package.json | grep '"version"' | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
-log "✓ 代码已同步到版本: $CURRENT_VERSION"
+log "✓ 当前版本: $CURRENT_VERSION"
 
 # 第三步：检查并升级 Go 版本
 log "[3/6] 检查 Go 版本..."
