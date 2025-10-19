@@ -6,6 +6,11 @@ INSTALL_DIR="/opt/zeromaps-rpc"
 LOG_FILE="/var/log/zeromaps-auto-update.log"
 BACKUP_DIR="/opt/zeromaps-rpc-backup"
 
+# 环境变量：标记是否已经重新执行过（防止无限循环）
+if [ -z "$AUTO_UPDATE_REEXEC" ]; then
+    export AUTO_UPDATE_REEXEC="0"
+fi
+
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
 }
@@ -46,7 +51,19 @@ rollback() {
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
-# 🔧 第一步：无条件强制同步（避免任何本地修改导致的冲突）
+# 🔧 第一步：检查脚本是否需要更新
+# 对比磁盘上的脚本和当前执行的脚本版本
+SCRIPT_ON_DISK_HASH=$(git hash-object "$0" 2>/dev/null || echo "unknown")
+SCRIPT_IN_GIT_HASH=$(git ls-tree HEAD "$0" 2>/dev/null | awk '{print $3}' || echo "unknown")
+
+# 如果脚本不一致且还没重新执行过，说明磁盘上的脚本比执行中的新
+if [ "$SCRIPT_ON_DISK_HASH" != "$SCRIPT_IN_GIT_HASH" ] && [ "$AUTO_UPDATE_REEXEC" = "0" ]; then
+    log "🔄 检测到脚本已被更新（磁盘 vs Git），重新执行最新版本..."
+    export AUTO_UPDATE_REEXEC="1"
+    exec "$0" "$@"
+fi
+
+# 🔧 自动修复模式：检测本地修改
 log "🔧 自动修复模式：检测本地修改..."
 if git status --porcelain | grep -q .; then
     log "⚠️  检测到本地修改，执行强制同步..."
