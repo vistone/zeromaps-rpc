@@ -121,12 +121,25 @@ export class UTLSFetcher extends EventEmitter {
 
       // 从响应头获取状态码
       const statusCode = parseInt(result.headers['x-status-code'] || '200')
-      logger.debug('uTLS 代理响应', {
-        requestId,
-        requestTime,
-        statusCode,
-        size: result.body.length
-      })
+      const actualBodySize = result.body.length
+      
+      // 调试：检查响应体实际内容
+      if (actualBodySize < 100) {
+        logger.debug('uTLS 代理响应（小文件）', {
+          requestId,
+          requestTime,
+          statusCode,
+          bodySize: actualBodySize,
+          bodyPreview: result.body.toString('utf-8').substring(0, 50)
+        })
+      } else {
+        logger.debug('uTLS 代理响应', {
+          requestId,
+          requestTime,
+          statusCode,
+          size: actualBodySize
+        })
+      }
 
       // 记录统计
       const totalDuration = Date.now() - queuedAt
