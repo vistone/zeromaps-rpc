@@ -148,11 +148,13 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
         fi
     fi
     
-    # 2. 检查二进制文件大小（新版本应该是8.1M，旧版本7.7M）
+    # 2. 检查二进制文件大小（新版本应该是8.1M+，旧版本7.7M）
     if [ -f "$INSTALL_DIR/utls-proxy/utls-proxy" ]; then
         GO_SIZE_MB=$(du -m "$INSTALL_DIR/utls-proxy/utls-proxy" 2>/dev/null | awk '{print $1}')
-        if [ -n "$GO_SIZE_MB" ] && [ "$GO_SIZE_MB" -lt 8 ]; then
-            log "⚠️  检测到 Go proxy 文件过小 (${GO_SIZE_MB}MB)，可能是旧版本"
+        # du -m 会四舍五入：7.7M→8MB, 8.1M→9MB
+        # 所以检查 <= 8 才能检测到 7.7M 的旧版本
+        if [ -n "$GO_SIZE_MB" ] && [ "$GO_SIZE_MB" -le 8 ]; then
+            log "⚠️  检测到 Go proxy 文件过小 (${GO_SIZE_MB}MB)，需要重新编译"
             NEED_GO_REBUILD=true
         fi
     else
