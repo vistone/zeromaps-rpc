@@ -4,6 +4,8 @@
  */
 
 import * as net from 'net'
+import * as https from 'https'
+import * as http from 'http'
 import { exec } from 'child_process'
 import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
@@ -479,7 +481,6 @@ export class RpcServer extends EventEmitter {
    */
   private async rawHttpsRequest(url: string, timeout: number): Promise<{ statusCode: number, body: Buffer }> {
     return new Promise((resolve, reject) => {
-      const https = require('https')
       const parsedUrl = new URL(url)
 
       const options = {
@@ -618,7 +619,6 @@ export class RpcServer extends EventEmitter {
    */
   private async httpGet(url: string, timeout: number): Promise<{ statusCode: number, body: Buffer }> {
     return new Promise((resolve, reject) => {
-      const http = require('http')
       const parsedUrl = new URL(url)
 
       const options = {
