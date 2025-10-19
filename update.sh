@@ -29,9 +29,10 @@ fi
 
 cd $INSTALL_DIR
 
-# 1. 更新代码
+# 1. 更新代码（强制同步，不保留本地修改）
 echo "[1/3] 更新代码..."
-git pull
+git fetch origin master
+git reset --hard origin/master
 echo -e "${GREEN}✓ 代码更新完成${NC}"
 
 # 2. 更新依赖
