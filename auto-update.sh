@@ -136,23 +136,49 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
     
     cd $INSTALL_DIR
     
-    # 检查 Go proxy 重启次数
+    # 检查 Go proxy 是否需要重新编译
+    NEED_GO_REBUILD=false
+    
+    # 1. 检查重启次数
     if command -v pm2 >/dev/null 2>&1; then
         RESTART_COUNT=$(pm2 list 2>/dev/null | grep utls-proxy | awk '{print $8}' | head -1 | grep -E '^[0-9]+$' || echo "0")
         if [ "$RESTART_COUNT" -gt 20 ] 2>/dev/null; then
-            log "⚠️  检测到 Go proxy 重启次数过高 ($RESTART_COUNT)，尝试修复..."
-            
-            # 重新编译 Go proxy
-            if [ -f "$INSTALL_DIR/utls-proxy/build.sh" ]; then
-                log "重新编译 Go proxy..."
-                cd $INSTALL_DIR/utls-proxy
-                bash build.sh 2>&1 | tee -a $LOG_FILE
-                cd $INSTALL_DIR
+            log "⚠️  检测到 Go proxy 重启次数过高 ($RESTART_COUNT)"
+            NEED_GO_REBUILD=true
+        fi
+    fi
+    
+    # 2. 检查二进制文件大小（新版本应该是8.1M，旧版本7.7M）
+    if [ -f "$INSTALL_DIR/utls-proxy/utls-proxy" ]; then
+        GO_SIZE_MB=$(du -m "$INSTALL_DIR/utls-proxy/utls-proxy" 2>/dev/null | awk '{print $1}')
+        if [ -n "$GO_SIZE_MB" ] && [ "$GO_SIZE_MB" -lt 8 ]; then
+            log "⚠️  检测到 Go proxy 文件过小 (${GO_SIZE_MB}MB)，可能是旧版本"
+            NEED_GO_REBUILD=true
+        fi
+    else
+        log "⚠️  Go proxy 二进制文件不存在"
+        NEED_GO_REBUILD=true
+    fi
+    
+    # 3. 重新编译（如果需要）
+    if [ "$NEED_GO_REBUILD" = true ]; then
+        if [ -f "$INSTALL_DIR/utls-proxy/build.sh" ]; then
+            log "重新编译 Go proxy..."
+            cd $INSTALL_DIR/utls-proxy
+            if bash build.sh 2>&1 | tee -a $LOG_FILE; then
+                log "✓ Go proxy 重新编译成功"
+            else
+                log "⚠️  Go proxy 重新编译失败"
             fi
-            
-            # 重置计数器
+            cd $INSTALL_DIR
+        fi
+        
+        # 重置计数器
+        if command -v pm2 >/dev/null 2>&1; then
             pm2 reset utls-proxy 2>&1 | tee -a $LOG_FILE || true
         fi
+    else
+        log "✓ Go proxy 二进制文件正常 (${GO_SIZE_MB}MB)"
     fi
     
     # 即使是最新版本，也重启PM2（因为可能代码已被外部更新或修复）
