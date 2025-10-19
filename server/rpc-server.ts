@@ -51,6 +51,7 @@ export class RpcServer extends EventEmitter {
   private maxLogs: number  // 保留最近N条（从配置读取）
   private maxErrorLogs = 50 // 错误日志最多保留50条
   private healthStatus: { status: number; message: string; lastCheck: number } = { status: 0, message: '未检测', lastCheck: 0 }
+  private utlsHealthStatus: { status: string; message: string; lastCheck: number } = { status: 'unknown', message: '未检测', lastCheck: 0 }
   private fetcherType: 'utls' = 'utls'  // 当前使用的 fetcher 类型（只支持 uTLS）
 
   constructor(
@@ -124,6 +125,7 @@ export class RpcServer extends EventEmitter {
 
     // 启动健康检查（从配置获取间隔）
     this.startHealthCheck()
+    this.startUTLSHealthCheck()
   }
 
   /**
@@ -353,7 +355,8 @@ export class RpcServer extends EventEmitter {
       fetcherStats: this.fetcher.getStats(),
       ipv6Stats: this.ipv6Pool.getDetailedStats(),
       system: systemStats,
-      health: this.healthStatus
+      health: this.healthStatus,
+      utlsHealth: this.utlsHealthStatus
     }
   }
 
@@ -515,10 +518,151 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
+   * 启动 uTLS 代理健康检查
+   */
+  private startUTLSHealthCheck(): void {
+    // 立即执行一次
+    this.checkUTLSHealth()
+
+    // 从配置获取健康检查间隔
+    const config = getConfig()
+    const interval = config.get<number>('performance.healthCheckInterval')
+    
+    // 定期检查（与 Google API 健康检查间隔相同）
+    setInterval(() => {
+      this.checkUTLSHealth()
+    }, interval)
+  }
+
+  /**
+   * 检查 uTLS 代理健康状态
+   */
+  private async checkUTLSHealth(): Promise<void> {
+    try {
+      const config = getConfig()
+      const proxyPort = config.get<number>('utls.proxyPort')
+      const healthUrl = `http://localhost:${proxyPort}/health`
+
+      // 请求 uTLS 代理的健康检查端点
+      const result = await this.httpGet(healthUrl, 5000)
+      
+      if (result.statusCode === 200) {
+        try {
+          const healthData = JSON.parse(result.body.toString())
+          
+          // 检查成功率
+          const successRate = parseFloat(healthData.successRate)
+          
+          if (healthData.status === 'ok') {
+            if (successRate >= 80) {
+              this.utlsHealthStatus = {
+                status: 'healthy',
+                message: `正常 (成功率: ${healthData.successRate}, 请求数: ${healthData.totalRequests})`,
+                lastCheck: Date.now()
+              }
+              logger.info('uTLS 代理健康检查: 正常', {
+                successRate: healthData.successRate,
+                totalRequests: healthData.totalRequests
+              })
+            } else {
+              this.utlsHealthStatus = {
+                status: 'degraded',
+                message: `性能下降 (成功率: ${healthData.successRate}, 请求数: ${healthData.totalRequests})`,
+                lastCheck: Date.now()
+              }
+              logger.warn('uTLS 代理健康检查: 性能下降', {
+                successRate: healthData.successRate,
+                totalRequests: healthData.totalRequests
+              })
+            }
+          } else {
+            this.utlsHealthStatus = {
+              status: 'unhealthy',
+              message: `异常状态: ${healthData.status}`,
+              lastCheck: Date.now()
+            }
+            logger.error('uTLS 代理健康检查: 异常', undefined, {
+              status: healthData.status
+            })
+          }
+        } catch (parseError) {
+          this.utlsHealthStatus = {
+            status: 'error',
+            message: '响应格式错误',
+            lastCheck: Date.now()
+          }
+          logger.error('uTLS 代理健康检查: 响应解析失败', parseError as Error)
+        }
+      } else {
+        this.utlsHealthStatus = {
+          status: 'error',
+          message: `HTTP ${result.statusCode}`,
+          lastCheck: Date.now()
+        }
+        logger.error('uTLS 代理健康检查: HTTP 错误', undefined, {
+          statusCode: result.statusCode
+        })
+      }
+    } catch (error) {
+      this.utlsHealthStatus = {
+        status: 'offline',
+        message: '无法连接到 uTLS 代理',
+        lastCheck: Date.now()
+      }
+      logger.error('uTLS 代理健康检查: 连接失败', error as Error)
+    }
+  }
+
+  /**
+   * HTTP GET 请求（用于健康检查）
+   */
+  private async httpGet(url: string, timeout: number): Promise<{ statusCode: number, body: Buffer }> {
+    return new Promise((resolve, reject) => {
+      const http = require('http')
+      const parsedUrl = new URL(url)
+
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'GET',
+        timeout
+      }
+
+      const req = http.request(options, (res: any) => {
+        const chunks: Buffer[] = []
+
+        res.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+        })
+
+        res.on('end', () => {
+          const body = Buffer.concat(chunks)
+          resolve({
+            statusCode: res.statusCode,
+            body
+          })
+        })
+      })
+
+      req.on('error', reject)
+      req.on('timeout', () => {
+        req.destroy()
+        reject(new Error('Request timeout'))
+      })
+
+      req.end()
+    })
+  }
+
+  /**
    * 获取健康状态
    */
   public getHealthStatus() {
-    return this.healthStatus
+    return {
+      google: this.healthStatus,
+      utls: this.utlsHealthStatus
+    }
   }
 }
 
