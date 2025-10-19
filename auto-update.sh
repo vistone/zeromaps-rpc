@@ -1,15 +1,10 @@
 #!/bin/bash
 # ZeroMaps RPC 自动更新脚本
-# 由 GitHub Webhook 或定时任务触发
+# 采用"停止-同步-重新安装-启动"模式，简单可靠
 
 INSTALL_DIR="/opt/zeromaps-rpc"
 LOG_FILE="/var/log/zeromaps-auto-update.log"
-BACKUP_DIR="/opt/zeromaps-rpc-backup"
-
-# 环境变量：标记是否已经重新执行过（防止无限循环）
-if [ -z "$AUTO_UPDATE_REEXEC" ]; then
-    export AUTO_UPDATE_REEXEC="0"
-fi
+REQUIRED_GO_VERSION="1.24.9"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
@@ -17,110 +12,158 @@ log() {
 
 error() {
     log "❌ 错误: $1"
-    exit 1
-}
-
-# 回滚函数
-rollback() {
-    log "🔄 执行回滚..."
-    if [ -d "$BACKUP_DIR" ]; then
-        cd $INSTALL_DIR
-        git reset --hard $CURRENT_COMMIT 2>&1 | tee -a $LOG_FILE
-        
-        # 恢复node_modules和dist
-        if [ -d "$BACKUP_DIR/node_modules" ]; then
-            rm -rf node_modules
-            cp -r $BACKUP_DIR/node_modules .
-        fi
-        if [ -d "$BACKUP_DIR/dist" ]; then
-            rm -rf dist
-            cp -r $BACKUP_DIR/dist .
-        fi
-        
-        # 重启服务
-        if pm2 list | grep -q "zeromaps-rpc"; then
-            pm2 restart zeromaps-rpc 2>&1 | tee -a $LOG_FILE
-        fi
-        
-        log "✅ 回滚完成"
-    else
-        log "⚠️  备份不存在，无法回滚"
-    fi
+    log "尝试重启服务..."
+    pm2 restart all 2>&1 | tee -a $LOG_FILE || true
     exit 1
 }
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
-# 🔧 第一步：总是先同步最新代码（如果还没重新执行过）
-if [ "$AUTO_UPDATE_REEXEC" = "0" ]; then
-    log "🔧 启动前检查：同步最新代码和脚本..."
-    
-    # 记录当前版本
-    BEFORE_SYNC=$(git rev-parse HEAD 2>/dev/null)
-    
-    # 静默获取最新代码
-    git fetch origin master --tags >/dev/null 2>&1
-    REMOTE_VERSION=$(git rev-parse origin/master 2>/dev/null)
-    
-    # 如果远程有更新，或者有本地修改，强制同步并重新执行
-    if [ "$BEFORE_SYNC" != "$REMOTE_VERSION" ] || git status --porcelain | grep -q .; then
-        log "发现更新或本地修改，强制同步并重新执行..."
-        git reset --hard origin/master >/dev/null 2>&1
-        
-        log "🔄 使用最新脚本重新执行..."
-        export AUTO_UPDATE_REEXEC="1"
-        exec "$0" "$@"
-    else
-        log "✓ 代码已是最新，脚本无需重新执行"
-    fi
-fi
+log "======================================"
+log "🚀 开始自动更新（卸载-安装模式）"
+log "======================================"
 
-# 🔧 自动修复模式：检测本地修改（二次检查）
-log "🔧 自动修复模式：检测本地修改..."
-if git status --porcelain | grep -q .; then
-    log "⚠️  检测到本地修改，执行强制同步..."
-    log "本地修改文件："
-    git status --porcelain | tee -a $LOG_FILE
-    
-    # 保存当前版本以便判断是否需要重新执行
-    BEFORE_SYNC=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-    
-    # 强制同步（包括 tags）
-    git fetch origin master --tags 2>&1 | tee -a $LOG_FILE || error "git fetch 失败"
-    git reset --hard origin/master 2>&1 | tee -a $LOG_FILE || error "git reset 失败"
-    
-    AFTER_SYNC=$(git rev-parse HEAD)
-    log "✅ 强制同步完成: ${BEFORE_SYNC:0:8} -> ${AFTER_SYNC:0:8}"
-    
-    # 强制同步后总是重新执行（确保使用最新脚本）
-    # 因为 shell 脚本在执行时已加载到内存，git reset 不会影响当前执行
-    log "🔄 重新执行脚本（使用磁盘上的最新版本）..."
-    exec "$0" "$@"
+# 第一步：停止所有服务
+log "[1/6] 停止所有服务..."
+if command -v pm2 >/dev/null 2>&1; then
+    pm2 delete all 2>&1 | tee -a $LOG_FILE || true
+    log "✓ 所有服务已停止并删除"
 else
-    log "✓ 无本地修改，继续正常流程"
+    log "⚠️  PM2 未安装，跳过"
 fi
 
-log "======================================"
-log "🔍 检查更新"
-log "======================================"
+# 第二步：强制同步最新代码
+log "[2/6] 强制同步最新代码..."
+git fetch origin master --tags 2>&1 | tee -a $LOG_FILE || error "git fetch 失败"
+git reset --hard origin/master 2>&1 | tee -a $LOG_FILE || error "git reset 失败"
+CURRENT_VERSION=$(cat package.json | grep '"version"' | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+log "✓ 代码已同步到版本: $CURRENT_VERSION"
 
-# 记录当前版本
-CURRENT_COMMIT=$(git rev-parse HEAD)
-CURRENT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "无tag")
-log "当前: ${CURRENT_COMMIT:0:8} ($CURRENT_TAG)"
-
-# 获取远程更新（包括 tags）
-log "获取远程更新..."
-if ! git fetch origin master --tags 2>&1 | tee -a $LOG_FILE; then
-    error "git fetch 失败"
+# 第三步：检查并升级 Go 版本
+log "[3/6] 检查 Go 版本..."
+CURRENT_GO_VERSION=""
+if [ -f "/usr/local/go/bin/go" ]; then
+    CURRENT_GO_VERSION=$(/usr/local/go/bin/go version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 fi
 
-REMOTE_COMMIT=$(git rev-parse origin/master)
-REMOTE_TAG=$(git describe --tags --exact-match origin/master 2>/dev/null || echo "无tag")
-log "远程: ${REMOTE_COMMIT:0:8} ($REMOTE_TAG)"
+if [ -z "$CURRENT_GO_VERSION" ] || [ "$CURRENT_GO_VERSION" != "$REQUIRED_GO_VERSION" ]; then
+    log "⚠️  Go 版本不符合（当前: ${CURRENT_GO_VERSION:-未安装}，需要: $REQUIRED_GO_VERSION）"
+    log "下载并安装 Go $REQUIRED_GO_VERSION..."
+    
+    cd /tmp
+    if wget -q --show-progress "https://go.dev/dl/go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz" 2>&1 | tee -a $LOG_FILE; then
+        log "✓ Go 下载完成"
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf "go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz" 2>&1 | tee -a $LOG_FILE
+        
+        if /usr/local/go/bin/go version 2>&1 | grep -q "$REQUIRED_GO_VERSION"; then
+            log "✅ Go $REQUIRED_GO_VERSION 安装成功"
+            rm -f "go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz"
+        else
+            error "Go 安装失败"
+        fi
+    else
+        error "Go 下载失败"
+    fi
+    cd $INSTALL_DIR
+else
+    log "✓ Go 版本正确: $CURRENT_GO_VERSION"
+fi
 
-# 比较
-if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
+# 第四步：安装 Node.js 依赖
+log "[4/6] 安装依赖..."
+unset NODE_ENV
+npm install 2>&1 | tee -a $LOG_FILE || error "npm install 失败"
+log "✓ 依赖安装完成"
+
+# 安装 Git hooks
+if [ -d "$INSTALL_DIR/hooks" ]; then
+    cp -f $INSTALL_DIR/hooks/* $INSTALL_DIR/.git/hooks/ 2>/dev/null
+    chmod +x $INSTALL_DIR/.git/hooks/* 2>/dev/null
+    log "✓ Git hooks 已安装"
+fi
+
+# 第五步：编译所有代码
+log "[5/6] 编译代码..."
+
+# 5.1 编译 TypeScript
+if npm run build 2>&1 | tee -a $LOG_FILE; then
+    if [ -f "$INSTALL_DIR/dist/server/index.js" ]; then
+        log "✓ TypeScript 编译成功"
+    else
+        error "TypeScript 编译失败：未生成产物"
+    fi
+else
+    error "TypeScript 编译失败"
+fi
+
+# 5.2 编译 Go proxy
+if [ -f "$INSTALL_DIR/utls-proxy/build.sh" ]; then
+    cd $INSTALL_DIR/utls-proxy
+    
+    if bash build.sh 2>&1 | tee -a $LOG_FILE; then
+        if [ -f "utls-proxy" ]; then
+            GO_SIZE=$(du -h utls-proxy | cut -f1)
+            log "✓ Go proxy 编译成功（$GO_SIZE）"
+        else
+            error "Go proxy 编译失败：未生成二进制"
+        fi
+    else
+        error "Go proxy 编译失败"
+    fi
+    cd $INSTALL_DIR
+else
+    log "⚠️  未找到 Go proxy 构建脚本"
+fi
+
+# 第六步：启动所有服务
+log "[6/6] 启动所有服务..."
+
+if [ -f "ecosystem.config.cjs" ]; then
+    if pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE; then
+        pm2 save 2>&1 | tee -a $LOG_FILE
+        sleep 2
+        pm2 list | tee -a $LOG_FILE
+        log "✓ 所有服务已启动"
+    else
+        error "PM2 启动失败"
+    fi
+else
+    error "未找到 ecosystem.config.cjs"
+fi
+
+# 验证服务状态
+sleep 3
+if pm2 list | grep -q "online"; then
+    log "✓ 服务运行正常"
+    
+    # 验证端口
+    if ss -tlnp 2>/dev/null | grep -q 8765; then
+        log "✓ Go proxy 端口 8765 已监听"
+    fi
+    
+    if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+        GO_VERSION=$(curl -s http://127.0.0.1:8765/health 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+        log "✓ Go proxy 版本: $GO_VERSION"
+    fi
+else
+    log "⚠️  服务启动异常，请检查日志"
+fi
+
+log ""
+log "======================================"
+log "✅ 更新完成"
+log "======================================"
+log "版本: $CURRENT_VERSION"
+
+exit 0
+
+# ============ 以下是旧的复杂逻辑（已废弃）============
+exit 0
+
+# 比较（旧逻辑）
+OLD_LOGIC_START="true"
+if [ "$OLD_LOGIC_START" = "false" ]; then
     log "✅ 已是最新版本，但仍然重启服务以确保代码生效"
     
     # 即使是最新版本，也执行环境检查和修复
