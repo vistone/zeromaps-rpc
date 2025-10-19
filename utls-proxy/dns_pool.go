@@ -292,15 +292,24 @@ func (p *DNSIPPool) InitializeOnStartup(filePath string) error {
 }
 
 // DNS 解析
-// 检测系统是否支持 IPv6
+// 检测系统是否支持 IPv6（轻量级检测，不连接外网）
 func hasIPv6Support() bool {
-	// 尝试连接到 Google Public DNS 的 IPv6 地址（不真正发送数据）
-	conn, err := net.DialTimeout("tcp6", "[2001:4860:4860::8888]:80", 2*time.Second)
-	if err != nil {
-		return false
+	// 方法1: 检查本地是否有 IPv6 地址（排除 loopback）
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, addr := range addrs {
+			if ipnet, ok := addr.(*net.IPNet); ok {
+				if ipnet.IP.To4() == nil && !ipnet.IP.IsLoopback() {
+					// 找到非loopback的IPv6地址
+					return true
+				}
+			}
+		}
 	}
-	conn.Close()
-	return true
+	
+	// 方法2: 检查是否能解析 IPv6（不连接）
+	_, err = net.ResolveIPAddr("ip6", "localhost")
+	return err == nil
 }
 
 func (p *DNSIPPool) resolveDNS() ([]string, []string, error) {
