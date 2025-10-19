@@ -65,10 +65,10 @@ export class UTLSFetcher extends EventEmitter {
   public async fetch(options: FetchOptions): Promise<FetchResult> {
     const requestId = ++this.requestCount
     const queuedAt = Date.now()
-    
+
     // 修复：明确检查 undefined，空字符串 '' 表示不使用 IPv6
-    const ipv6 = options.ipv6 !== undefined 
-      ? options.ipv6 
+    const ipv6 = options.ipv6 !== undefined
+      ? options.ipv6
       : (this.ipv6Pool ? this.ipv6Pool.getHealthyNext() : null)
 
     logger.debug('接收请求', {
@@ -128,14 +128,14 @@ export class UTLSFetcher extends EventEmitter {
       // 从响应头获取状态码
       const statusCode = parseInt(result.headers['x-status-code'] || '200')
       const actualBodySize = result.body.length
-      
+
       // 调试：检查响应体实际内容并验证数据有效性
       let isValidData = true
       let dataWarning = ''
-      
+
       if (actualBodySize < 100) {
         const preview = result.body.toString('utf-8').substring(0, 50)
-        
+
         // 检测是否是 HTML/JSON 错误页面
         if (preview.includes('<html') || preview.includes('<!DOCTYPE')) {
           isValidData = false
@@ -147,7 +147,7 @@ export class UTLSFetcher extends EventEmitter {
           isValidData = false
           dataWarning = '数据过小，可能无效'
         }
-        
+
         logger.warn('uTLS 代理响应（小文件，需检查）', {
           requestId,
           requestTime,
@@ -165,7 +165,7 @@ export class UTLSFetcher extends EventEmitter {
           size: actualBodySize
         })
       }
-      
+
       // 如果数据无效，触发紧急检查
       if (!isValidData && statusCode === 200) {
         logger.error('🚨 数据验证失败：状态码 200 但返回无效数据，触发紧急检查', undefined, {
@@ -174,7 +174,7 @@ export class UTLSFetcher extends EventEmitter {
           warning: dataWarning,
           url: options.url.substring(0, 80)
         })
-        
+
         // 触发紧急健康检查事件
         this.emit('invalidData', {
           requestId,

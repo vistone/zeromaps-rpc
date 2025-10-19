@@ -147,15 +147,15 @@ export class RpcServer extends EventEmitter {
    */
   public async performStartupHealthCheck(): Promise<{ google: any, utls: any }> {
     logger.info('开始启动前健康检查...')
-    
+
     // 检查 Google API
     await this.checkHealth()
-    
+
     // 检查 uTLS 代理（等待 2 秒让 uTLS 先启动）
     logger.info('等待 uTLS 代理启动...')
     await new Promise(resolve => setTimeout(resolve, 2000))
     await this.checkUTLSHealth()
-    
+
     return {
       google: this.healthStatus,
       utls: this.utlsHealthStatus
@@ -311,37 +311,37 @@ export class RpcServer extends EventEmitter {
    */
   private async emergencyHealthCheck(): Promise<void> {
     logger.error('🚨 紧急健康检查开始（检测到可疑的 200 响应）')
-    
+
     try {
       // 使用原始 https 请求检查真实状态
       const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
       const result = await this.rawHttpsRequest(testUrl, 5000)
-      
+
       logger.info('紧急健康检查结果', {
         statusCode: result.statusCode,
         bodySize: result.body.length
       })
-      
+
       if (result.statusCode === 403) {
         // 确认节点被拉黑，进入紧急停止模式
         this.emergencyStop = true
         this.emergencyStopReason = '节点被 Google 拉黑（403）'
-        
+
         logger.error('🚨🚨🚨 紧急停止：节点已被拉黑！', undefined, {
           statusCode: 403,
           bodySize: result.body.length
         })
-        
+
         // 更新健康状态
         this.healthStatus = {
           status: 403,
           message: '节点被拉黑（紧急检测）',
           lastCheck: Date.now()
         }
-        
+
         // 通知所有已连接的客户端
         this.notifyAllClients403()
-        
+
       } else if (result.statusCode === 200) {
         logger.warn('紧急健康检查通过，可能是临时问题', {
           statusCode: 200,
@@ -372,7 +372,7 @@ export class RpcServer extends EventEmitter {
   private async handleDataRequest(socket: net.Socket, payload: Buffer): Promise<void> {
     try {
       const request = DataRequest.decode(payload)
-      
+
       // 🚨 紧急停止检查
       if (this.emergencyStop) {
         logger.warn('紧急停止模式：拒绝请求', {
@@ -380,14 +380,14 @@ export class RpcServer extends EventEmitter {
           clientID: request.clientID,
           uri: request.uri.substring(0, 50)
         })
-        
+
         const errorResponse = DataResponse.encode({
           clientID: request.clientID,
           uri: request.uri,
           statusCode: 403,
           data: Buffer.from(`服务已停止：${this.emergencyStopReason}`)
         }).finish()
-        
+
         this.sendFrame(socket, FrameType.DATA_RESPONSE, Buffer.from(errorResponse))
         return
       }
