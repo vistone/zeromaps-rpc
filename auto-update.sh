@@ -526,6 +526,9 @@ log ""
 log "======================================"
 log "✅ 更新完成"
 log "======================================"
-log "版本: ${CURRENT_COMMIT:0:8} -> ${REMOTE_COMMIT:0:8}"
+# 显示最终版本和 tag
+FINAL_COMMIT=$(git rev-parse HEAD)
+FINAL_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "无tag")
+log "版本: ${CURRENT_COMMIT:0:8} ($CURRENT_TAG) -> ${FINAL_COMMIT:0:8} ($FINAL_TAG)"
 
 exit 0
