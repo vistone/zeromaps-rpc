@@ -35,7 +35,7 @@ type DNSIPPool struct {
 	health map[string]*IPHealth
 
 	// 请求计数器（用于混合策略）
-	requestCounter atomic.Int64
+	requestCounter  atomic.Int64
 	ipPoolUsageRate float64 // 默认 0.95（95% 用 IP 池）
 
 	// 配置
@@ -43,6 +43,7 @@ type DNSIPPool struct {
 	probeInterval  time.Duration
 	minPoolSize    int
 	blacklistTime  time.Duration
+	hasIPv6Support bool // 系统是否支持 IPv6
 
 	lastProbe time.Time
 	mu        sync.RWMutex
@@ -54,7 +55,7 @@ type IPHealth struct {
 	totalRequests    int64
 	successCount     int64
 	failureCount     int64
-	consecutiveFails int       // 连续失败次数
+	consecutiveFails int // 连续失败次数
 	lastSuccess      time.Time
 	lastFailure      time.Time
 	lastUsed         time.Time
@@ -65,6 +66,9 @@ type IPHealth struct {
 
 // 创建新的 DNS IP 池
 func NewDNSIPPool(domain string, preferIPv6 bool) *DNSIPPool {
+	// 检测系统 IPv6 支持
+	supportsIPv6 := hasIPv6Support()
+
 	pool := &DNSIPPool{
 		domain:          domain,
 		activeIPv4:      make([]string, 0),
@@ -74,13 +78,18 @@ func NewDNSIPPool(domain string, preferIPv6 bool) *DNSIPPool {
 		blacklist:       make(map[string]time.Time),
 		health:          make(map[string]*IPHealth),
 		ipPoolUsageRate: 0.95, // 95% 用 IP 池
-		preferIPv6:      preferIPv6,
+		preferIPv6:      preferIPv6 && supportsIPv6,
 		probeInterval:   5 * time.Minute,
 		minPoolSize:     2,
 		blacklistTime:   10 * time.Minute,
+		hasIPv6Support:  supportsIPv6,
 	}
 
-	log.Printf("📦 [DNS-Pool] 创建 %s 的 IP 池", domain)
+	if supportsIPv6 {
+		log.Printf("📦 [DNS-Pool] 创建 %s 的 IP 池（支持 IPv6）", domain)
+	} else {
+		log.Printf("📦 [DNS-Pool] 创建 %s 的 IP 池（仅 IPv4，禁用 IP 池功能）", domain)
+	}
 
 	return pool
 }
@@ -118,7 +127,7 @@ func (p *DNSIPPool) LoadFromFile(filePath string) error {
 	for _, ip := range domainData.IPv4 {
 		p.health[ip] = &IPHealth{ip: ip, source: "file"}
 	}
-	
+
 	// 仅在支持 IPv6 时加载 IPv6 地址
 	ipv6LoadCount := 0
 	if supportsIPv6 {
@@ -306,7 +315,7 @@ func hasIPv6Support() bool {
 			}
 		}
 	}
-	
+
 	// 方法2: 检查是否能解析 IPv6（不连接）
 	_, err = net.ResolveIPAddr("ip6", "localhost")
 	return err == nil
@@ -424,6 +433,11 @@ func (p *DNSIPPool) testIPConnectivity(ip string, isIPv6 bool) bool {
 
 // 应该使用 IP 池还是域名？（混合策略）
 func (p *DNSIPPool) ShouldUseIPPool() bool {
+	// 如果系统不支持 IPv6，完全禁用 IP 池（避免 IPv4 IP 轮询错误率高）
+	if !p.hasIPv6Support {
+		return false
+	}
+
 	count := p.requestCounter.Add(1)
 
 	// 每 20 个请求中，1 个用域名（5%）
@@ -870,4 +884,3 @@ func mergeUnique(list1, list2 []string) []string {
 
 	return result
 }
-
