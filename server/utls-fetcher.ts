@@ -44,7 +44,7 @@ export class UTLSFetcher extends EventEmitter {
 
   constructor(
     ipv6Pool?: IPv6Pool,
-    concurrency: number = 10,
+    concurrency: number = 100,
     proxyPort: number = 8765
   ) {
     super()

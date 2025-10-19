@@ -401,7 +401,7 @@
         }
 
         const stats = node.stats;
-        
+
         // 检查健康状态，判断是否被 Google 封禁
         const health = stats.health || {};
         const healthStatus = health.status || 0;
@@ -442,7 +442,7 @@
 
         // 获取版本号
         const version = stats.version || '-';
-        
+
         // 健康状态显示
         let healthBanner = '';
         if (isBlocked) {
@@ -454,7 +454,7 @@
             '✅ 节点正常' +
             '</div>';
         }
-        
+
         return '<div class="node-card ' + cardClass + '">' +
           '<div class="node-header">' +
           '<div class="node-name">' + node.name + '</div>' +
