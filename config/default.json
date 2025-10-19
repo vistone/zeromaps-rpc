@@ -41,5 +41,55 @@
     "performance": {
         "maxRequestLogs": 100,
         "healthCheckInterval": 300000
+    },
+    "dns": {
+        "enabled": true,
+        "domains": {
+            "kh.google.com": {
+                "preferIPv6": true,
+                "ipPoolUsageRate": 0.95,
+                "probeInterval": 300000,
+                "defaultIPv4": [
+                    "142.250.105.93",
+                    "142.250.105.190",
+                    "142.250.105.136",
+                    "142.250.105.91"
+                ],
+                "defaultIPv6": [
+                    "2607:f8b0:4002:c1b::be",
+                    "2607:f8b0:4002:c1b::5b",
+                    "2607:f8b0:4002:c1b::88",
+                    "2607:f8b0:4002:c1b::5d"
+                ]
+            },
+            "earth.google.com": {
+                "preferIPv6": false,
+                "ipPoolUsageRate": 0.90,
+                "probeInterval": 600000,
+                "defaultIPv4": [],
+                "defaultIPv6": []
+            }
+        },
+        "health": {
+            "consecutiveFailsThreshold": 3,
+            "successRateThreshold": 0.5,
+            "blacklistDuration": 600000,
+            "minPoolSize": 2
+        }
+    },
+    "p2p": {
+        "enabled": false,
+        "nodes": [
+            "tile0.zeromaps.cn:9528",
+            "tile3.zeromaps.cn:9528",
+            "tile4.zeromaps.cn:9528",
+            "tile5.zeromaps.cn:9528",
+            "tile6.zeromaps.cn:9528",
+            "tile12.zeromaps.cn:9528",
+            "www.zeromaps.com.cn:9528"
+        ],
+        "syncInterval": 60000,
+        "healthReportInterval": 60000,
+        "reconnectDelay": 5000
     }
 }

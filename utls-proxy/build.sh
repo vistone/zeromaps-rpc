@@ -39,7 +39,7 @@ $GO_BIN mod download
 
 # 编译
 echo "🔧 编译中..."
-$GO_BIN build -ldflags="-s -w" -o utls-proxy main.go
+$GO_BIN build -ldflags="-s -w" -o utls-proxy .
 
 # 检查编译结果
 if [ -f "utls-proxy" ]; then

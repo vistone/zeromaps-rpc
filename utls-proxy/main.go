@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -84,6 +85,11 @@ var (
 	activeRequests              atomic.Int64  // 当前正在处理的请求数
 	shutdownFlag                atomic.Bool   // 关闭标志
 	logFileHandle               *os.File      // 日志文件句柄（用于日志轮转）
+	
+	// DNS IP 池（新增）
+	dnsIPPools = make(map[string]*DNSIPPool) // domain → DNS IP 池
+	p2pSync    *P2PSync                       // P2P 同步管理器
+	
 	allowedDomains              = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
@@ -1222,18 +1228,61 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 🎯 混合请求策略：95% 用 IP 池，5% 用域名刺探
+	var finalURL string
+	var usedIP string
+	var useIPPool bool
+	
+	// 检查是否有该域名的 IP 池
+	pool := dnsIPPools[parsedURL.Host]
+	
+	if pool != nil && pool.ShouldUseIPPool() {
+		// 95% 情况：使用 IP 池（快速，无 DNS）
+		ip := pool.GetRandomIP(pool.preferIPv6)
+		if ip != "" {
+			useIPPool = true
+			usedIP = ip
+			
+			// 构建直接 IP 请求
+			if strings.Contains(ip, ":") {
+				// IPv6
+				finalURL = fmt.Sprintf("https://[%s]:443%s?%s", ip, parsedURL.Path, parsedURL.RawQuery)
+			} else {
+				// IPv4
+				finalURL = fmt.Sprintf("https://%s:443%s?%s", ip, parsedURL.Path, parsedURL.RawQuery)
+			}
+			
+			log.Printf("🎯 [DNS-Pool] 使用 IP 池: %s", ip)
+		} else {
+			// IP 池空了，降级到域名
+			finalURL = targetURL
+			useIPPool = false
+			log.Printf("⚠️  [DNS-Pool] IP 池为空，降级到域名")
+		}
+	} else {
+		// 5% 情况或无 IP 池：使用域名（刺探新 IP）
+		finalURL = targetURL
+		useIPPool = false
+		if pool != nil {
+			log.Printf("🔍 [DNS-Pool] 刺探模式：使用域名请求")
+		}
+	}
+
 	// 创建请求（使用配置的超时，并留出重试时间）
 	requestContextTimeout := config.requestTimeout + time.Duration(config.maxRetries)*config.baseRetryDelay*8
 	ctx, cancel := context.WithTimeout(context.Background(), requestContextTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", finalURL, nil)
 	if err != nil {
 		log.Printf("❌ 创建请求失败: %v", err)
 		http.Error(w, "Request creation failed", http.StatusInternalServerError)
 		stats.failedRequests.Add(1)
 		return
 	}
+	
+	// 关键：保持原域名作为 Host 头（即使使用了 IP）
+	req.Host = parsedURL.Host
 
 	// 使用随机浏览器指纹设置 Headers
 	setHeaders(req, profile, false)
@@ -1495,15 +1544,32 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// 记录成功结果到熔断器
 	recordRequestResult(ipv6, true)
 
+	// 🎯 记录 IP 池请求结果
+	if useIPPool && usedIP != "" && pool != nil {
+		pool.RecordResult(usedIP, resp.StatusCode, duration)
+	}
+	
+	// 🔍 域名请求：提取实际连接的 IP（新发现的 IP）
+	if !useIPPool && pool != nil && resp != nil {
+		// TODO: 从连接信息中提取实际 IP（Go 标准库不容易获取）
+		// 可以通过 resp.Request.RemoteAddr 或其他方式
+	}
+
 	ipv6Display := safeSubstring(ipv6, 20)
 	if ipv6Display == "" {
 		ipv6Display = "default"
 	}
 	urlDisplay := safeSubstring(targetURL, 60)
 
-	log.Printf("✅ [%s] [%s] %d - %s (%dms, %d bytes)",
-		ipv6Display, profile.Name, resp.StatusCode, urlDisplay,
-		duration.Milliseconds(), len(body))
+	if useIPPool {
+		log.Printf("✅ [%s] [%s] [IP池:%s] %d - %s (%dms, %d bytes)",
+			ipv6Display, profile.Name, usedIP, resp.StatusCode, urlDisplay,
+			duration.Milliseconds(), len(body))
+	} else {
+		log.Printf("✅ [%s] [%s] %d - %s (%dms, %d bytes)",
+			ipv6Display, profile.Name, resp.StatusCode, urlDisplay,
+			duration.Milliseconds(), len(body))
+	}
 
 	// 返回响应
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -1519,6 +1585,72 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(body)
+}
+
+// 健康检查处理器
+// 初始化 DNS IP 池
+func initializeDNSIPPools() {
+	log.Printf("🔍 [DNS-Pool] 初始化 DNS IP 池...")
+
+	// kh.google.com IP 池
+	khPool := NewDNSIPPool(
+		"kh.google.com",
+		[]string{
+			"142.250.105.93",
+			"142.250.105.190",
+			"142.250.105.136",
+			"142.250.105.91",
+		},
+		[]string{
+			"2607:f8b0:4002:c1b::be",
+			"2607:f8b0:4002:c1b::5b",
+			"2607:f8b0:4002:c1b::88",
+			"2607:f8b0:4002:c1b::5d",
+		},
+		true, // 优先 IPv6
+	)
+
+	// earth.google.com IP 池
+	earthPool := NewDNSIPPool(
+		"earth.google.com",
+		[]string{}, // 启动时通过 DNS 解析
+		[]string{},
+		false, // 优先 IPv4
+	)
+
+	dnsIPPools["kh.google.com"] = khPool
+	dnsIPPools["earth.google.com"] = earthPool
+
+	// 并发初始化所有池子（刺探 IP）
+	var wg sync.WaitGroup
+	for domain, pool := range dnsIPPools {
+		wg.Add(1)
+		go func(d string, p *DNSIPPool) {
+			defer wg.Done()
+			if err := p.InitializeOnStartup(); err != nil {
+				log.Printf("⚠️  [DNS-Pool] %s 初始化失败: %v", d, err)
+			}
+			// 启动后台任务
+			p.StartBackgroundTasks()
+		}(domain, pool)
+	}
+
+	wg.Wait()
+	log.Printf("✅ [DNS-Pool] DNS IP 池初始化完成")
+}
+
+// IP 池状态端点
+func ipPoolHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	poolsData := make(map[string]interface{})
+	for domain, pool := range dnsIPPools {
+		poolsData[domain] = pool.GetStats()
+	}
+
+	data, _ := json.Marshal(poolsData)
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
 }
 
 // 健康检查处理器
@@ -1682,6 +1814,7 @@ func main() {
 
 	http.HandleFunc("/proxy", proxyHandler)
 	http.HandleFunc("/health", healthHandler)
+	http.HandleFunc("/ip-pool", ipPoolHandler)
 
 	server := &http.Server{
 		Addr:         ":" + port,
@@ -1693,6 +1826,9 @@ func main() {
 	// 启动信号监听（优雅关闭）
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// 初始化 DNS IP 池
+	initializeDNSIPPools()
 
 	// 启动定期资源清理任务
 	go startResourceCleanup()
@@ -1710,6 +1846,7 @@ func main() {
 		log.Printf("🎭 浏览器指纹库: %d 种官方支持的配置", len(browserProfiles))
 		log.Printf("🌐 代理端点: http://localhost:%s/proxy?url=<URL>&ipv6=<IPv6>", port)
 		log.Printf("💚 健康检查: http://localhost:%s/health", port)
+		log.Printf("📡 IP 池状态: http://localhost:%s/ip-pool", port)
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("❌ Server failed: %v", err)
