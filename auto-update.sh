@@ -6,6 +6,9 @@ INSTALL_DIR="/opt/zeromaps-rpc"
 LOG_FILE="/var/log/zeromaps-auto-update.log"
 REQUIRED_GO_VERSION="1.24.9"
 
+# 确保必要的环境变量
+export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/go/bin:$PATH"
+
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a $LOG_FILE; }
 error() { log "❌ 错误: $*"; exit 1; }
 
@@ -18,7 +21,8 @@ if [ "${AUTO_UPDATE_SYNCED}" != "1" ]; then
     git reset --hard origin/master >/dev/null 2>&1
     log "✅ 代码已同步，重新执行最新脚本..."
     export AUTO_UPDATE_SYNCED="1"
-    exec bash "$0" "$@"
+    # 使用绝对路径重新执行脚本
+    exec bash "$INSTALL_DIR/auto-update.sh" "$@"
 fi
 
 log "======================================"

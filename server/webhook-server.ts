@@ -331,19 +331,19 @@ export class WebhookServer {
       try {
         // 获取最新代码和 tags
         execSync('cd /opt/zeromaps-rpc && git fetch origin master --tags', { encoding: 'utf-8' })
-        
+
         // 记录同步前版本
         const beforeSync = execSync('cd /opt/zeromaps-rpc && git rev-parse HEAD', { encoding: 'utf-8' }).trim()
-        
+
         // 总是强制同步（确保脚本是最新版本）
         execSync('cd /opt/zeromaps-rpc && git reset --hard origin/master', { encoding: 'utf-8' })
-        
+
         const afterSync = execSync('cd /opt/zeromaps-rpc && git rev-parse HEAD', { encoding: 'utf-8' }).trim()
-        
+
         if (beforeSync !== afterSync) {
-          logger.info('✅ 代码已更新', { 
-            before: beforeSync.substring(0, 8), 
-            after: afterSync.substring(0, 8) 
+          logger.info('✅ 代码已更新', {
+            before: beforeSync.substring(0, 8),
+            after: afterSync.substring(0, 8)
           })
         } else {
           logger.info('✓ 代码已是最新')
