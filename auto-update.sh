@@ -25,22 +25,38 @@ log "======================================"
 log "🚀 开始自动更新（卸载-安装模式）"
 log "======================================"
 
-# 第一步：停止所有服务
-log "[1/6] 停止所有服务..."
+# 第一步：彻底清理所有进程
+log "[1/7] 彻底清理所有进程..."
+
+# 1.1 停止 PM2 管理的进程
 if command -v pm2 >/dev/null 2>&1; then
     pm2 delete all 2>&1 | tee -a $LOG_FILE || true
-    log "✓ 所有服务已停止并删除"
-else
-    log "⚠️  PM2 未安装，跳过"
+    log "✓ PM2 进程已清理"
 fi
 
+# 1.2 杀死所有可能残留的进程
+pkill -f "node.*zeromaps-rpc" 2>/dev/null || true
+pkill -f "utls-proxy" 2>/dev/null || true
+sleep 1
+log "✓ 残留进程已清理"
+
+# 1.3 确认端口释放
+for port in 9527 9528 9530 8765; do
+    if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+        log "⚠️  端口 $port 仍被占用，强制释放..."
+        fuser -k ${port}/tcp 2>/dev/null || true
+        sleep 1
+    fi
+done
+log "✓ 所有端口已释放"
+
 # 第二步：确认代码版本
-log "[2/6] 确认代码版本..."
+log "[2/7] 确认代码版本..."
 CURRENT_VERSION=$(cat package.json | grep '"version"' | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
 log "✓ 当前版本: $CURRENT_VERSION"
 
 # 第三步：检查并升级 Go 版本
-log "[3/6] 检查 Go 版本..."
+log "[3/7] 检查 Go 版本..."
 CURRENT_GO_VERSION=""
 if [ -f "/usr/local/go/bin/go" ]; then
     CURRENT_GO_VERSION=$(/usr/local/go/bin/go version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
@@ -69,7 +85,7 @@ else
 fi
 
 # 第四步：安装 Node.js 依赖
-log "[4/6] 安装依赖..."
+log "[4/7] 安装依赖..."
 unset NODE_ENV
 npm install 2>&1 | tee -a $LOG_FILE || error "npm install 失败"
 log "✓ 依赖安装完成"
@@ -82,7 +98,7 @@ if [ -d "$INSTALL_DIR/hooks" ]; then
 fi
 
 # 第五步：编译所有代码
-log "[5/6] 编译代码..."
+log "[5/7] 编译代码..."
 
 # 5.1 编译 TypeScript
 if npm run build 2>&1 | tee -a $LOG_FILE; then
@@ -113,72 +129,106 @@ else
     log "⚠️  未找到 Go proxy 构建脚本"
 fi
 
-# 第六步：启动所有服务
-log "[6/6] 启动所有服务..."
-if [ -f "ecosystem.config.cjs" ]; then
-    pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE
-    sleep 3
-    
-    # 检查是否启动了两个进程，并补充缺失的进程
-    PROCESS_COUNT=$(pm2 list | grep -c "online" || echo "0")
-    if [ "$PROCESS_COUNT" -lt 2 ]; then
-        log "⚠️  进程数不足（只有 $PROCESS_COUNT 个），检查并补充启动..."
-        
-        if ! pm2 list | grep -q "utls-proxy"; then
-            log "utls-proxy 未启动，手动启动..."
-            pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
-                --name utls-proxy \
-                --cwd $INSTALL_DIR \
-                --error $INSTALL_DIR/logs/utls-error.log \
-                --output $INSTALL_DIR/logs/utls-out.log \
-                --log-date-format 'YYYY-MM-DD HH:mm:ss' 2>&1 | tee -a $LOG_FILE
-            sleep 2
-        fi
-        
-        if ! pm2 list | grep -q "zeromaps-rpc"; then
-            log "zeromaps-rpc 未启动，手动启动..."
-            pm2 start $INSTALL_DIR/dist/server/index.js \
-                --name zeromaps-rpc \
-                --cwd $INSTALL_DIR \
-                --error $INSTALL_DIR/logs/zeromaps-error.log \
-                --output $INSTALL_DIR/logs/zeromaps-out.log \
-                --log-date-format 'YYYY-MM-DD HH:mm:ss' 2>&1 | tee -a $LOG_FILE
-            sleep 2
-        fi
-    fi
-    
-    pm2 save 2>&1 | tee -a $LOG_FILE
-    pm2 list | tee -a $LOG_FILE
-    log "✓ 所有服务已启动"
-else
-    error "未找到 ecosystem.config.cjs"
+# 第六步：验证配置文件
+log "[6/7] 验证配置文件..."
+if [ ! -f "ecosystem.config.cjs" ]; then
+    error "ecosystem.config.cjs 不存在"
 fi
+log "✓ PM2 配置文件存在"
 
-# 验证服务状态
+# 第七步：启动所有服务（带重试）
+log "[7/7] 启动所有服务..."
+
+# 7.1 先单独启动 utls-proxy（因为 zeromaps-rpc 依赖它）
+log "启动 utls-proxy..."
+pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
+    --name utls-proxy \
+    --cwd $INSTALL_DIR \
+    --error $INSTALL_DIR/logs/utls-error.log \
+    --output $INSTALL_DIR/logs/utls-out.log \
+    --log-date-format 'YYYY-MM-DD HH:mm:ss' 2>&1 | tee -a $LOG_FILE
+
+# 等待 utls-proxy 启动
 sleep 3
-if pm2 list | grep -q "zeromaps-rpc.*online"; then
-    log "✓ zeromaps-rpc 运行正常"
-else
-    log "❌ zeromaps-rpc 未运行"
-fi
 
+# 验证 utls-proxy
 if pm2 list | grep -q "utls-proxy.*online"; then
-    log "✓ utls-proxy 运行正常"
-    if ss -tlnp 2>/dev/null | grep -q 8765; then
-        log "✓ Go proxy 端口 8765 已监听"
-        if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
-            GO_VERSION=$(curl -s http://127.0.0.1:8765/health 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
-            if [ -n "$GO_VERSION" ]; then
-                log "✓ Go proxy 版本: $GO_VERSION"
-            else
-                log "✓ Go proxy 健康检查通过"
-            fi
+    log "✓ utls-proxy 启动成功"
+    
+    # 检查端口
+    for i in {1..10}; do
+        if ss -tlnp 2>/dev/null | grep -q 8765; then
+            log "✓ Go proxy 端口 8765 已监听"
+            break
+        fi
+        if [ $i -eq 10 ]; then
+            log "⚠️  Go proxy 端口 8765 未监听（尝试 $i 次）"
+        fi
+        sleep 1
+    done
+    
+    # 检查健康状态
+    if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+        GO_VERSION=$(curl -s http://127.0.0.1:8765/health 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+        if [ -n "$GO_VERSION" ]; then
+            log "✓ Go proxy 版本: $GO_VERSION"
+        else
+            log "✓ Go proxy 健康检查通过"
         fi
     else
-        log "⚠️  Go proxy 端口 8765 未监听"
+        log "⚠️  Go proxy 健康检查失败"
     fi
 else
-    log "❌ utls-proxy 未运行"
+    error "utls-proxy 启动失败"
+fi
+
+# 7.2 启动 zeromaps-rpc
+log "启动 zeromaps-rpc..."
+pm2 start $INSTALL_DIR/dist/server/index.js \
+    --name zeromaps-rpc \
+    --cwd $INSTALL_DIR \
+    --error $INSTALL_DIR/logs/zeromaps-error.log \
+    --output $INSTALL_DIR/logs/zeromaps-out.log \
+    --log-date-format 'YYYY-MM-DD HH:mm:ss' 2>&1 | tee -a $LOG_FILE
+
+# 等待 zeromaps-rpc 启动
+sleep 3
+
+# 验证 zeromaps-rpc
+if pm2 list | grep -q "zeromaps-rpc.*online"; then
+    log "✓ zeromaps-rpc 启动成功"
+    
+    # 检查端口
+    for i in {1..10}; do
+        if ss -tlnp 2>/dev/null | grep -q 9527 && ss -tlnp 2>/dev/null | grep -q 9528; then
+            log "✓ RPC 端口 9527 和监控端口 9528 已监听"
+            break
+        fi
+        if [ $i -eq 10 ]; then
+            log "⚠️  RPC 或监控端口未监听（尝试 $i 次）"
+        fi
+        sleep 1
+    done
+else
+    error "zeromaps-rpc 启动失败"
+fi
+
+# 7.3 保存 PM2 配置
+pm2 save 2>&1 | tee -a $LOG_FILE
+
+# 7.4 显示最终状态
+log ""
+log "======================================"
+log "📊 最终状态"
+log "======================================"
+pm2 list | tee -a $LOG_FILE
+
+# 验证进程数
+PROCESS_COUNT=$(pm2 list | grep -c "online" || echo "0")
+if [ "$PROCESS_COUNT" -eq 2 ]; then
+    log "✅ 所有服务运行正常（2/2）"
+else
+    log "⚠️  只有 $PROCESS_COUNT 个服务在运行"
 fi
 
 log ""
@@ -186,5 +236,6 @@ log "======================================"
 log "✅ 更新完成"
 log "======================================"
 log "版本: $CURRENT_VERSION"
+log "进程: $PROCESS_COUNT/2"
 
 exit 0
