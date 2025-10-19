@@ -1575,6 +1575,15 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Status-Code", strconv.Itoa(resp.StatusCode))
 	w.Header().Set("X-Duration-Ms", strconv.FormatInt(duration.Milliseconds(), 10))
 	w.Header().Set("X-Browser-Profile", profile.Name)
+	
+	// 🎯 添加请求模式信息（IP池 or 域名）
+	if useIPPool {
+		w.Header().Set("X-Request-Mode", "ip-pool")
+		w.Header().Set("X-Used-IP", usedIP)
+	} else {
+		w.Header().Set("X-Request-Mode", "domain")
+		w.Header().Set("X-Used-IP", "DNS")
+	}
 
 	for key, values := range resp.Header {
 		for _, value := range values {

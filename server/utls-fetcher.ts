@@ -125,8 +125,10 @@ export class UTLSFetcher extends EventEmitter {
 
       const requestTime = Date.now() - t3
 
-      // 从响应头获取状态码
+      // 从响应头获取状态码和请求模式信息
       const statusCode = parseInt(result.headers['x-status-code'] || '200')
+      const requestMode = result.headers['x-request-mode'] || 'unknown'
+      const usedIP = result.headers['x-used-ip'] || 'unknown'
       const actualBodySize = result.body.length
 
       // 调试：检查响应体实际内容并验证数据有效性
@@ -202,6 +204,8 @@ export class UTLSFetcher extends EventEmitter {
         duration: totalDuration,
         size: result.body.length,
         waitTime,
+        requestMode,  // 'ip-pool' 或 'domain'
+        usedIP,       // 实际使用的 IP 地址
         timestamp: Date.now()
       })
 

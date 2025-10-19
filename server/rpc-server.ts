@@ -567,7 +567,7 @@ export class RpcServer extends EventEmitter {
    */
   private isValidURI(uri: string): boolean {
     // 拒绝明显无效的请求模式
-    
+
     // 1. URI 不能为空
     if (!uri || uri.trim().length === 0) {
       return false
