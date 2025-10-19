@@ -130,9 +130,9 @@ export class UTLSFetcher extends EventEmitter {
 
       // 记录统计
       const totalDuration = Date.now() - queuedAt
-      const success = statusCode >= 200 && statusCode < 300
+      const success = statusCode === 200  // 只有 200 状态码才算成功
       if (ipv6 && this.ipv6Pool) {
-        this.ipv6Pool.recordRequest(ipv6, success, totalDuration)
+        this.ipv6Pool.recordRequest(ipv6, statusCode, totalDuration)
       }
 
       this.emit('request', {
@@ -162,7 +162,7 @@ export class UTLSFetcher extends EventEmitter {
       })
 
       if (ipv6 && this.ipv6Pool) {
-        this.ipv6Pool.recordRequest(ipv6, false, duration)
+        this.ipv6Pool.recordRequest(ipv6, 0, duration)  // 0 表示网络异常
       }
 
       this.emit('request', {

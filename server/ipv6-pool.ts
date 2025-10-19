@@ -9,12 +9,17 @@ const logger = createLogger('IPv6Pool')
 
 interface IPv6Stats {
   totalRequests: number      // 总请求次数
-  successCount: number        // 成功次数
-  failureCount: number        // 失败次数
+  successCount: number        // 成功次数 (200)
+  failureCount: number        // 失败次数（总）
+  error403Count: number       // 403 被拉黑次数（严重！）
+  error429Count: number       // 429 限流次数
+  error404Count: number       // 404 数据不存在
+  otherErrorCount: number     // 其他错误
   totalResponseTime: number   // 总响应时间(ms)
   minResponseTime: number     // 最小响应时间(ms)
   maxResponseTime: number     // 最大响应时间(ms)
   lastUsedAt: number         // 最后使用时间戳
+  isBlacklisted: boolean     // 是否被拉黑（403 次数过多）
 }
 
 export class IPv6Pool {
@@ -39,10 +44,15 @@ export class IPv6Pool {
         totalRequests: 0,
         successCount: 0,
         failureCount: 0,
+        error403Count: 0,
+        error429Count: 0,
+        error404Count: 0,
+        otherErrorCount: 0,
         totalResponseTime: 0,
         minResponseTime: Infinity,
         maxResponseTime: 0,
-        lastUsedAt: 0
+        lastUsedAt: 0,
+        isBlacklisted: false
       })
     }
 
@@ -72,29 +82,40 @@ export class IPv6Pool {
   }
 
   /**
-   * 获取健康的 IPv6 地址（智能选择，排除失败率高的IP）
+   * 获取健康的 IPv6 地址（智能选择，排除失败率高的IP和被拉黑的IP）
    */
   public getHealthyNext(): string | null {
     if (this.addresses.length === 0) {
       return null  // 没有 IPv6 地址池
     }
 
-    // 过滤出健康的IP（失败率<30%）
+    // 过滤出健康的IP
     const healthyAddresses = this.addresses.filter(addr => {
       const stats = this.detailedStats.get(addr)!
-      if (stats.totalRequests < 20) return true  // 新IP给机会（增加到20次）
+      
+      // 1. 被拉黑的IP直接排除（403次数超过5次）
+      if (stats.isBlacklisted || stats.error403Count >= 5) {
+        return false
+      }
+
+      // 2. 新IP给机会（少于20次请求）
+      if (stats.totalRequests < 20) return true
 
       const failRate = stats.failureCount / stats.totalRequests
       const avgRT = stats.totalResponseTime / stats.totalRequests
 
-      // 条件：失败率<30% 且 平均响应时间<3000ms
-      return failRate < 0.3 && avgRT < 3000
+      // 3. 失败率<30% 且 平均响应时间<3000ms
+      // 4. 如果429（限流）次数过多，降低优先级
+      const tooManyRateLimits = stats.error429Count > stats.totalRequests * 0.2  // 超过20%是429
+      
+      return failRate < 0.3 && avgRT < 3000 && !tooManyRateLimits
     })
 
     // 如果没有健康IP，降级到普通轮询
     if (healthyAddresses.length === 0) {
       logger.warn('没有健康的IPv6地址，使用普通轮询', {
-        totalAddresses: this.addresses.length
+        totalAddresses: this.addresses.length,
+        blacklistedCount: this.addresses.filter(a => this.detailedStats.get(a)!.isBlacklisted).length
       })
       return this.getNext()
     }
@@ -194,20 +215,45 @@ export class IPv6Pool {
   /**
    * 记录请求结果
    * @param ipv6 IPv6地址
-   * @param success 是否成功
+   * @param statusCode HTTP 状态码
    * @param responseTime 响应时间(ms)
    */
-  public recordRequest(ipv6: string, success: boolean, responseTime: number): void {
+  public recordRequest(ipv6: string, statusCode: number, responseTime: number): void {
     const stats = this.detailedStats.get(ipv6)
     if (!stats) return
 
     stats.totalRequests++
     stats.lastUsedAt = Date.now()
 
-    if (success) {
+    // 根据状态码分类统计
+    if (statusCode === 200) {
       stats.successCount++
     } else {
       stats.failureCount++
+      
+      // 详细分类错误
+      if (statusCode === 403) {
+        stats.error403Count++
+        // 403 超过 3 次，标记为拉黑
+        if (stats.error403Count >= 3) {
+          stats.isBlacklisted = true
+          logger.error(`IPv6 ${ipv6.substring(0, 30)} 被拉黑！(403 次数: ${stats.error403Count})`, undefined, {
+            ipv6: ipv6.substring(0, 30),
+            error403Count: stats.error403Count,
+            totalRequests: stats.totalRequests
+          })
+        }
+      } else if (statusCode === 429) {
+        stats.error429Count++
+        logger.warn(`IPv6 ${ipv6.substring(0, 30)} 被限流 (429)`, {
+          ipv6: ipv6.substring(0, 30),
+          error429Count: stats.error429Count
+        })
+      } else if (statusCode === 404) {
+        stats.error404Count++
+      } else {
+        stats.otherErrorCount++
+      }
     }
 
     stats.totalResponseTime += responseTime
@@ -283,12 +329,17 @@ export class IPv6Pool {
       totalRequests: number
       successCount: number
       failureCount: number
+      error403Count: number
+      error429Count: number
+      error404Count: number
+      otherErrorCount: number
       successRate: string
       avgResponseTime: number
       minResponseTime: number
       maxResponseTime: number
       lastUsedAt: number
       lastUsedAgo: string
+      isBlacklisted: boolean
     }> = []
 
     for (const addr of this.addresses) {
@@ -306,12 +357,17 @@ export class IPv6Pool {
         totalRequests: stats.totalRequests,
         successCount: stats.successCount,
         failureCount: stats.failureCount,
+        error403Count: stats.error403Count,
+        error429Count: stats.error429Count,
+        error404Count: stats.error404Count,
+        otherErrorCount: stats.otherErrorCount,
         successRate,
         avgResponseTime,
         minResponseTime: stats.minResponseTime === Infinity ? 0 : stats.minResponseTime,
         maxResponseTime: stats.maxResponseTime,
         lastUsedAt: stats.lastUsedAt,
-        lastUsedAgo
+        lastUsedAgo,
+        isBlacklisted: stats.isBlacklisted
       })
     }
 
@@ -346,11 +402,12 @@ export class IPv6Pool {
    */
   public exportCSV(): string {
     const perIPStats = this.getPerIPStats()
-    const header = 'IPv6地址,总请求数,成功次数,失败次数,成功率(%),平均响应时间(ms),最小响应时间(ms),最大响应时间(ms),最后使用时间\n'
+    const header = 'IPv6地址,总请求数,成功次数,失败次数,403次数,429次数,404次数,其他错误,成功率(%),平均响应时间(ms),最小响应时间(ms),最大响应时间(ms),是否拉黑,最后使用时间\n'
 
     const rows = perIPStats.map(stat => {
       const lastUsed = stat.lastUsedAt > 0 ? new Date(stat.lastUsedAt).toISOString() : '从未使用'
-      return `${stat.address},${stat.totalRequests},${stat.successCount},${stat.failureCount},${stat.successRate},${stat.avgResponseTime},${stat.minResponseTime},${stat.maxResponseTime},${lastUsed}`
+      const blacklisted = stat.isBlacklisted ? '是' : '否'
+      return `${stat.address},${stat.totalRequests},${stat.successCount},${stat.failureCount},${stat.error403Count},${stat.error429Count},${stat.error404Count},${stat.otherErrorCount},${stat.successRate},${stat.avgResponseTime},${stat.minResponseTime},${stat.maxResponseTime},${blacklisted},${lastUsed}`
     })
 
     return header + rows.join('\n')
