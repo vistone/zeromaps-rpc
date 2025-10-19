@@ -156,7 +156,7 @@ fi
 
 # 验证服务状态
 sleep 3
-if pm2 list | grep -q "online.*zeromaps-rpc"; then
+if pm2 list | grep -q "zeromaps-rpc.*online"; then
     log "✓ zeromaps-rpc 运行正常"
 else
     log "❌ zeromaps-rpc 未运行"
@@ -168,7 +168,11 @@ if pm2 list | grep -q "utls-proxy.*online"; then
         log "✓ Go proxy 端口 8765 已监听"
         if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
             GO_VERSION=$(curl -s http://127.0.0.1:8765/health 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
-            log "✓ Go proxy 版本: $GO_VERSION"
+            if [ -n "$GO_VERSION" ]; then
+                log "✓ Go proxy 版本: $GO_VERSION"
+            else
+                log "✓ Go proxy 健康检查通过"
+            fi
         fi
     else
         log "⚠️  Go proxy 端口 8765 未监听"
