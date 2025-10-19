@@ -427,32 +427,116 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 检查节点健康状态（使用 uTLS Fetcher）
+   * 检查节点健康状态（测试多个 IPv6 地址）
    */
   private async checkHealth(): Promise<void> {
     try {
       const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
+      const testCount = 3  // 测试 3 个不同的 IPv6 地址
 
-      // 使用 Fetcher 进行健康检查（与实际请求保持一致）
-      const result = await this.fetcher.fetch({ url: testUrl, timeout: 10000 })
+      let successCount = 0
+      let error403Count = 0
+      let error429Count = 0
+      let otherErrorCount = 0
 
-      this.healthStatus = {
-        status: result.statusCode,
-        message: result.statusCode === 200 ? '正常' :
-          result.statusCode === 403 ? '节点被拉黑' :
-            `HTTP ${result.statusCode}`,
-        lastCheck: Date.now()
-      }
+      // 如果有 IPv6，测试多个地址
+      const hasIPv6 = this.ipv6Pool.getAllAddresses().length > 0
 
-      if (result.statusCode === 403) {
-        logger.warn('健康检查: 节点被 Google 拉黑', { statusCode: 403 })
-      } else if (result.statusCode === 200) {
-        logger.info('健康检查: 节点正常')
+      if (hasIPv6) {
+        // 测试多个 IPv6 地址
+        for (let i = 0; i < testCount; i++) {
+          try {
+            const result = await this.fetcher.fetch({ url: testUrl, timeout: 10000 })
+            
+            if (result.statusCode === 200) {
+              successCount++
+            } else if (result.statusCode === 403) {
+              error403Count++
+            } else if (result.statusCode === 429) {
+              error429Count++
+            } else {
+              otherErrorCount++
+            }
+          } catch (error) {
+            otherErrorCount++
+          }
+        }
+
+        // 根据测试结果判断健康状态
+        if (error403Count >= 2) {
+          // 超过一半是 403，判定为被拉黑
+          this.healthStatus = {
+            status: 403,
+            message: `节点被拉黑 (${error403Count}/${testCount} 次 403)`,
+            lastCheck: Date.now()
+          }
+          logger.error('健康检查: 节点被拉黑', undefined, { 
+            error403Count, 
+            successCount,
+            testCount 
+          })
+        } else if (successCount === 0) {
+          // 全部失败
+          this.healthStatus = {
+            status: error429Count > 0 ? 429 : 500,
+            message: error429Count > 0 ? `限流严重 (${error429Count}/${testCount} 次 429)` : '全部请求失败',
+            lastCheck: Date.now()
+          }
+          logger.warn('健康检查: 全部请求失败', { 
+            error429Count,
+            error403Count,
+            otherErrorCount,
+            testCount 
+          })
+        } else if (successCount >= testCount / 2) {
+          // 超过一半成功，判定为正常
+          this.healthStatus = {
+            status: 200,
+            message: `正常 (${successCount}/${testCount} 次成功)`,
+            lastCheck: Date.now()
+          }
+          logger.info('健康检查: 节点正常', { 
+            successCount,
+            error403Count,
+            error429Count,
+            testCount 
+          })
+        } else {
+          // 部分成功
+          this.healthStatus = {
+            status: 500,
+            message: `部分可用 (${successCount}/${testCount} 次成功，${error403Count} 次 403)`,
+            lastCheck: Date.now()
+          }
+          logger.warn('健康检查: 节点部分可用', { 
+            successCount,
+            error403Count,
+            error429Count,
+            testCount 
+          })
+        }
       } else {
-        logger.warn('健康检查异常', {
-          statusCode: result.statusCode,
-          message: this.healthStatus.message
-        })
+        // 没有 IPv6，只测试一次
+        const result = await this.fetcher.fetch({ url: testUrl, timeout: 10000 })
+        
+        this.healthStatus = {
+          status: result.statusCode,
+          message: result.statusCode === 200 ? '正常（无 IPv6）' :
+            result.statusCode === 403 ? '节点被拉黑（无 IPv6）' :
+              result.statusCode === 429 ? '限流（无 IPv6）' :
+                `HTTP ${result.statusCode}（无 IPv6）`,
+          lastCheck: Date.now()
+        }
+
+        if (result.statusCode === 403) {
+          logger.error('健康检查: 节点被拉黑（无 IPv6）', undefined, { statusCode: 403 })
+        } else if (result.statusCode === 200) {
+          logger.info('健康检查: 节点正常（无 IPv6）')
+        } else {
+          logger.warn('健康检查异常（无 IPv6）', {
+            statusCode: result.statusCode
+          })
+        }
       }
     } catch (error) {
       this.healthStatus = {

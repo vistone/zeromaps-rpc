@@ -785,15 +785,27 @@ export class MonitorServer {
           if (status === 200) {
             healthBanner.style.background = '#10b981';
             healthBanner.style.color = 'white';
-            healthBanner.innerHTML = '✅ 节点状态正常 - Google Earth 可访问 (上次检测: ' + lastCheck + ')';
+            healthBanner.innerHTML = '✅ 节点状态: ' + message + ' (上次检测: ' + lastCheck + ')';
           } else if (status === 403) {
             healthBanner.style.background = '#ef4444';
             healthBanner.style.color = 'white';
-            healthBanner.innerHTML = '⚠️ 节点被拉黑 - Google 返回 403 禁止访问 (上次检测: ' + lastCheck + ')';
+            healthBanner.innerHTML = '❌ 节点被拉黑: ' + message + ' (上次检测: ' + lastCheck + ')';
+          } else if (status === 429) {
+            healthBanner.style.background = '#f59e0b';
+            healthBanner.style.color = 'white';
+            healthBanner.innerHTML = '⚠️ 限流警告: ' + message + ' (上次检测: ' + lastCheck + ')';
+          } else if (status === 500) {
+            healthBanner.style.background = '#f59e0b';
+            healthBanner.style.color = 'white';
+            healthBanner.innerHTML = '⚠️ 部分可用: ' + message + ' (上次检测: ' + lastCheck + ')';
+          } else if (status === 0) {
+            healthBanner.style.background = '#ef4444';
+            healthBanner.style.color = 'white';
+            healthBanner.innerHTML = '❌ 健康检查失败: ' + message + ' (上次检测: ' + lastCheck + ')';
           } else {
             healthBanner.style.background = '#f59e0b';
             healthBanner.style.color = 'white';
-            healthBanner.innerHTML = '⚠️ 健康检查异常: ' + message + ' (上次检测: ' + lastCheck + ')';
+            healthBanner.innerHTML = '⚠️ 异常状态: ' + message + ' (上次检测: ' + lastCheck + ')';
           }
         }
 
