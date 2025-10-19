@@ -339,8 +339,48 @@ fi
 
 log "✓ 编译完成"
 
-# 4.1. 编译 Go proxy
-log "[4.1/6] 编译 Go proxy..."
+# 4.1. 检查并升级 Go 版本
+log "[4.1/6] 检查 Go 版本..."
+
+REQUIRED_GO_VERSION="1.24.9"
+CURRENT_GO_VERSION=""
+
+if [ -f "/usr/local/go/bin/go" ]; then
+    CURRENT_GO_VERSION=$(/usr/local/go/bin/go version 2>/dev/null | grep -oE 'go[0-9]+\.[0-9]+\.[0-9]+' | sed 's/go//')
+fi
+
+if [ -z "$CURRENT_GO_VERSION" ] || [ "$CURRENT_GO_VERSION" != "$REQUIRED_GO_VERSION" ]; then
+    log "⚠️  Go 版本不符合要求（当前: ${CURRENT_GO_VERSION:-未安装}，需要: $REQUIRED_GO_VERSION）"
+    log "自动下载并安装 Go $REQUIRED_GO_VERSION..."
+    
+    cd /tmp
+    if wget -q --show-progress "https://go.dev/dl/go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz" 2>&1 | tee -a $LOG_FILE; then
+        log "✓ Go 下载完成"
+        
+        log "安装 Go..."
+        rm -rf /usr/local/go
+        tar -C /usr/local -xzf "go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz" 2>&1 | tee -a $LOG_FILE
+        
+        # 验证安装
+        if /usr/local/go/bin/go version 2>&1 | grep -q "$REQUIRED_GO_VERSION"; then
+            log "✅ Go $REQUIRED_GO_VERSION 安装成功"
+            rm -f "go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz"
+        else
+            log "❌ Go 安装失败"
+            rollback
+        fi
+    else
+        log "❌ Go 下载失败"
+        rollback
+    fi
+    
+    cd $INSTALL_DIR
+else
+    log "✓ Go 版本正确：$CURRENT_GO_VERSION"
+fi
+
+# 4.2. 编译 Go proxy
+log "[4.2/6] 编译 Go proxy..."
 
 if [ -f "$INSTALL_DIR/utls-proxy/build.sh" ]; then
     cd $INSTALL_DIR/utls-proxy
@@ -370,8 +410,8 @@ else
     log "⚠️  未找到 Go proxy 构建脚本，跳过编译"
 fi
 
-# 4.5. 环境检查和修复（防止 Go proxy 崩溃）
-log "[4.5/6] 环境检查和日志清理..."
+# 4.3. 环境检查和修复（防止 Go proxy 崩溃）
+log "[4.3/6] 环境检查和日志清理..."
 
 # 4.5.1 确保日志目录存在
 if [ ! -d "$INSTALL_DIR/logs" ]; then
@@ -442,7 +482,7 @@ if command -v pm2 >/dev/null 2>&1; then
 fi
 
 # 5. 重启PM2服务（重启所有服务以加载最新代码）
-log "[5/6] 重启所有服务..."
+log "[4.4/6] 重启所有服务..."
 
 if pm2 list | grep -q "online\|stopped"; then
     # 检查是否使用 tsx（需要彻底重启清除缓存）
