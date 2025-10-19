@@ -111,23 +111,37 @@ func (p *DNSIPPool) LoadFromFile(filePath string) error {
 		return fmt.Errorf("域名 %s 不在 IP 池文件中", p.domain)
 	}
 
+	// 检测 IPv6 支持
+	supportsIPv6 := hasIPv6Support()
+
 	// 加载 IP 列表
 	for _, ip := range domainData.IPv4 {
 		p.health[ip] = &IPHealth{ip: ip, source: "file"}
 	}
-	for _, ip := range domainData.IPv6 {
-		p.health[ip] = &IPHealth{ip: ip, source: "file"}
+	
+	// 仅在支持 IPv6 时加载 IPv6 地址
+	ipv6LoadCount := 0
+	if supportsIPv6 {
+		for _, ip := range domainData.IPv6 {
+			p.health[ip] = &IPHealth{ip: ip, source: "file"}
+			ipv6LoadCount++
+		}
+	} else if len(domainData.IPv6) > 0 {
+		log.Printf("ℹ️  [DNS-Pool] 系统不支持 IPv6，跳过 %d 个 IPv6 地址", len(domainData.IPv6))
 	}
 
-	// 加载黑名单
+	// 加载黑名单（跳过 IPv6 如果不支持）
 	for _, ip := range domainData.Blacklist {
+		if strings.Contains(ip, ":") && !supportsIPv6 {
+			continue // 跳过 IPv6 黑名单
+		}
 		p.blacklist[ip] = time.Now()
 	}
 
-	p.preferIPv6 = domainData.PreferIPv6
+	p.preferIPv6 = domainData.PreferIPv6 && supportsIPv6 // 如果不支持 IPv6，强制禁用偏好
 
 	log.Printf("📥 [DNS-Pool] 从文件加载 %s: %d 个 IPv4, %d 个 IPv6",
-		p.domain, len(domainData.IPv4), len(domainData.IPv6))
+		p.domain, len(domainData.IPv4), ipv6LoadCount)
 
 	return nil
 }
@@ -278,6 +292,17 @@ func (p *DNSIPPool) InitializeOnStartup(filePath string) error {
 }
 
 // DNS 解析
+// 检测系统是否支持 IPv6
+func hasIPv6Support() bool {
+	// 尝试连接到 Google Public DNS 的 IPv6 地址（不真正发送数据）
+	conn, err := net.DialTimeout("tcp6", "[2001:4860:4860::8888]:80", 2*time.Second)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
 func (p *DNSIPPool) resolveDNS() ([]string, []string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -291,13 +316,17 @@ func (p *DNSIPPool) resolveDNS() ([]string, []string, error) {
 		}
 	}
 
-	// 解析 IPv6
+	// 解析 IPv6（仅当系统支持时）
 	ipv6List := []string{}
-	addrs, err = net.DefaultResolver.LookupIP(ctx, "ip6", p.domain)
-	if err == nil {
-		for _, addr := range addrs {
-			ipv6List = append(ipv6List, addr.String())
+	if hasIPv6Support() {
+		addrs, err = net.DefaultResolver.LookupIP(ctx, "ip6", p.domain)
+		if err == nil {
+			for _, addr := range addrs {
+				ipv6List = append(ipv6List, addr.String())
+			}
 		}
+	} else {
+		log.Printf("ℹ️  [DNS-Pool] 系统不支持 IPv6，跳过 IPv6 解析")
 	}
 
 	if len(ipv4List) == 0 && len(ipv6List) == 0 {
