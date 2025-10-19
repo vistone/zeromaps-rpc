@@ -63,11 +63,10 @@ if git status --porcelain | grep -q .; then
     AFTER_SYNC=$(git rev-parse HEAD)
     log "✅ 强制同步完成: ${BEFORE_SYNC:0:8} -> ${AFTER_SYNC:0:8}"
     
-    # 如果脚本本身被更新了，重新执行新版本脚本
-    if [ "$BEFORE_SYNC" != "$AFTER_SYNC" ]; then
-        log "🔄 脚本已更新，重新执行新版本..."
-        exec "$0" "$@"
-    fi
+    # 强制同步后总是重新执行（确保使用最新脚本）
+    # 因为 shell 脚本在执行时已加载到内存，git reset 不会影响当前执行
+    log "🔄 重新执行脚本（使用磁盘上的最新版本）..."
+    exec "$0" "$@"
 else
     log "✓ 无本地修改，继续正常流程"
 fi
