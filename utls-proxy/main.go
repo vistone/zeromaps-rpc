@@ -27,6 +27,9 @@ import (
 	"golang.org/x/net/http2"
 )
 
+// Go proxy 版本号（与 package.json 保持一致）
+const PROXY_VERSION = "2.2.24"
+
 // 浏览器指纹配置（严格基于 uTLS v1.6.0 支持的 ClientHelloID）
 type BrowserProfile struct {
 	Name            string
@@ -1735,6 +1738,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(w, `{
 	"status": "ok",
+	"version": "%s",
 	"uptime": %.0f,
 	"totalRequests": %d,
 	"successRequests": %d,
@@ -1770,6 +1774,7 @@ func healthHandler(w http.ResponseWriter, r *http.Request) {
 		"usage": %s
 	}
 }`,
+		PROXY_VERSION,
 		uptime.Seconds(),
 		total,
 		success,

@@ -148,17 +148,22 @@ if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
         fi
     fi
     
-    # 2. 检查二进制文件大小（新版本应该是8.1M+，旧版本7.7M）
-    if [ -f "$INSTALL_DIR/utls-proxy/utls-proxy" ]; then
-        GO_SIZE_MB=$(du -m "$INSTALL_DIR/utls-proxy/utls-proxy" 2>/dev/null | awk '{print $1}')
-        # du -m 会四舍五入：7.7M→8MB, 8.1M→9MB
-        # 所以检查 <= 8 才能检测到 7.7M 的旧版本
-        if [ -n "$GO_SIZE_MB" ] && [ "$GO_SIZE_MB" -le 8 ]; then
-            log "⚠️  检测到 Go proxy 文件过小 (${GO_SIZE_MB}MB)，需要重新编译"
+    # 2. 检查版本号（通过健康检查API）
+    if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
+        GO_VERSION=$(curl -s --max-time 2 http://127.0.0.1:8765/health 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
+        PACKAGE_VERSION=$(cat $INSTALL_DIR/package.json | grep '"version"' | head -1 | sed 's/.*"version": "\(.*\)".*/\1/')
+        
+        if [ -n "$GO_VERSION" ] && [ -n "$PACKAGE_VERSION" ] && [ "$GO_VERSION" != "$PACKAGE_VERSION" ]; then
+            log "⚠️  Go proxy 版本不匹配：Go=$GO_VERSION, Package=$PACKAGE_VERSION"
             NEED_GO_REBUILD=true
+        elif [ -z "$GO_VERSION" ]; then
+            log "⚠️  无法获取 Go proxy 版本，可能是旧版本"
+            NEED_GO_REBUILD=true
+        else
+            log "✓ Go proxy 版本正确：$GO_VERSION"
         fi
     else
-        log "⚠️  Go proxy 二进制文件不存在"
+        log "⚠️  Go proxy 未运行或健康检查失败"
         NEED_GO_REBUILD=true
     fi
     
