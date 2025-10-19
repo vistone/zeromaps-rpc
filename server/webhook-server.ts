@@ -324,8 +324,28 @@ export class WebhookServer {
     logger.info('触发自动更新', { script: this.updateScript })
 
     try {
-      const { spawn } = await import('child_process')
+      const { spawn, execSync } = await import('child_process')
 
+      // 🔧 预处理：强制同步脚本本身（避免旧脚本的 bug）
+      logger.info('预处理：检查并同步更新脚本...')
+      try {
+        execSync('cd /opt/zeromaps-rpc && git fetch origin master', { encoding: 'utf-8' })
+        
+        // 检查是否有本地修改
+        const hasLocalChanges = execSync('cd /opt/zeromaps-rpc && git status --porcelain', { encoding: 'utf-8' }).trim()
+        
+        if (hasLocalChanges) {
+          logger.warn('检测到本地修改，执行强制同步', { changes: hasLocalChanges })
+          execSync('cd /opt/zeromaps-rpc && git reset --hard origin/master', { encoding: 'utf-8' })
+          logger.info('✅ 强制同步完成，脚本已更新为最新版本')
+        } else {
+          logger.info('✓ 无本地修改，脚本已是最新')
+        }
+      } catch (error) {
+        logger.error('预处理失败（将继续执行更新）', error as Error)
+      }
+
+      // 执行更新脚本
       const child = spawn('bash', [this.updateScript])
 
       child.stdout.on('data', (data) => {

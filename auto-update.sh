@@ -46,17 +46,31 @@ rollback() {
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
-# 自我修复：清理可能导致冲突的本地修改（go.mod/go.sum）
-log "🔧 自我修复检查..."
-if git status --porcelain | grep -q "utls-proxy/go.mod\|utls-proxy/go.sum"; then
-    log "⚠️  检测到 go.mod/go.sum 本地修改，执行强制同步..."
-    git fetch origin master 2>&1 | tee -a $LOG_FILE
-    git reset --hard origin/master 2>&1 | tee -a $LOG_FILE
-    log "✅ 强制同步完成，脚本已更新"
-    log "🔄 重新执行更新脚本..."
-    exec "$0" "$@"  # 重新执行自己（使用新版本）
+# 🔧 第一步：无条件强制同步（避免任何本地修改导致的冲突）
+log "🔧 自动修复模式：检测本地修改..."
+if git status --porcelain | grep -q .; then
+    log "⚠️  检测到本地修改，执行强制同步..."
+    log "本地修改文件："
+    git status --porcelain | tee -a $LOG_FILE
+    
+    # 保存当前版本以便判断是否需要重新执行
+    BEFORE_SYNC=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
+    
+    # 强制同步
+    git fetch origin master 2>&1 | tee -a $LOG_FILE || error "git fetch 失败"
+    git reset --hard origin/master 2>&1 | tee -a $LOG_FILE || error "git reset 失败"
+    
+    AFTER_SYNC=$(git rev-parse HEAD)
+    log "✅ 强制同步完成: ${BEFORE_SYNC:0:8} -> ${AFTER_SYNC:0:8}"
+    
+    # 如果脚本本身被更新了，重新执行新版本脚本
+    if [ "$BEFORE_SYNC" != "$AFTER_SYNC" ]; then
+        log "🔄 脚本已更新，重新执行新版本..."
+        exec "$0" "$@"
+    fi
+else
+    log "✓ 无本地修改，继续正常流程"
 fi
-log "✓ 无需修复"
 
 log "======================================"
 log "🔍 检查更新"
