@@ -346,16 +346,23 @@ log "[4.1/6] 编译 Go proxy..."
 if [ -f "$INSTALL_DIR/utls-proxy/build.sh" ]; then
     cd $INSTALL_DIR/utls-proxy
     
+    # 记录编译前的时间戳
+    BEFORE_COMPILE=$(stat -c %Y "utls-proxy" 2>/dev/null || echo "0")
+    
     # 使用 bash 执行编译脚本
     if bash build.sh 2>&1 | tee -a $LOG_FILE; then
-        if [ -f "utls-proxy" ]; then
-            log "✓ Go proxy 编译成功"
+        # 验证编译结果：检查文件是否存在且时间戳更新
+        AFTER_COMPILE=$(stat -c %Y "utls-proxy" 2>/dev/null || echo "0")
+        
+        if [ -f "utls-proxy" ] && [ "$AFTER_COMPILE" -gt "$BEFORE_COMPILE" ]; then
+            GO_SIZE=$(du -h utls-proxy | cut -f1)
+            log "✓ Go proxy 编译成功（大小: $GO_SIZE）"
         else
-            log "❌ Go proxy 编译失败：未生成二进制文件"
+            log "❌ Go proxy 编译失败：二进制文件未更新"
             rollback
         fi
     else
-        log "❌ Go proxy 编译失败"
+        log "❌ Go proxy 编译脚本执行失败"
         rollback
     fi
     

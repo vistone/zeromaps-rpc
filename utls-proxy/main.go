@@ -28,7 +28,7 @@ import (
 )
 
 // Go proxy 版本号（与 package.json 保持一致）
-const PROXY_VERSION = "2.2.25"
+const PROXY_VERSION = "2.2.26"
 
 // 浏览器指纹配置（严格基于 uTLS v1.6.0 支持的 ClientHelloID）
 type BrowserProfile struct {
@@ -88,11 +88,11 @@ var (
 	activeRequests              atomic.Int64  // 当前正在处理的请求数
 	shutdownFlag                atomic.Bool   // 关闭标志
 	logFileHandle               *os.File      // 日志文件句柄（用于日志轮转）
-	
+
 	// DNS IP 池（新增）
 	dnsIPPools = make(map[string]*DNSIPPool) // domain → DNS IP 池
-	
-	allowedDomains              = map[string]bool{
+
+	allowedDomains = map[string]bool{
 		"kh.google.com":    true,
 		"earth.google.com": true,
 		"www.google.com":   true,
@@ -1234,17 +1234,17 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	var finalURL string
 	var usedIP string
 	var useIPPool bool
-	
+
 	// 检查是否有该域名的 IP 池
 	pool := dnsIPPools[parsedURL.Host]
-	
+
 	if pool != nil && pool.ShouldUseIPPool() {
 		// 95% 情况：使用 IP 池（快速，无 DNS）
 		ip := pool.GetRandomIP(pool.preferIPv6)
 		if ip != "" {
 			useIPPool = true
 			usedIP = ip
-			
+
 			// 构建直接 IP 请求
 			if strings.Contains(ip, ":") {
 				// IPv6
@@ -1253,7 +1253,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				// IPv4
 				finalURL = fmt.Sprintf("https://%s:443%s?%s", ip, parsedURL.Path, parsedURL.RawQuery)
 			}
-			
+
 			log.Printf("🎯 [DNS-Pool] 使用 IP 池: %s", ip)
 		} else {
 			// IP 池空了，降级到域名
@@ -1282,7 +1282,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		stats.failedRequests.Add(1)
 		return
 	}
-	
+
 	// 关键：保持原域名作为 Host 头（即使使用了 IP）
 	req.Host = parsedURL.Host
 
@@ -1550,7 +1550,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if useIPPool && usedIP != "" && pool != nil {
 		pool.RecordResult(usedIP, resp.StatusCode, duration)
 	}
-	
+
 	// 🔍 域名请求：提取实际连接的 IP（新发现的 IP）
 	if !useIPPool && pool != nil && resp != nil {
 		// TODO: 从连接信息中提取实际 IP（Go 标准库不容易获取）
@@ -1578,7 +1578,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Status-Code", strconv.Itoa(resp.StatusCode))
 	w.Header().Set("X-Duration-Ms", strconv.FormatInt(duration.Milliseconds(), 10))
 	w.Header().Set("X-Browser-Profile", profile.Name)
-	
+
 	// 🎯 添加请求模式信息（IP池 or 域名）
 	if useIPPool {
 		w.Header().Set("X-Request-Mode", "ip-pool")
