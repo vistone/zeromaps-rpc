@@ -46,6 +46,18 @@ rollback() {
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
+# 自我修复：清理可能导致冲突的本地修改（go.mod/go.sum）
+log "🔧 自我修复检查..."
+if git status --porcelain | grep -q "utls-proxy/go.mod\|utls-proxy/go.sum"; then
+    log "⚠️  检测到 go.mod/go.sum 本地修改，执行强制同步..."
+    git fetch origin master 2>&1 | tee -a $LOG_FILE
+    git reset --hard origin/master 2>&1 | tee -a $LOG_FILE
+    log "✅ 强制同步完成，脚本已更新"
+    log "🔄 重新执行更新脚本..."
+    exec "$0" "$@"  # 重新执行自己（使用新版本）
+fi
+log "✓ 无需修复"
+
 log "======================================"
 log "🔍 检查更新"
 log "======================================"
