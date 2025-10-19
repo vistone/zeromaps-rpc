@@ -56,8 +56,8 @@ if git status --porcelain | grep -q .; then
     # 保存当前版本以便判断是否需要重新执行
     BEFORE_SYNC=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
     
-    # 强制同步
-    git fetch origin master 2>&1 | tee -a $LOG_FILE || error "git fetch 失败"
+    # 强制同步（包括 tags）
+    git fetch origin master --tags 2>&1 | tee -a $LOG_FILE || error "git fetch 失败"
     git reset --hard origin/master 2>&1 | tee -a $LOG_FILE || error "git reset 失败"
     
     AFTER_SYNC=$(git rev-parse HEAD)
@@ -78,16 +78,18 @@ log "======================================"
 
 # 记录当前版本
 CURRENT_COMMIT=$(git rev-parse HEAD)
-log "当前: ${CURRENT_COMMIT:0:8}"
+CURRENT_TAG=$(git describe --tags --exact-match HEAD 2>/dev/null || echo "无tag")
+log "当前: ${CURRENT_COMMIT:0:8} ($CURRENT_TAG)"
 
-# 获取远程更新
+# 获取远程更新（包括 tags）
 log "获取远程更新..."
-if ! git fetch origin master 2>&1 | tee -a $LOG_FILE; then
+if ! git fetch origin master --tags 2>&1 | tee -a $LOG_FILE; then
     error "git fetch 失败"
 fi
 
 REMOTE_COMMIT=$(git rev-parse origin/master)
-log "远程: ${REMOTE_COMMIT:0:8}"
+REMOTE_TAG=$(git describe --tags --exact-match origin/master 2>/dev/null || echo "无tag")
+log "远程: ${REMOTE_COMMIT:0:8} ($REMOTE_TAG)"
 
 # 比较
 if [ "$CURRENT_COMMIT" = "$REMOTE_COMMIT" ]; then
@@ -228,9 +230,9 @@ log "✓ 备份完成"
 # 1. 更新代码（强制同步，不保留本地修改）
 log "[1/5] 更新代码..."
 
-# 直接使用强制同步（避免 go.mod/go.sum 冲突）
+# 直接使用强制同步（避免 go.mod/go.sum 冲突，包括 tags）
 log "使用强制同步（覆盖本地修改）..."
-if git fetch origin master 2>&1 | tee -a $LOG_FILE; then
+if git fetch origin master --tags 2>&1 | tee -a $LOG_FILE; then
     if git reset --hard origin/master 2>&1 | tee -a $LOG_FILE; then
         log "✓ 代码更新完成"
     else
