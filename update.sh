@@ -1,9 +1,6 @@
 #!/bin/bash
-
-# ==========================================
-# ZeroMaps RPC 服务更新脚本
-# 用于更新已部署的服务
-# ==========================================
+# ZeroMaps RPC 统一更新脚本
+# 支持手动调用和 Webhook 自动触发
 
 set -e
 
@@ -14,172 +11,88 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 INSTALL_DIR="/opt/zeromaps-rpc"
+LOG_FILE="/var/log/zeromaps-update.log"
 
-echo "====================================="
-echo "ZeroMaps RPC 服务更新"
-echo "====================================="
-echo ""
+log() {
+    echo -e "$1"
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> $LOG_FILE
+}
+
+log ""
+log "====================================="
+log "ZeroMaps RPC 服务更新"
+log "====================================="
 
 # 检查是否在正确目录
 if [ ! -f "$INSTALL_DIR/package.json" ]; then
-  echo -e "${RED}错误: 服务未安装或目录不正确${NC}"
-  echo "请先运行 deploy.sh 进行初次部署"
+  log "${RED}错误: 服务未安装或目录不正确${NC}"
+  log "请先运行 deploy.sh 进行初次部署"
   exit 1
 fi
 
 cd $INSTALL_DIR
 
 # 1. 更新代码（强制同步，不保留本地修改）
-echo "[1/3] 更新代码..."
+log "[1/5] 更新代码..."
 git fetch origin master
 git reset --hard origin/master
-echo -e "${GREEN}✓ 代码更新完成${NC}"
+log "${GREEN}✓ 代码更新完成${NC}"
 
 # 2. 更新依赖
-echo ""
-echo "[2/4] 更新npm依赖..."
-npm install
-echo -e "${GREEN}✓ 依赖更新完成${NC}"
+log ""
+log "[2/5] 更新npm依赖..."
+npm install 2>&1 | tee -a $LOG_FILE
+log "${GREEN}✓ 依赖更新完成${NC}"
 
-# 3. 编译代码
-echo ""
-echo "[3/5] 编译 TypeScript 代码..."
-npm run build
-if [ $? -eq 0 ]; then
-  echo -e "${GREEN}✓ 代码编译成功${NC}"
+# 3. 编译 TypeScript 代码
+log ""
+log "[3/5] 编译 TypeScript 代码..."
+if npm run build 2>&1 | tee -a $LOG_FILE; then
+  log "${GREEN}✓ TypeScript 编译成功${NC}"
 else
-  echo -e "${RED}✗ 代码编译失败${NC}"
+  log "${RED}✗ TypeScript 编译失败${NC}"
   exit 1
 fi
 
-# 4. 确保日志目录存在（防止 Go proxy 崩溃）
-echo ""
-echo "[4/5] 检查日志目录..."
-if [ ! -d "$INSTALL_DIR/logs" ]; then
-  echo "创建日志目录..."
-  mkdir -p $INSTALL_DIR/logs
-  echo -e "${GREEN}✓ 日志目录已创建: $INSTALL_DIR/logs${NC}"
+# 3.5. 编译 Go proxy
+log ""
+log "[3.5/5] 编译 Go proxy..."
+cd utls-proxy
+if bash build.sh 2>&1 | tee -a $LOG_FILE; then
+  log "${GREEN}✓ Go proxy 编译成功${NC}"
 else
-  echo -e "${GREEN}✓ 日志目录已存在${NC}"
+  log "${RED}✗ Go proxy 编译失败${NC}"
+  exit 1
 fi
+cd ..
 
-# 5. 重启pm2服务
-echo ""
-echo "[5/5] 重启服务..."
+# 4. 重启pm2服务
+log ""
+log "[4/5] 重启服务..."
 
-# 清理可能冲突的systemd服务
-if systemctl list-units --full --all 2>/dev/null | grep -q "zeromaps-rpc.service"; then
-  echo "停止systemd服务..."
-  systemctl stop zeromaps-rpc.service >/dev/null 2>&1 || true
-  systemctl disable zeromaps-rpc.service >/dev/null 2>&1 || true
-  echo -e "${GREEN}✓ 已停止systemd服务${NC}"
-fi
+# 重启所有服务
+pm2 restart all 2>&1 | tee -a $LOG_FILE
+pm2 save
+log "${GREEN}✓ 服务重启完成${NC}"
 
-# 检查并释放端口
-echo "检查端口占用..."
-for port in 9527 9528; do
-  if netstat -tlnp 2>/dev/null | grep -q ":$port.*LISTEN"; then
-    echo "  端口 $port 被占用，正在清理..."
-    fuser -k $port/tcp 2>/dev/null || true
-    sleep 1
-  fi
-done
-echo -e "${GREEN}✓ 端口检查完成${NC}"
-
-# 重启或启动pm2服务
-echo "重启pm2服务..."
-if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
-  # 服务已存在，重启
-  echo "服务已存在，执行重启..."
-  pm2 restart zeromaps-rpc
-  pm2 save
-  echo -e "${GREEN}✓ 服务重启完成${NC}"
-else
-  # 服务不存在，检查配置文件后启动
-  echo "服务不存在，检查配置文件..."
-  
-  if [ ! -f "$INSTALL_DIR/ecosystem.config.cjs" ]; then
-    echo -e "${RED}✗ 未找到 ecosystem.config.cjs 配置文件${NC}"
-    echo "请先运行 deploy.sh 进行初次部署"
-    exit 1
-  fi
-  
-  echo "启动新服务..."
-  pm2 start ecosystem.config.cjs
-  pm2 save
-  pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || true
-  echo -e "${GREEN}✓ 服务启动完成${NC}"
-fi
-
-# 等待服务启动
 sleep 2
-pm2 list
 
-# 更新Caddy配置（如果已安装）
-echo ""
-echo "更新Caddy配置..."
-
+# 5. 更新Caddy（如果需要）
+log ""
+log "[5/5] 检查 Caddy..."
 if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
-  # 检测本地IP并加载配置
-  LOCAL_IP=$(curl -s -4 ifconfig.me)
-  CONFIG_FILE="$INSTALL_DIR/configs/vps-$LOCAL_IP.conf"
-  
-  if [ -f "$CONFIG_FILE" ]; then
-    source $CONFIG_FILE
-    
-    # 不清理证书（避免Let's Encrypt速率限制）
-    
-    # 创建日志目录
-    mkdir -p /var/log/caddy
-    if id caddy &>/dev/null; then
-      chown -R caddy:caddy /var/log/caddy 2>/dev/null || true
-      touch /var/log/caddy/zeromaps-rpc.log
-      chown caddy:caddy /var/log/caddy/zeromaps-rpc.log 2>/dev/null || true
-    fi
-    chmod 755 /var/log/caddy
-    
-    # 重新生成配置
-    sed "s|{DOMAIN}|$SERVER_DOMAIN|g" $INSTALL_DIR/Caddyfile > /etc/caddy/Caddyfile
-    
-    # 验证并reload
-    if caddy validate --config /etc/caddy/Caddyfile >/dev/null 2>&1; then
-      if systemctl reload caddy >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ Caddy配置已更新${NC}"
-      else
-        systemctl restart caddy
-        sleep 3
-        if systemctl is-active caddy >/dev/null 2>&1; then
-          echo -e "${GREEN}✓ Caddy已重启${NC}"
-        else
-          echo -e "${RED}✗ Caddy启动失败${NC}"
-          journalctl -u caddy -n 10 --no-pager
-        fi
-      fi
-    else
-      echo -e "${RED}✗ Caddy配置验证失败${NC}"
-    fi
-  else
-    echo -e "${YELLOW}⚠ 未找到配置文件，跳过Caddy更新${NC}"
-  fi
+  systemctl reload caddy 2>&1 | tee -a $LOG_FILE || true
+  log "${GREEN}✓ Caddy 已重新加载${NC}"
 else
-  echo -e "${YELLOW}⚠ Caddy未安装或未运行，跳过${NC}"
+  log "${YELLOW}⚠ Caddy 未运行，跳过${NC}"
 fi
 
-echo ""
-echo "====================================="
-echo -e "${GREEN}✓ 更新完成！${NC}"
-echo "====================================="
-echo ""
-echo "服务状态:"
+log ""
+log "====================================="
+log "${GREEN}✓ 更新完成！${NC}"
+log "====================================="
+log "当前版本: $(cat package.json | grep version | head -1)"
+log ""
+
 pm2 list
-
-echo ""
-echo "访问地址:"
-if [ -n "$SERVER_DOMAIN" ]; then
-  echo "  单节点监控: http://$SERVER_DOMAIN:9528"
-  if command -v caddy &>/dev/null && systemctl is-active caddy >/dev/null 2>&1; then
-    echo "  统一管理面板: https://$SERVER_DOMAIN"
-  fi
-fi
-echo ""
 

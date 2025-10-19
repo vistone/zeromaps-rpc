@@ -36,7 +36,8 @@ export class WebhookServer {
 
     // 从配置获取 Webhook 参数
     this.secret = secret || config.get<string>('server.webhook.secret')
-    this.updateScript = updateScript || config.get<string>('server.webhook.updateScript')
+    // 统一使用 update.sh（不再用 auto-update.sh）
+    this.updateScript = updateScript || '/opt/zeromaps-rpc/update.sh'
 
     // 加载所有节点列表（用于转发）
     this.loadNodes()
