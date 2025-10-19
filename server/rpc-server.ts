@@ -427,39 +427,36 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 检查节点健康状态（使用 IPv4 测试，最准确）
+   * 检查节点健康状态（直接用 https 请求，不经过 uTLS 代理）
    */
   private async checkHealth(): Promise<void> {
     try {
       const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
 
-      // 强制使用 IPv4（不使用 IPv6 池），指定空字符串作为 ipv6 参数
-      const result = await this.fetcher.fetch({ 
-        url: testUrl, 
-        timeout: 10000,
-        ipv6: ''  // 空字符串表示不使用 IPv6，使用服务器默认网络（IPv4）
-      })
+      // 直接用 Node.js https 模块，不经过 uTLS 代理
+      // 这样才能真正测试服务器主 IP 是否被拉黑（不使用任何伪装）
+      const result = await this.rawHttpsRequest(testUrl, 10000)
       
       this.healthStatus = {
         status: result.statusCode,
-        message: result.statusCode === 200 ? '正常（IPv4 测试）' :
-          result.statusCode === 403 ? '节点被拉黑（IPv4 测试）' :
-            result.statusCode === 429 ? '限流（IPv4 测试）' :
-              `HTTP ${result.statusCode}（IPv4 测试）`,
+        message: result.statusCode === 200 ? '正常（原始 IPv4）' :
+          result.statusCode === 403 ? '节点被拉黑（原始 IPv4）' :
+            result.statusCode === 429 ? '限流（原始 IPv4）' :
+              `HTTP ${result.statusCode}（原始 IPv4）`,
         lastCheck: Date.now()
       }
 
       if (result.statusCode === 403) {
-        logger.error('健康检查: 节点被拉黑（IPv4）', undefined, { 
+        logger.error('健康检查: 节点被拉黑（原始 IPv4，无伪装）', undefined, { 
           statusCode: 403,
           bodySize: result.body.length 
         })
       } else if (result.statusCode === 200) {
-        logger.info('健康检查: 节点正常（IPv4）', {
+        logger.info('健康检查: 节点正常（原始 IPv4，无伪装）', {
           bodySize: result.body.length
         })
       } else {
-        logger.warn('健康检查异常（IPv4）', {
+        logger.warn('健康检查异常（原始 IPv4，无伪装）', {
           statusCode: result.statusCode,
           bodySize: result.body.length
         })
@@ -472,6 +469,49 @@ export class RpcServer extends EventEmitter {
       }
       logger.error('健康检查失败', error as Error)
     }
+  }
+
+  /**
+   * 原始 HTTPS 请求（不经过 uTLS 代理，不使用任何伪装）
+   */
+  private async rawHttpsRequest(url: string, timeout: number): Promise<{ statusCode: number, body: Buffer }> {
+    return new Promise((resolve, reject) => {
+      const https = require('https')
+      const parsedUrl = new URL(url)
+
+      const options = {
+        hostname: parsedUrl.hostname,
+        port: parsedUrl.port || 443,
+        path: parsedUrl.pathname + parsedUrl.search,
+        method: 'GET',
+        timeout,
+        // 不设置任何特殊 headers，使用 Node.js 默认的
+      }
+
+      const req = https.request(options, (res: any) => {
+        const chunks: Buffer[] = []
+
+        res.on('data', (chunk: Buffer) => {
+          chunks.push(chunk)
+        })
+
+        res.on('end', () => {
+          const body = Buffer.concat(chunks)
+          resolve({
+            statusCode: res.statusCode,
+            body
+          })
+        })
+      })
+
+      req.on('error', reject)
+      req.on('timeout', () => {
+        req.destroy()
+        reject(new Error('Request timeout'))
+      })
+
+      req.end()
+    })
   }
 
   /**
