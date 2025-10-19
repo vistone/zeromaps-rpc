@@ -129,14 +129,33 @@ export class UTLSFetcher extends EventEmitter {
       const statusCode = parseInt(result.headers['x-status-code'] || '200')
       const actualBodySize = result.body.length
       
-      // 调试：检查响应体实际内容
+      // 调试：检查响应体实际内容并验证数据有效性
+      let isValidData = true
+      let dataWarning = ''
+      
       if (actualBodySize < 100) {
-        logger.debug('uTLS 代理响应（小文件）', {
+        const preview = result.body.toString('utf-8').substring(0, 50)
+        
+        // 检测是否是 HTML/JSON 错误页面
+        if (preview.includes('<html') || preview.includes('<!DOCTYPE')) {
+          isValidData = false
+          dataWarning = '返回了 HTML 页面，不是 protobuf 数据'
+        } else if (preview.includes('{') && preview.includes('"error"')) {
+          isValidData = false
+          dataWarning = '返回了 JSON 错误消息'
+        } else if (actualBodySize < 10) {
+          isValidData = false
+          dataWarning = '数据过小，可能无效'
+        }
+        
+        logger.warn('uTLS 代理响应（小文件，需检查）', {
           requestId,
           requestTime,
           statusCode,
           bodySize: actualBodySize,
-          bodyPreview: result.body.toString('utf-8').substring(0, 50)
+          bodyPreview: preview,
+          isValidData,
+          warning: dataWarning
         })
       } else {
         logger.debug('uTLS 代理响应', {
@@ -144,6 +163,16 @@ export class UTLSFetcher extends EventEmitter {
           requestTime,
           statusCode,
           size: actualBodySize
+        })
+      }
+      
+      // 如果数据无效，记录为失败
+      if (!isValidData && statusCode === 200) {
+        logger.error('数据验证失败：状态码 200 但返回无效数据', undefined, {
+          requestId,
+          bodySize: actualBodySize,
+          warning: dataWarning,
+          url: options.url.substring(0, 80)
         })
       }
 
