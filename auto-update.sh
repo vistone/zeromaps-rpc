@@ -199,27 +199,19 @@ if [ -d "dist" ]; then
 fi
 log "✓ 备份完成"
 
-# 1. 更新代码（处理历史分歧）
+# 1. 更新代码（强制同步，不保留本地修改）
 log "[1/5] 更新代码..."
 
-# 先尝试正常 pull
-if git pull origin master 2>&1 | tee -a $LOG_FILE; then
-    log "✓ 代码更新完成（正常拉取）"
-else
-    # 如果失败，检查是否是历史分歧问题
-    if git status 2>&1 | grep -q "divergent\|分歧"; then
-        log "⚠️  检测到历史分歧，使用强制同步..."
-        # 保存本地未提交的修改（如果有）
-        git stash save "auto-update-backup-$(date +%s)" 2>&1 | tee -a $LOG_FILE || true
-        # 强制同步远程分支
-        if git reset --hard origin/master 2>&1 | tee -a $LOG_FILE; then
-            log "✓ 代码强制同步完成"
-        else
-            error "git reset 失败"
-        fi
+# 直接使用强制同步（避免 go.mod/go.sum 冲突）
+log "使用强制同步（覆盖本地修改）..."
+if git fetch origin master 2>&1 | tee -a $LOG_FILE; then
+    if git reset --hard origin/master 2>&1 | tee -a $LOG_FILE; then
+        log "✓ 代码更新完成"
     else
-        error "git pull 失败"
+        error "git reset 失败"
     fi
+else
+    error "git fetch 失败"
 fi
 
 # 2. 检查 PM2 配置
