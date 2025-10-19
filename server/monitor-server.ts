@@ -48,12 +48,25 @@ export class MonitorServer {
    */
   private getVersion(): string {
     try {
-      // 修复路径：dist/server → 项目根目录
-      const packagePath = path.join(__dirname, '../../package.json')
+      // 方法1：从 dist/server 向上两级到项目根目录
+      let packagePath = path.join(__dirname, '../../package.json')
+      
+      // 方法2：如果方法1失败，尝试绝对路径
+      if (!fs.existsSync(packagePath)) {
+        packagePath = '/opt/zeromaps-rpc/package.json'
+        logger.debug('使用绝对路径读取版本号', { path: packagePath })
+      }
+      
       const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'))
-      return packageJson.version || 'unknown'
+      const version = packageJson.version || 'unknown'
+      
+      logger.debug('读取版本号成功', { version, path: packagePath })
+      return version
     } catch (error) {
-      logger.warn('读取版本号失败', { error: (error as Error).message })
+      logger.error('读取版本号失败', error as Error, { 
+        __dirname,
+        attemptedPath: path.join(__dirname, '../../package.json')
+      })
       return 'unknown'
     }
   }

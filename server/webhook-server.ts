@@ -330,10 +330,10 @@ export class WebhookServer {
       logger.info('预处理：检查并同步更新脚本...')
       try {
         execSync('cd /opt/zeromaps-rpc && git fetch origin master --tags', { encoding: 'utf-8' })
-        
+
         // 检查是否有本地修改
         const hasLocalChanges = execSync('cd /opt/zeromaps-rpc && git status --porcelain', { encoding: 'utf-8' }).trim()
-        
+
         if (hasLocalChanges) {
           logger.warn('检测到本地修改，执行强制同步', { changes: hasLocalChanges })
           execSync('cd /opt/zeromaps-rpc && git reset --hard origin/master', { encoding: 'utf-8' })
