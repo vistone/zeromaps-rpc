@@ -6,27 +6,16 @@ INSTALL_DIR="/opt/zeromaps-rpc"
 LOG_FILE="/var/log/zeromaps-auto-update.log"
 REQUIRED_GO_VERSION="1.24.9"
 
-log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a $LOG_FILE
-}
-
-error() {
-    log "❌ 错误: $1"
-    log "尝试重启服务..."
-    pm2 restart all 2>&1 | tee -a $LOG_FILE || true
-    exit 1
-}
+log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a $LOG_FILE; }
+error() { log "❌ 错误: $*"; exit 1; }
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
 # 🔧 首要步骤：先同步最新代码和脚本（如果还没重新执行过）
 if [ "${AUTO_UPDATE_SYNCED}" != "1" ]; then
     log "🔧 同步最新代码和脚本..."
-    
-    # 静默同步
     git fetch origin master --tags >/dev/null 2>&1
     git reset --hard origin/master >/dev/null 2>&1
-    
     log "✅ 代码已同步，重新执行最新脚本..."
     export AUTO_UPDATE_SYNCED="1"
     exec bash "$0" "$@"
@@ -60,13 +49,11 @@ fi
 if [ -z "$CURRENT_GO_VERSION" ] || [ "$CURRENT_GO_VERSION" != "$REQUIRED_GO_VERSION" ]; then
     log "⚠️  Go 版本不符合（当前: ${CURRENT_GO_VERSION:-未安装}，需要: $REQUIRED_GO_VERSION）"
     log "下载并安装 Go $REQUIRED_GO_VERSION..."
-    
     cd /tmp
     if wget -q --show-progress "https://go.dev/dl/go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz" 2>&1 | tee -a $LOG_FILE; then
         log "✓ Go 下载完成"
         rm -rf /usr/local/go
         tar -C /usr/local -xzf "go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz" 2>&1 | tee -a $LOG_FILE
-        
         if /usr/local/go/bin/go version 2>&1 | grep -q "$REQUIRED_GO_VERSION"; then
             log "✅ Go $REQUIRED_GO_VERSION 安装成功"
             rm -f "go${REQUIRED_GO_VERSION}.linux-amd64.tar.gz"
@@ -111,7 +98,6 @@ fi
 # 5.2 编译 Go proxy
 if [ -f "$INSTALL_DIR/utls-proxy/build.sh" ]; then
     cd $INSTALL_DIR/utls-proxy
-    
     if bash build.sh 2>&1 | tee -a $LOG_FILE; then
         if [ -f "utls-proxy" ]; then
             GO_SIZE=$(du -h utls-proxy | cut -f1)
@@ -129,18 +115,15 @@ fi
 
 # 第六步：启动所有服务
 log "[6/6] 启动所有服务..."
-
 if [ -f "ecosystem.config.cjs" ]; then
     pm2 start ecosystem.config.cjs 2>&1 | tee -a $LOG_FILE
     sleep 3
     
-    # 检查是否启动了两个进程
+    # 检查是否启动了两个进程，并补充缺失的进程
     PROCESS_COUNT=$(pm2 list | grep -c "online" || echo "0")
-    
     if [ "$PROCESS_COUNT" -lt 2 ]; then
         log "⚠️  进程数不足（只有 $PROCESS_COUNT 个），检查并补充启动..."
         
-        # 检查 utls-proxy 是否缺失
         if ! pm2 list | grep -q "utls-proxy"; then
             log "utls-proxy 未启动，手动启动..."
             pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
@@ -152,7 +135,6 @@ if [ -f "ecosystem.config.cjs" ]; then
             sleep 2
         fi
         
-        # 检查 zeromaps-rpc 是否缺失
         if ! pm2 list | grep -q "zeromaps-rpc"; then
             log "zeromaps-rpc 未启动，手动启动..."
             pm2 start $INSTALL_DIR/dist/server/index.js \
@@ -174,22 +156,16 @@ fi
 
 # 验证服务状态
 sleep 3
-
-# 检查 zeromaps-rpc
-if pm2 list | grep -q "zeromaps-rpc.*online"; then
+if pm2 list | grep -q "online.*zeromaps-rpc"; then
     log "✓ zeromaps-rpc 运行正常"
 else
     log "❌ zeromaps-rpc 未运行"
 fi
 
-# 检查 utls-proxy
 if pm2 list | grep -q "utls-proxy.*online"; then
     log "✓ utls-proxy 运行正常"
-    
-    # 验证端口
     if ss -tlnp 2>/dev/null | grep -q 8765; then
         log "✓ Go proxy 端口 8765 已监听"
-        
         if curl -s --max-time 2 http://127.0.0.1:8765/health >/dev/null 2>&1; then
             GO_VERSION=$(curl -s http://127.0.0.1:8765/health 2>/dev/null | grep -o '"version":"[^"]*"' | cut -d'"' -f4)
             log "✓ Go proxy 版本: $GO_VERSION"
