@@ -355,8 +355,8 @@ export class RpcServer extends EventEmitter {
       fetcherStats: this.fetcher.getStats(),
       ipv6Stats: this.ipv6Pool.getDetailedStats(),
       system: systemStats,
-      health: this.healthStatus,
-      utlsHealth: this.utlsHealthStatus
+      health: this.healthStatus,  // 保持原有字段（Google API 健康状态）
+      utlsHealth: this.utlsHealthStatus  // 新增字段（uTLS 代理健康状态）
     }
   }
 
@@ -656,13 +656,17 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 获取健康状态
+   * 获取健康状态（保持 API 兼容性）
    */
   public getHealthStatus() {
-    return {
-      google: this.healthStatus,
-      utls: this.utlsHealthStatus
-    }
+    return this.healthStatus
+  }
+
+  /**
+   * 获取 uTLS 代理健康状态
+   */
+  public getUTLSHealthStatus() {
+    return this.utlsHealthStatus
   }
 }
 
