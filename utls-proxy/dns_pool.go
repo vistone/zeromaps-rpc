@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,7 +64,7 @@ type IPHealth struct {
 }
 
 // 创建新的 DNS IP 池
-func NewDNSIPPool(domain string, defaultIPv4, defaultIPv6 []string, preferIPv6 bool) *DNSIPPool {
+func NewDNSIPPool(domain string, preferIPv6 bool) *DNSIPPool {
 	pool := &DNSIPPool{
 		domain:          domain,
 		activeIPv4:      make([]string, 0),
@@ -78,30 +80,145 @@ func NewDNSIPPool(domain string, defaultIPv4, defaultIPv6 []string, preferIPv6 b
 		blacklistTime:   10 * time.Minute,
 	}
 
-	// 初始化默认 IP
-	for _, ip := range defaultIPv4 {
-		pool.health[ip] = &IPHealth{
-			ip:     ip,
-			source: "static",
-		}
-	}
-	for _, ip := range defaultIPv6 {
-		pool.health[ip] = &IPHealth{
-			ip:     ip,
-			source: "static",
-		}
-	}
-
 	log.Printf("📦 [DNS-Pool] 创建 %s 的 IP 池", domain)
 
 	return pool
 }
 
-// 启动时初始化（刺探所有 IP）
-func (p *DNSIPPool) InitializeOnStartup() error {
-	log.Printf("🔍 [DNS-Pool] 开始刺探 %s 的可用 IP...", p.domain)
+// 从 JSON 文件加载 IP 池
+func (p *DNSIPPool) LoadFromFile(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
 
-	// 1. 从健康状态中提取预设 IP
+	var poolFile struct {
+		Domains map[string]struct {
+			IPv4       []string          `json:"ipv4"`
+			IPv6       []string          `json:"ipv6"`
+			PreferIPv6 bool              `json:"preferIPv6"`
+			Blacklist  []string          `json:"blacklist"`
+			Health     map[string]string `json:"health"`
+		} `json:"domains"`
+	}
+
+	if err := json.Unmarshal(data, &poolFile); err != nil {
+		return err
+	}
+
+	domainData, ok := poolFile.Domains[p.domain]
+	if !ok {
+		return fmt.Errorf("域名 %s 不在 IP 池文件中", p.domain)
+	}
+
+	// 加载 IP 列表
+	for _, ip := range domainData.IPv4 {
+		p.health[ip] = &IPHealth{ip: ip, source: "file"}
+	}
+	for _, ip := range domainData.IPv6 {
+		p.health[ip] = &IPHealth{ip: ip, source: "file"}
+	}
+
+	// 加载黑名单
+	for _, ip := range domainData.Blacklist {
+		p.blacklist[ip] = time.Now()
+	}
+
+	p.preferIPv6 = domainData.PreferIPv6
+
+	log.Printf("📥 [DNS-Pool] 从文件加载 %s: %d 个 IPv4, %d 个 IPv6",
+		p.domain, len(domainData.IPv4), len(domainData.IPv6))
+
+	return nil
+}
+
+// 保存 IP 池到 JSON 文件
+func (p *DNSIPPool) SaveToFile(filePath string) error {
+	// 读取现有文件
+	var poolFile struct {
+		Version    string `json:"version"`
+		LastUpdate string `json:"lastUpdate"`
+		Domains    map[string]struct {
+			PreferIPv6 bool              `json:"preferIPv6"`
+			IPv4       []string          `json:"ipv4"`
+			IPv6       []string          `json:"ipv6"`
+			Blacklist  []string          `json:"blacklist"`
+			Health     map[string]string `json:"health"`
+		} `json:"domains"`
+		Notes map[string]string `json:"notes"`
+	}
+
+	// 尝试读取现有文件
+	if data, err := os.ReadFile(filePath); err == nil {
+		json.Unmarshal(data, &poolFile)
+	}
+
+	// 初始化
+	if poolFile.Domains == nil {
+		poolFile.Domains = make(map[string]struct {
+			PreferIPv6 bool              `json:"preferIPv6"`
+			IPv4       []string          `json:"ipv4"`
+			IPv6       []string          `json:"ipv6"`
+			Blacklist  []string          `json:"blacklist"`
+			Health     map[string]string `json:"health"`
+		})
+	}
+
+	// 更新当前域名的数据
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	blacklistIPs := []string{}
+	for ip := range p.blacklist {
+		blacklistIPs = append(blacklistIPs, ip)
+	}
+
+	healthData := make(map[string]string)
+	for ip, h := range p.health {
+		h.mu.Lock()
+		successRate := 0.0
+		if h.totalRequests > 0 {
+			successRate = float64(h.successCount) / float64(h.totalRequests) * 100
+		}
+		healthData[ip] = fmt.Sprintf("%.1f%% (%d/%d)", successRate, h.successCount, h.totalRequests)
+		h.mu.Unlock()
+	}
+
+	poolFile.Version = "1.0.0"
+	poolFile.LastUpdate = time.Now().Format(time.RFC3339)
+	poolFile.Domains[p.domain] = struct {
+		PreferIPv6 bool              `json:"preferIPv6"`
+		IPv4       []string          `json:"ipv4"`
+		IPv6       []string          `json:"ipv6"`
+		Blacklist  []string          `json:"blacklist"`
+		Health     map[string]string `json:"health"`
+	}{
+		PreferIPv6: p.preferIPv6,
+		IPv4:       p.activeIPv4,
+		IPv6:       p.activeIPv6,
+		Blacklist:  blacklistIPs,
+		Health:     healthData,
+	}
+
+	// 保存到文件
+	data, err := json.MarshalIndent(poolFile, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// 启动时初始化（从文件加载 + 刺探）
+func (p *DNSIPPool) InitializeOnStartup(filePath string) error {
+	log.Printf("🔍 [DNS-Pool] 开始初始化 %s...", p.domain)
+
+	// 1. 尝试从文件加载
+	if err := p.LoadFromFile(filePath); err != nil {
+		log.Printf("⚠️  [DNS-Pool] 无法从文件加载: %v，使用空池", err)
+	}
+
+	// 2. 从健康状态中提取已有 IP
 	defaultIPv4 := []string{}
 	defaultIPv6 := []string{}
 
@@ -454,7 +571,7 @@ func (p *DNSIPPool) AddCandidateIP(ip string, source string) {
 }
 
 // 启动后台任务
-func (p *DNSIPPool) StartBackgroundTasks() {
+func (p *DNSIPPool) StartBackgroundTasks(filePath string) {
 	// 定期刺探任务
 	go p.startPeriodicProbe()
 
@@ -463,6 +580,23 @@ func (p *DNSIPPool) StartBackgroundTasks() {
 
 	// 黑名单重试任务
 	go p.startBlacklistRetry()
+
+	// 定期保存到文件
+	go p.startPeriodicSave(filePath)
+}
+
+// 定期保存到文件（每 5 分钟）
+func (p *DNSIPPool) startPeriodicSave(filePath string) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if err := p.SaveToFile(filePath); err != nil {
+			log.Printf("⚠️  [DNS-Pool] 保存到文件失败: %v", err)
+		} else {
+			log.Printf("💾 [DNS-Pool] IP 池已保存到文件: %s", filePath)
+		}
+	}
 }
 
 // 定期刺探任务（5 分钟）

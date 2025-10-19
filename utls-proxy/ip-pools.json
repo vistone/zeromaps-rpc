@@ -1,0 +1,37 @@
+{
+  "version": "1.0.0",
+  "lastUpdate": "",
+  "domains": {
+    "kh.google.com": {
+      "preferIPv6": true,
+      "ipv4": [
+        "142.250.105.93",
+        "142.250.105.190",
+        "142.250.105.136",
+        "142.250.105.91"
+      ],
+      "ipv6": [
+        "2607:f8b0:4002:c1b::be",
+        "2607:f8b0:4002:c1b::5b",
+        "2607:f8b0:4002:c1b::88",
+        "2607:f8b0:4002:c1b::5d"
+      ],
+      "blacklist": [],
+      "health": {}
+    },
+    "earth.google.com": {
+      "preferIPv6": false,
+      "ipv4": [],
+      "ipv6": [],
+      "blacklist": [],
+      "health": {}
+    }
+  },
+  "notes": {
+    "description": "Google API DNS IP 池，自动刺探和更新",
+    "updateStrategy": "启动时刺探 → 运行时优化 → 定期保存",
+    "sharing": "可以在节点间共享此文件，加速 IP 池收敛",
+    "manual": "可以手动添加已知的好 IP，删除失败的 IP"
+  }
+}
+

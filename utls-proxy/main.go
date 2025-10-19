@@ -1592,46 +1592,29 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 func initializeDNSIPPools() {
 	log.Printf("🔍 [DNS-Pool] 初始化 DNS IP 池...")
 
+	// IP 池配置文件路径
+	ipPoolFile := "./ip-pools.json"
+
 	// kh.google.com IP 池
-	khPool := NewDNSIPPool(
-		"kh.google.com",
-		[]string{
-			"142.250.105.93",
-			"142.250.105.190",
-			"142.250.105.136",
-			"142.250.105.91",
-		},
-		[]string{
-			"2607:f8b0:4002:c1b::be",
-			"2607:f8b0:4002:c1b::5b",
-			"2607:f8b0:4002:c1b::88",
-			"2607:f8b0:4002:c1b::5d",
-		},
-		true, // 优先 IPv6
-	)
+	khPool := NewDNSIPPool("kh.google.com", true)
 
 	// earth.google.com IP 池
-	earthPool := NewDNSIPPool(
-		"earth.google.com",
-		[]string{}, // 启动时通过 DNS 解析
-		[]string{},
-		false, // 优先 IPv4
-	)
+	earthPool := NewDNSIPPool("earth.google.com", false)
 
 	dnsIPPools["kh.google.com"] = khPool
 	dnsIPPools["earth.google.com"] = earthPool
 
-	// 并发初始化所有池子（刺探 IP）
+	// 并发初始化所有池子（从文件加载 + 刺探 IP）
 	var wg sync.WaitGroup
 	for domain, pool := range dnsIPPools {
 		wg.Add(1)
 		go func(d string, p *DNSIPPool) {
 			defer wg.Done()
-			if err := p.InitializeOnStartup(); err != nil {
+			if err := p.InitializeOnStartup(ipPoolFile); err != nil {
 				log.Printf("⚠️  [DNS-Pool] %s 初始化失败: %v", d, err)
 			}
-			// 启动后台任务
-			p.StartBackgroundTasks()
+			// 启动后台任务（包括定期保存）
+			p.StartBackgroundTasks(ipPoolFile)
 		}(domain, pool)
 	}
 
