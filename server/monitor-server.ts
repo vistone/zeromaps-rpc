@@ -176,7 +176,7 @@ export class MonitorServer {
             try {
               await fs.promises.writeFile(ipPoolPath, JSON.stringify(msg.data, null, 2), 'utf-8')
               logger.info('收到 IP 池更新并已保存', { clientIP })
-              
+
               // 通知 uTLS 代理重新加载（可以通过 HTTP 端点触发）
               const response: WsResponse = { type: 'ip_pool_updated' }
               ws.send(JSON.stringify(response))
@@ -291,8 +291,8 @@ export class MonitorServer {
     try {
       const ipPoolPath = '/opt/zeromaps-rpc/utls-proxy/ip-pools.json'
       const ipPoolData = await fs.promises.readFile(ipPoolPath, 'utf-8')
-      
-      res.writeHead(200, { 
+
+      res.writeHead(200, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       })
