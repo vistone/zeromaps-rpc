@@ -4,26 +4,63 @@
 
 INSTALL_DIR="/opt/zeromaps-rpc"
 LOG_FILE="/var/log/zeromaps-auto-update.log"
+ERROR_LOG="/var/log/zeromaps-auto-update-error.log"
 REQUIRED_GO_VERSION="1.24.9"
 
 # 确保必要的环境变量
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/go/bin:$PATH"
 
-log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a $LOG_FILE; }
-error() { log "❌ 错误: $*"; exit 1; }
+log() { 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a $LOG_FILE
+}
+
+error() { 
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ 错误: $*" | tee -a $LOG_FILE | tee -a $ERROR_LOG
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ 调用栈: ${BASH_SOURCE[*]}" | tee -a $ERROR_LOG
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ❌ 行号: ${BASH_LINENO[*]}" | tee -a $ERROR_LOG
+    exit 1
+}
+
+debug() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $*" >> $LOG_FILE
+}
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
 # 🔧 首要步骤：先同步最新代码和脚本（如果还没重新执行过）
 if [ "${AUTO_UPDATE_SYNCED}" != "1" ]; then
     log "🔧 同步最新代码和脚本..."
-    git fetch origin master --tags >/dev/null 2>&1
-    git reset --hard origin/master >/dev/null 2>&1
+    debug "执行: git fetch origin master --tags"
+    if git fetch origin master --tags 2>&1 | tee -a $LOG_FILE; then
+        debug "git fetch 成功"
+    else
+        error "git fetch 失败"
+    fi
+    
+    BEFORE_SYNC=$(git rev-parse HEAD 2>&1)
+    debug "同步前版本: $BEFORE_SYNC"
+    
+    debug "执行: git reset --hard origin/master"
+    if git reset --hard origin/master 2>&1 | tee -a $LOG_FILE; then
+        debug "git reset 成功"
+    else
+        error "git reset 失败"
+    fi
+    
+    AFTER_SYNC=$(git rev-parse HEAD 2>&1)
+    debug "同步后版本: $AFTER_SYNC"
+    
     log "✅ 代码已同步，重新执行最新脚本..."
     export AUTO_UPDATE_SYNCED="1"
+    debug "重新执行: bash $INSTALL_DIR/auto-update.sh"
     # 使用绝对路径重新执行脚本
     exec bash "$INSTALL_DIR/auto-update.sh" "$@"
 fi
+
+log "✅ 脚本已同步（AUTO_UPDATE_SYNCED=1），继续执行更新..."
+debug "当前工作目录: $(pwd)"
+debug "当前用户: $(whoami)"
+debug "PATH: $PATH"
 
 log "======================================"
 log "🚀 开始自动更新（卸载-安装模式）"
@@ -145,6 +182,11 @@ log "[7/7] 启动所有服务..."
 
 # 7.1 先单独启动 utls-proxy（因为 zeromaps-rpc 依赖它）
 log "启动 utls-proxy..."
+debug "检查 utls-proxy 二进制: $INSTALL_DIR/utls-proxy/utls-proxy"
+if [ ! -f "$INSTALL_DIR/utls-proxy/utls-proxy" ]; then
+    error "utls-proxy 二进制不存在"
+fi
+debug "utls-proxy 大小: $(du -h $INSTALL_DIR/utls-proxy/utls-proxy | cut -f1)"
 
 # 确保没有同名进程（防止 webhook 多次触发冲突）
 if pm2 describe utls-proxy >/dev/null 2>&1; then
@@ -153,17 +195,25 @@ if pm2 describe utls-proxy >/dev/null 2>&1; then
     sleep 1
 fi
 
-pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
+debug "执行: pm2 start utls-proxy"
+if pm2 start $INSTALL_DIR/utls-proxy/utls-proxy \
     --name utls-proxy \
     --cwd $INSTALL_DIR \
     --error $INSTALL_DIR/logs/utls-error.log \
     --output $INSTALL_DIR/logs/utls-out.log \
-    --log-date-format 'YYYY-MM-DD HH:mm:ss' 2>&1 | tee -a $LOG_FILE
+    --log-date-format 'YYYY-MM-DD HH:mm:ss' 2>&1 | tee -a $LOG_FILE; then
+    debug "pm2 start utls-proxy 命令执行成功"
+else
+    error "pm2 start utls-proxy 命令执行失败（退出码: $?）"
+fi
 
 # 等待 utls-proxy 启动
+log "等待 utls-proxy 启动（3秒）..."
 sleep 3
 
 # 验证 utls-proxy
+debug "检查 PM2 进程列表..."
+pm2 list | tee -a $LOG_FILE
 if pm2 list | grep -q "utls-proxy.*online"; then
     log "✓ utls-proxy 启动成功"
     

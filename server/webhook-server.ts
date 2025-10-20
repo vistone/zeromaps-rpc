@@ -358,10 +358,20 @@ export class WebhookServer {
         stdio: ['ignore', 'pipe', 'pipe'],  // 标准输入忽略，输出和错误可捕获
         cwd: '/opt/zeromaps-rpc',  // 设置工作目录
         env: {
-          ...process.env,  // 继承当前环境变量
-          PATH: '/usr/local/bin:/usr/bin:/bin:/usr/local/go/bin:' + (process.env.PATH || ''),
+          // 完整的环境变量设置
+          PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin',
           HOME: '/root',
-          SHELL: '/bin/bash'
+          SHELL: '/bin/bash',
+          USER: 'root',
+          LOGNAME: 'root',
+          LANG: 'en_US.UTF-8',
+          LC_ALL: 'en_US.UTF-8',
+          NODE_ENV: 'production',
+          // PM2 相关
+          PM2_HOME: '/root/.pm2',
+          // 继承关键的环境变量
+          ...(process.env.NVM_DIR && { NVM_DIR: process.env.NVM_DIR }),
+          ...(process.env.NVM_BIN && { NVM_BIN: process.env.NVM_BIN })
         }
       })
       
