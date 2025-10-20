@@ -138,16 +138,17 @@ export class UTLSFetcher extends EventEmitter {
       if (actualBodySize < 100) {
         const preview = result.body.toString('utf-8').substring(0, 50)
 
-        // 检测是否是 HTML/JSON 错误页面
+        // 检测是否是 HTML/JSON 错误页面或数据过小
         if (preview.includes('<html') || preview.includes('<!DOCTYPE')) {
           isValidData = false
           dataWarning = '返回了 HTML 页面，不是 protobuf 数据'
         } else if (preview.includes('{') && preview.includes('"error"')) {
           isValidData = false
           dataWarning = '返回了 JSON 错误消息'
-        } else if (actualBodySize < 10) {
+        } else if (actualBodySize < 50) {
+          // 修改阈值：小于 50B 都认为无效（正常 protobuf 数据至少几百字节）
           isValidData = false
-          dataWarning = '数据过小，可能无效'
+          dataWarning = `数据过小（${actualBodySize}B），疑似错误页面`
         }
 
         logger.warn('uTLS 代理响应（小文件，需检查）', {
