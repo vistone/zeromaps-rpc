@@ -351,33 +351,43 @@ export class WebhookServer {
         logger.error('预处理失败（将继续执行更新）', error as Error)
       }
       
-      // 使用 nohup 让脚本完全脱离父进程（成为 init 的子进程）
-      const updateCommand = `nohup bash ${this.updateScript} >/dev/null 2>&1 &`
+      // 创建包装脚本，明确设置环境变量
+      const wrapperScript = '/tmp/zeromaps-update-wrapper.sh'
+      const wrapperContent = `#!/bin/bash
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin"
+export HOME="/root"
+export SHELL="/bin/bash"
+export USER="root"
+export LOGNAME="root"
+export NODE_ENV="production"
+export PM2_HOME="/root/.pm2"
+export AUTO_UPDATE_SYNCED="1"
+${process.env.NVM_DIR ? `export NVM_DIR="${process.env.NVM_DIR}"` : ''}
+${process.env.NVM_BIN ? `export NVM_BIN="${process.env.NVM_BIN}"` : ''}
+
+cd /opt/zeromaps-rpc
+exec bash ${this.updateScript}
+`
       
       try {
-        execSync(updateCommand, {
+        // 写包装脚本
+        const fs = await import('fs')
+        fs.writeFileSync(wrapperScript, wrapperContent, { mode: 0o755 })
+        
+        // 使用 nohup 执行包装脚本
+        execSync(`nohup ${wrapperScript} >/dev/null 2>&1 &`, {
           cwd: '/opt/zeromaps-rpc',
-          env: {
-            PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin',
-            HOME: '/root',
-            SHELL: '/bin/bash',
-            USER: 'root',
-            LOGNAME: 'root',
-            NODE_ENV: 'production',
-            PM2_HOME: '/root/.pm2',
-            AUTO_UPDATE_SYNCED: '1',
-            ...(process.env.NVM_DIR && { NVM_DIR: process.env.NVM_DIR }),
-            ...(process.env.NVM_BIN && { NVM_BIN: process.env.NVM_BIN })
-          }
+          shell: '/bin/bash'
         })
         
         logger.info('✅ 自动更新脚本已启动（nohup 后台进程）', { 
           script: this.updateScript,
+          wrapper: wrapperScript,
           logFile: '/var/log/zeromaps-auto-update.log',
           tip: '查看更新日志: tail -f /var/log/zeromaps-auto-update.log'
         })
       } catch (error) {
-        logger.error('执行 nohup 命令失败', error as Error)
+        logger.error('执行更新脚本失败', error as Error)
       }
       
       // 立即重置标志
