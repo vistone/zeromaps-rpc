@@ -322,6 +322,14 @@ export class WebhookServer {
 
     this.updating = true
     logger.info('触发自动更新', { script: this.updateScript })
+    
+    // 设置超时：5分钟后自动重置标志（防止卡死）
+    setTimeout(() => {
+      if (this.updating) {
+        logger.warn('更新超时（5分钟），强制重置标志')
+        this.updating = false
+      }
+    }, 5 * 60 * 1000)
 
     try {
       const { spawn, execSync } = await import('child_process')
@@ -378,19 +386,38 @@ export class WebhookServer {
       // 让子进程独立运行（不等待）
       child.unref()
 
+      let outputLineCount = 0
+      let lastOutputTime = Date.now()
+      
       child.stdout?.on('data', (data) => {
-        logger.info('[更新输出]', { output: data.toString().trim() })
+        outputLineCount++
+        lastOutputTime = Date.now()
+        const lines = data.toString().trim().split('\n')
+        lines.forEach((line: string) => {
+          logger.info('[更新输出]', { line: line.substring(0, 200) })
+        })
       })
 
       child.stderr?.on('data', (data) => {
-        logger.warn('[更新错误输出]', { output: data.toString().trim() })
+        lastOutputTime = Date.now()
+        const lines = data.toString().trim().split('\n')
+        lines.forEach((line: string) => {
+          logger.warn('[更新错误]', { line: line.substring(0, 200) })
+        })
       })
 
-      child.on('close', (code) => {
+      child.on('close', (code, signal) => {
+        logger.info('更新脚本进程结束', { 
+          exitCode: code, 
+          signal, 
+          outputLines: outputLineCount,
+          duration: Date.now() - lastOutputTime 
+        })
+        
         if (code === 0) {
-          logger.info('自动更新完成')
+          logger.info('✅ 自动更新完成')
         } else {
-          logger.error('自动更新失败', undefined, { exitCode: code })
+          logger.error('❌ 自动更新失败', undefined, { exitCode: code, signal })
         }
         this.updating = false
       })
@@ -400,7 +427,31 @@ export class WebhookServer {
         this.updating = false
       })
       
-      logger.info('自动更新脚本已启动（独立进程）', { pid: child.pid })
+      child.on('exit', (code, signal) => {
+        logger.info('更新脚本进程退出', { exitCode: code, signal })
+      })
+      
+      logger.info('✅ 自动更新脚本已启动（独立进程）', { 
+        pid: child.pid,
+        script: this.updateScript,
+        cwd: '/opt/zeromaps-rpc'
+      })
+      
+      // 定期检查子进程状态（每 30 秒）
+      const checkInterval = setInterval(() => {
+        const elapsed = Date.now() - lastOutputTime
+        if (elapsed > 30000) {
+          logger.warn('更新脚本无输出', { 
+            secondsSinceLastOutput: Math.floor(elapsed / 1000),
+            outputLines: outputLineCount
+          })
+        }
+        
+        // 如果已经不在更新中，停止检查
+        if (!this.updating) {
+          clearInterval(checkInterval)
+        }
+      }, 30000)
 
     } catch (error) {
       logger.error('自动更新启动失败', error as Error)
