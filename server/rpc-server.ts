@@ -6,6 +6,7 @@
 import * as net from 'net'
 import * as https from 'https'
 import * as http from 'http'
+import * as os from 'os'
 import { exec } from 'child_process'
 import { EventEmitter } from 'events'
 import { IPv6Pool } from './ipv6-pool.js'
@@ -23,6 +24,35 @@ import {
 } from '../proto/proto/zeromaps-rpc.js'
 
 const logger = createLogger('RpcServer')
+
+/**
+ * 自动检测系统是否支持 IPv6
+ */
+function hasSystemIPv6Support(): boolean {
+  try {
+    const interfaces = os.networkInterfaces()
+    for (const name in interfaces) {
+      const addrs = interfaces[name]
+      if (!addrs) continue
+      
+      for (const addr of addrs) {
+        // 找到非内部的 IPv6 地址
+        if (addr.family === 'IPv6' && !addr.internal) {
+          logger.info('✅ 检测到系统 IPv6 支持', { 
+            interface: name, 
+            address: addr.address.substring(0, 30) 
+          })
+          return true
+        }
+      }
+    }
+    logger.info('ℹ️  系统不支持 IPv6（未找到全局 IPv6 地址）')
+    return false
+  } catch (error) {
+    logger.warn('IPv6 检测失败，假定不支持', error as Error)
+    return false
+  }
+}
 
 // 通用 Fetcher 接口
 interface IFetcher {
@@ -74,8 +104,11 @@ export class RpcServer extends EventEmitter {
     const ipv6Start = config.get<number>('ipv6.start')
     const ipv6Count = config.get<number>('ipv6.count')
 
-    // 初始化 IPv6 地址池（如果提供了前缀）
-    if (ipv6BasePrefix) {
+    // 🔍 自动检测系统 IPv6 支持
+    const systemSupportsIPv6 = hasSystemIPv6Support()
+
+    // 初始化 IPv6 地址池（需要同时满足：配置了前缀 AND 系统支持 IPv6）
+    if (ipv6BasePrefix && systemSupportsIPv6) {
       this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, ipv6Start, ipv6Count)
       logger.info('IPv6 地址池已配置', {
         prefix: ipv6BasePrefix,
@@ -85,7 +118,14 @@ export class RpcServer extends EventEmitter {
     } else {
       // 创建空的 IPv6 池（不使用 IPv6）
       this.ipv6Pool = new IPv6Pool('', 0, 0)
-      logger.warn('未使用 IPv6 地址池（使用默认网络）')
+      
+      if (ipv6BasePrefix && !systemSupportsIPv6) {
+        logger.warn('配置了 IPv6 前缀但系统不支持 IPv6，禁用 IPv6 地址池')
+      } else if (!ipv6BasePrefix && systemSupportsIPv6) {
+        logger.warn('系统支持 IPv6 但未配置前缀，使用默认网络')
+      } else {
+        logger.warn('未使用 IPv6 地址池（使用默认网络）')
+      }
     }
 
     // 从配置获取 uTLS 参数
