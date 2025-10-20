@@ -351,44 +351,40 @@ export class WebhookServer {
         logger.error('预处理失败（将继续执行更新）', error as Error)
       }
       
-      // 执行更新脚本（完全独立，不通过管道，避免父进程被杀后管道断开）
-      const child = spawn('bash', [this.updateScript], {
-        detached: true,  // 独立进程组，不受父进程影响
-        stdio: 'ignore',  // 完全独立，输出直接写到脚本的日志文件
-        cwd: '/opt/zeromaps-rpc',  // 设置工作目录
-        env: {
-          // 完整的环境变量设置
-          PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin',
-          HOME: '/root',
-          SHELL: '/bin/bash',
-          USER: 'root',
-          LOGNAME: 'root',
-          NODE_ENV: 'production',
-          // PM2 相关
-          PM2_HOME: '/root/.pm2',
-          // 标记已同步（让脚本跳过同步步骤）
-          AUTO_UPDATE_SYNCED: '1',
-          // 继承关键的环境变量
-          ...(process.env.NVM_DIR && { NVM_DIR: process.env.NVM_DIR }),
-          ...(process.env.NVM_BIN && { NVM_BIN: process.env.NVM_BIN })
-        }
-      })
+      // 使用 nohup 让脚本完全脱离父进程（成为 init 的子进程）
+      const updateCommand = `nohup bash ${this.updateScript} >/dev/null 2>&1 &`
       
-      // 让子进程完全独立运行（不等待，不捕获输出）
-      child.unref()
+      try {
+        execSync(updateCommand, {
+          cwd: '/opt/zeromaps-rpc',
+          env: {
+            PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/go/bin',
+            HOME: '/root',
+            SHELL: '/bin/bash',
+            USER: 'root',
+            LOGNAME: 'root',
+            NODE_ENV: 'production',
+            PM2_HOME: '/root/.pm2',
+            AUTO_UPDATE_SYNCED: '1',
+            ...(process.env.NVM_DIR && { NVM_DIR: process.env.NVM_DIR }),
+            ...(process.env.NVM_BIN && { NVM_BIN: process.env.NVM_BIN })
+          }
+        })
+        
+        logger.info('✅ 自动更新脚本已启动（nohup 后台进程）', { 
+          script: this.updateScript,
+          logFile: '/var/log/zeromaps-auto-update.log',
+          tip: '查看更新日志: tail -f /var/log/zeromaps-auto-update.log'
+        })
+      } catch (error) {
+        logger.error('执行 nohup 命令失败', error as Error)
+      }
       
-      logger.info('✅ 自动更新脚本已启动（完全独立进程）', { 
-        pid: child.pid,
-        script: this.updateScript,
-        logFile: '/var/log/zeromaps-auto-update.log',
-        tip: '查看更新日志: tail -f /var/log/zeromaps-auto-update.log'
-      })
-      
-      // 立即重置标志（让脚本完全独立运行）
+      // 立即重置标志
       setTimeout(() => {
         this.updating = false
-        logger.info('更新标志已重置，后续 webhook 可以触发新的更新')
-      }, 3000)  // 3秒后重置，给脚本足够的启动时间
+        logger.info('更新标志已重置')
+      }, 2000)
 
     } catch (error) {
       logger.error('自动更新启动失败', error as Error)
