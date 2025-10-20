@@ -1148,10 +1148,17 @@ func isAllowedURL(targetURL string) error {
 }
 
 // HTTP 代理处理器
+// 统一的错误响应函数（确保设置 X-Status-Code）
+func sendError(w http.ResponseWriter, message string, statusCode int) {
+	w.Header().Set("X-Status-Code", strconv.Itoa(statusCode))
+	w.Header().Set("Content-Type", "text/plain")
+	sendError(w, message, statusCode)
+}
+
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	// 检查是否正在关闭
 	if shutdownFlag.Load() {
-		http.Error(w, "Server is shutting down", http.StatusServiceUnavailable)
+		sendError(w, "Server is shutting down", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -1165,14 +1172,14 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	ipv6 := r.URL.Query().Get("ipv6")
 
 	if targetURL == "" {
-		http.Error(w, "Missing 'url' parameter", http.StatusBadRequest)
+		sendError(w, "Missing 'url' parameter", http.StatusBadRequest)
 		return
 	}
 
 	// 验证 URL
 	if err := isAllowedURL(targetURL); err != nil {
 		log.Printf("❌ URL 验证失败: %v", err)
-		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		sendError(w, "Invalid URL", http.StatusBadRequest)
 		stats.failedRequests.Add(1)
 		return
 	}
@@ -1181,7 +1188,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	if ipv6 != "" {
 		if _, err := net.ResolveIPAddr("ip6", ipv6); err != nil {
 			log.Printf("❌ 无效的 IPv6 地址: %s", ipv6)
-			http.Error(w, "Invalid IPv6 address", http.StatusBadRequest)
+			sendError(w, "Invalid IPv6 address", http.StatusBadRequest)
 			stats.failedRequests.Add(1)
 			return
 		}
@@ -1189,7 +1196,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		// 检查熔断器状态
 		if isCircuitOpen(ipv6) {
 			log.Printf("⛔ [%s] 熔断器已打开，拒绝请求", ipv6[:min(20, len(ipv6))])
-			http.Error(w, "IPv6 circuit breaker open", http.StatusServiceUnavailable)
+			sendError(w, "IPv6 circuit breaker open", http.StatusServiceUnavailable)
 			stats.failedRequests.Add(1)
 			return
 		}
@@ -1207,7 +1214,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		client, err = getOrCreateIPv6Client(ipv6)
 		if err != nil {
 			log.Printf("❌ 获取 IPv6 客户端失败: %v", err)
-			http.Error(w, "IPv6 client creation failed", http.StatusInternalServerError)
+			sendError(w, "IPv6 client creation failed", http.StatusInternalServerError)
 			stats.failedRequests.Add(1)
 			return
 		}
@@ -1278,7 +1285,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	req, err := http.NewRequestWithContext(ctx, "GET", finalURL, nil)
 	if err != nil {
 		log.Printf("❌ 创建请求失败: %v", err)
-		http.Error(w, "Request creation failed", http.StatusInternalServerError)
+		sendError(w, "Request creation failed", http.StatusInternalServerError)
 		stats.failedRequests.Add(1)
 		return
 	}
@@ -1351,7 +1358,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// 重试次数用尽
-			http.Error(w, "Request failed after retries", http.StatusBadGateway)
+			sendError(w, "Request failed after retries", http.StatusBadGateway)
 			stats.failedRequests.Add(1)
 			recordRequestResult(ipv6, false) // 记录失败到熔断器
 			return
@@ -1371,7 +1378,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 				if err := refreshSession(ipv6, true); err != nil {
 					log.Printf("❌ 强制刷新会话失败: %v", err)
-					http.Error(w, "Session refresh failed", http.StatusServiceUnavailable)
+					sendError(w, "Session refresh failed", http.StatusServiceUnavailable)
 					stats.failedRequests.Add(1)
 					recordRequestResult(ipv6, false) // 记录失败到熔断器
 					return
@@ -1398,7 +1405,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 
 			// 已刷新过或无重试机会
 			log.Printf("❌ 403 错误，Cookie 刷新后仍然失败")
-			http.Error(w, "Forbidden after refresh", http.StatusForbidden)
+			sendError(w, "Forbidden after refresh", http.StatusForbidden)
 			stats.failedRequests.Add(1)
 			recordRequestResult(ipv6, false)
 			return
@@ -1443,7 +1450,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			log.Printf("❌ 429 错误，重试次数用尽")
-			http.Error(w, "Too many requests", http.StatusTooManyRequests)
+			sendError(w, "Too many requests", http.StatusTooManyRequests)
 			stats.failedRequests.Add(1)
 			recordRequestResult(ipv6, false) // 记录失败到熔断器
 			return
@@ -1475,7 +1482,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			log.Printf("❌ 503 错误，重试次数用尽")
-			http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
+			sendError(w, "Service unavailable", http.StatusServiceUnavailable)
 			stats.failedRequests.Add(1)
 			recordRequestResult(ipv6, false) // 记录失败到熔断器
 			return
@@ -1507,7 +1514,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			log.Printf("❌ %d 错误，重试次数用尽", statusCode)
-			http.Error(w, fmt.Sprintf("Server error: %d", statusCode), statusCode)
+			sendError(w, fmt.Sprintf("Server error: %d", statusCode), statusCode)
 			stats.failedRequests.Add(1)
 			recordRequestResult(ipv6, false) // 记录失败到熔断器
 			return
@@ -1522,7 +1529,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		log.Printf("❌ 读取响应失败: %v", err)
-		http.Error(w, "Failed to read response", http.StatusInternalServerError)
+		sendError(w, "Failed to read response", http.StatusInternalServerError)
 		stats.failedRequests.Add(1)
 		recordRequestResult(ipv6, false) // 记录失败到熔断器
 		return
@@ -1533,7 +1540,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 		body, err = decompressGzip(body)
 		if err != nil {
 			log.Printf("❌ 解压失败: %v", err)
-			http.Error(w, "Failed to decompress response", http.StatusInternalServerError)
+			sendError(w, "Failed to decompress response", http.StatusInternalServerError)
 			stats.failedRequests.Add(1)
 			recordRequestResult(ipv6, false) // 记录失败到熔断器
 			return
