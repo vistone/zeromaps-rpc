@@ -26,31 +26,64 @@ import {
 const logger = createLogger('RpcServer')
 
 /**
- * 自动检测系统是否支持 IPv6
+ * 自动检测系统 IPv6 隧道前缀
+ * 返回：{ supported: boolean, prefix: string, interface: string }
  */
-function hasSystemIPv6Support(): boolean {
+function detectIPv6Tunnel(): { supported: boolean; prefix: string; interfaceName: string } {
   try {
     const interfaces = os.networkInterfaces()
-    for (const name in interfaces) {
-      const addrs = interfaces[name]
+    
+    // 优先查找 he-ipv6, sit1, tun0 等隧道接口
+    const tunnelInterfaces = ['he-ipv6', 'sit1', 'sit2', 'tun0', 'tun1']
+    
+    for (const tunnelName of tunnelInterfaces) {
+      const addrs = interfaces[tunnelName]
       if (!addrs) continue
-
+      
       for (const addr of addrs) {
-        // 找到非内部的 IPv6 地址
         if (addr.family === 'IPv6' && !addr.internal) {
-          logger.info('✅ 检测到系统 IPv6 支持', {
-            interface: name,
-            address: addr.address.substring(0, 30)
+          // 从完整地址提取前缀（去掉后缀）
+          // 例如：2607:8700:5500:2043::2 → 2607:8700:5500:2043
+          const ipv6Full = addr.address
+          const prefix = ipv6Full.split('::')[0]  // 取 :: 前面的部分
+          
+          logger.info('✅ 检测到 IPv6 隧道', { 
+            interface: tunnelName, 
+            prefix: prefix,
+            fullAddress: ipv6Full.substring(0, 40)
           })
-          return true
+          
+          return { supported: true, prefix, interfaceName: tunnelName }
         }
       }
     }
+    
+    // 查找其他任何非内部的 IPv6 地址
+    for (const name in interfaces) {
+      const addrs = interfaces[name]
+      if (!addrs) continue
+      
+      for (const addr of addrs) {
+        if (addr.family === 'IPv6' && !addr.internal) {
+          const ipv6Full = addr.address
+          const prefix = ipv6Full.split('::')[0]
+          
+          logger.info('✅ 检测到 IPv6 支持', { 
+            interface: name, 
+            prefix: prefix,
+            fullAddress: ipv6Full.substring(0, 40)
+          })
+          
+          return { supported: true, prefix, interfaceName: name }
+        }
+      }
+    }
+    
     logger.info('ℹ️  系统不支持 IPv6（未找到全局 IPv6 地址）')
-    return false
+    return { supported: false, prefix: '', interfaceName: '' }
   } catch (error) {
     logger.warn('IPv6 检测失败，假定不支持', error as Error)
-    return false
+    return { supported: false, prefix: '', interfaceName: '' }
   }
 }
 
@@ -104,25 +137,38 @@ export class RpcServer extends EventEmitter {
     const ipv6Start = config.get<number>('ipv6.start')
     const ipv6Count = config.get<number>('ipv6.count')
 
-    // 🔍 自动检测系统 IPv6 支持
-    const systemSupportsIPv6 = hasSystemIPv6Support()
+    // 🔍 自动检测系统 IPv6 隧道和前缀
+    const ipv6Detection = detectIPv6Tunnel()
+    
+    // 决定最终使用的 IPv6 前缀（优先级：手动配置 > 自动检测）
+    let finalIPv6Prefix = ipv6BasePrefix  // 手动配置的前缀
+    
+    if (!finalIPv6Prefix && ipv6Detection.supported) {
+      // 如果没有手动配置，但检测到 IPv6，使用自动检测的前缀
+      finalIPv6Prefix = ipv6Detection.prefix
+      logger.info('🔍 使用自动检测的 IPv6 前缀', {
+        prefix: finalIPv6Prefix,
+        interface: ipv6Detection.interfaceName
+      })
+    }
 
-    // 初始化 IPv6 地址池（需要同时满足：配置了前缀 AND 系统支持 IPv6）
-    if (ipv6BasePrefix && systemSupportsIPv6) {
-      this.ipv6Pool = new IPv6Pool(ipv6BasePrefix, ipv6Start, ipv6Count)
+    // 初始化 IPv6 地址池
+    if (finalIPv6Prefix && ipv6Detection.supported) {
+      this.ipv6Pool = new IPv6Pool(finalIPv6Prefix, ipv6Start, ipv6Count)
       logger.info('IPv6 地址池已配置', {
-        prefix: ipv6BasePrefix,
+        prefix: finalIPv6Prefix,
         range: `::${ipv6Start} ~ ::${ipv6Start + ipv6Count - 1}`,
-        count: ipv6Count
+        count: ipv6Count,
+        source: ipv6BasePrefix ? '手动配置' : '自动检测'
       })
     } else {
       // 创建空的 IPv6 池（不使用 IPv6）
       this.ipv6Pool = new IPv6Pool('', 0, 0)
-
-      if (ipv6BasePrefix && !systemSupportsIPv6) {
+      
+      if (finalIPv6Prefix && !ipv6Detection.supported) {
         logger.warn('配置了 IPv6 前缀但系统不支持 IPv6，禁用 IPv6 地址池')
-      } else if (!ipv6BasePrefix && systemSupportsIPv6) {
-        logger.warn('系统支持 IPv6 但未配置前缀，使用默认网络')
+      } else if (!finalIPv6Prefix && ipv6Detection.supported) {
+        logger.warn('检测到 IPv6 但无可用前缀（可能是动态地址），使用默认网络')
       } else {
         logger.warn('未使用 IPv6 地址池（使用默认网络）')
       }
