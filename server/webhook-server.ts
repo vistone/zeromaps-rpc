@@ -352,14 +352,27 @@ export class WebhookServer {
         logger.error('预处理失败（将继续执行更新）', error as Error)
       }
 
-      // 执行更新脚本
-      const child = spawn('bash', [this.updateScript])
+      // 执行更新脚本（detached 模式，避免父进程退出时被杀死）
+      const child = spawn('bash', [this.updateScript], {
+        detached: true,  // 独立进程组，不受父进程影响
+        stdio: ['ignore', 'pipe', 'pipe'],  // 标准输入忽略，输出和错误可捕获
+        cwd: '/opt/zeromaps-rpc',  // 设置工作目录
+        env: {
+          ...process.env,  // 继承当前环境变量
+          PATH: '/usr/local/bin:/usr/bin:/bin:/usr/local/go/bin:' + (process.env.PATH || ''),
+          HOME: '/root',
+          SHELL: '/bin/bash'
+        }
+      })
+      
+      // 让子进程独立运行（不等待）
+      child.unref()
 
-      child.stdout.on('data', (data) => {
+      child.stdout?.on('data', (data) => {
         logger.info('[更新输出]', { output: data.toString().trim() })
       })
 
-      child.stderr.on('data', (data) => {
+      child.stderr?.on('data', (data) => {
         logger.warn('[更新错误输出]', { output: data.toString().trim() })
       })
 
@@ -376,6 +389,8 @@ export class WebhookServer {
         logger.error('自动更新执行失败', error)
         this.updating = false
       })
+      
+      logger.info('自动更新脚本已启动（独立进程）', { pid: child.pid })
 
     } catch (error) {
       logger.error('自动更新启动失败', error as Error)

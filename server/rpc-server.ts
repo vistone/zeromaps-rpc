@@ -34,13 +34,13 @@ function hasSystemIPv6Support(): boolean {
     for (const name in interfaces) {
       const addrs = interfaces[name]
       if (!addrs) continue
-      
+
       for (const addr of addrs) {
         // 找到非内部的 IPv6 地址
         if (addr.family === 'IPv6' && !addr.internal) {
-          logger.info('✅ 检测到系统 IPv6 支持', { 
-            interface: name, 
-            address: addr.address.substring(0, 30) 
+          logger.info('✅ 检测到系统 IPv6 支持', {
+            interface: name,
+            address: addr.address.substring(0, 30)
           })
           return true
         }
@@ -118,7 +118,7 @@ export class RpcServer extends EventEmitter {
     } else {
       // 创建空的 IPv6 池（不使用 IPv6）
       this.ipv6Pool = new IPv6Pool('', 0, 0)
-      
+
       if (ipv6BasePrefix && !systemSupportsIPv6) {
         logger.warn('配置了 IPv6 前缀但系统不支持 IPv6，禁用 IPv6 地址池')
       } else if (!ipv6BasePrefix && systemSupportsIPv6) {
