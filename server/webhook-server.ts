@@ -322,7 +322,7 @@ export class WebhookServer {
 
     this.updating = true
     logger.info('触发自动更新', { script: this.updateScript })
-    
+
     // 设置超时：5分钟后自动重置标志（防止卡死）
     setTimeout(() => {
       if (this.updating) {
@@ -360,10 +360,10 @@ export class WebhookServer {
         logger.error('预处理失败（将继续执行更新）', error as Error)
       }
 
-      // 执行更新脚本（detached 模式，避免父进程退出时被杀死）
+      // 执行更新脚本（完全独立，不通过管道，避免父进程被杀后管道断开）
       const child = spawn('bash', [this.updateScript], {
         detached: true,  // 独立进程组，不受父进程影响
-        stdio: ['ignore', 'pipe', 'pipe'],  // 标准输入忽略，输出和错误可捕获
+        stdio: 'ignore',  // 完全独立，输出直接写到脚本的日志文件
         cwd: '/opt/zeromaps-rpc',  // 设置工作目录
         env: {
           // 完整的环境变量设置
@@ -372,8 +372,6 @@ export class WebhookServer {
           SHELL: '/bin/bash',
           USER: 'root',
           LOGNAME: 'root',
-          LANG: 'en_US.UTF-8',
-          LC_ALL: 'en_US.UTF-8',
           NODE_ENV: 'production',
           // PM2 相关
           PM2_HOME: '/root/.pm2',
@@ -383,75 +381,21 @@ export class WebhookServer {
         }
       })
       
-      // 让子进程独立运行（不等待）
+      // 让子进程完全独立运行（不等待，不捕获输出）
       child.unref()
-
-      let outputLineCount = 0
-      let lastOutputTime = Date.now()
       
-      child.stdout?.on('data', (data) => {
-        outputLineCount++
-        lastOutputTime = Date.now()
-        const lines = data.toString().trim().split('\n')
-        lines.forEach((line: string) => {
-          logger.info('[更新输出]', { line: line.substring(0, 200) })
-        })
-      })
-
-      child.stderr?.on('data', (data) => {
-        lastOutputTime = Date.now()
-        const lines = data.toString().trim().split('\n')
-        lines.forEach((line: string) => {
-          logger.warn('[更新错误]', { line: line.substring(0, 200) })
-        })
-      })
-
-      child.on('close', (code, signal) => {
-        logger.info('更新脚本进程结束', { 
-          exitCode: code, 
-          signal, 
-          outputLines: outputLineCount,
-          duration: Date.now() - lastOutputTime 
-        })
-        
-        if (code === 0) {
-          logger.info('✅ 自动更新完成')
-        } else {
-          logger.error('❌ 自动更新失败', undefined, { exitCode: code, signal })
-        }
-        this.updating = false
-      })
-
-      child.on('error', (error) => {
-        logger.error('自动更新执行失败', error)
-        this.updating = false
-      })
-      
-      child.on('exit', (code, signal) => {
-        logger.info('更新脚本进程退出', { exitCode: code, signal })
-      })
-      
-      logger.info('✅ 自动更新脚本已启动（独立进程）', { 
+      logger.info('✅ 自动更新脚本已启动（完全独立进程）', { 
         pid: child.pid,
         script: this.updateScript,
-        cwd: '/opt/zeromaps-rpc'
+        logFile: '/var/log/zeromaps-auto-update.log',
+        tip: '查看更新日志: tail -f /var/log/zeromaps-auto-update.log'
       })
       
-      // 定期检查子进程状态（每 30 秒）
-      const checkInterval = setInterval(() => {
-        const elapsed = Date.now() - lastOutputTime
-        if (elapsed > 30000) {
-          logger.warn('更新脚本无输出', { 
-            secondsSinceLastOutput: Math.floor(elapsed / 1000),
-            outputLines: outputLineCount
-          })
-        }
-        
-        // 如果已经不在更新中，停止检查
-        if (!this.updating) {
-          clearInterval(checkInterval)
-        }
-      }, 30000)
+      // 立即重置标志（让脚本完全独立运行）
+      setTimeout(() => {
+        this.updating = false
+        logger.info('更新标志已重置，后续 webhook 可以触发新的更新')
+      }, 3000)  // 3秒后重置，给脚本足够的启动时间
 
     } catch (error) {
       logger.error('自动更新启动失败', error as Error)
