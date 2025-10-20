@@ -27,6 +27,27 @@ debug() {
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
+# 🔍 加载VPS配置（如果存在）
+log "🔍 检测VPS配置..."
+detect_local_ip() {
+  ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K\S+' || \
+  curl -s --max-time 3 ifconfig.me 2>/dev/null || \
+  hostname -I | awk '{print $1}'
+}
+
+LOCAL_IP=$(detect_local_ip)
+CONFIG_FILE="$INSTALL_DIR/configs/vps-${LOCAL_IP}.conf"
+
+if [ -f "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+    log "✅ 加载VPS配置: $SERVER_NAME (IPv6: ${IPV6_PREFIX:-无})"
+    debug "配置文件: $CONFIG_FILE"
+    debug "IPV6_PREFIX=$IPV6_PREFIX"
+else
+    log "⚠️  未找到配置文件: vps-${LOCAL_IP}.conf，使用默认配置"
+    IPV6_PREFIX=""
+fi
+
 # 🔧 首要步骤：先同步最新代码和脚本（webhook 已同步时跳过）
 if [ "${AUTO_UPDATE_SYNCED}" != "1" ]; then
     log "🔧 同步最新代码和脚本..."
@@ -168,12 +189,60 @@ else
     log "⚠️  未找到 Go proxy 构建脚本"
 fi
 
-# 第六步：验证配置文件
-log "[6/7] 验证配置文件..."
-if [ ! -f "ecosystem.config.cjs" ]; then
-    error "ecosystem.config.cjs 不存在"
-fi
-log "✓ PM2 配置文件存在"
+# 第六步：生成PM2配置文件（使用VPS配置中的参数）
+log "[6/7] 生成PM2配置文件..."
+cat > $INSTALL_DIR/ecosystem.config.cjs << EOF
+module.exports = {
+  apps: [
+    {
+      name: 'utls-proxy',
+      script: './utls-proxy/utls-proxy',
+      cwd: '$INSTALL_DIR',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '200M',
+      max_restarts: 10,
+      min_uptime: '10s',
+      restart_delay: 5000,
+      error_file: '$INSTALL_DIR/logs/utls-error.log',
+      out_file: '$INSTALL_DIR/logs/utls-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      env: {
+        UTLS_PROXY_PORT: '8765',
+        UTLS_LOG_FILE: '$INSTALL_DIR/logs/utls-proxy.log',
+        UTLS_LOG_MAX_SIZE_MB: '100',
+        UTLS_LOG_MAX_BACKUPS: '5',
+        UTLS_LOG_MAX_AGE_DAYS: '7',
+        NODE_ENV: 'production'
+      }
+    },
+    {
+      name: 'zeromaps-rpc',
+      script: './dist/server/index.js',
+      cwd: '$INSTALL_DIR',
+      instances: 1,
+      exec_mode: 'fork',
+      autorestart: true,
+      watch: false,
+      max_memory_restart: '300M',
+      max_restarts: 10,
+      min_uptime: '10s',
+      restart_delay: 5000,
+      error_file: '$INSTALL_DIR/logs/zeromaps-error.log',
+      out_file: '$INSTALL_DIR/logs/zeromaps-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss',
+      env: {
+        NODE_ENV: 'production',
+        LOG_LEVEL: 'info',
+        IPV6_PREFIX: '${IPV6_PREFIX:-}'
+      }
+    }
+  ]
+};
+EOF
+log "✓ PM2 配置文件已生成（IPV6_PREFIX=${IPV6_PREFIX:-无}）"
 
 # 第七步：启动所有服务（带重试）
 log "[7/7] 启动所有服务..."
