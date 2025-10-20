@@ -42,17 +42,23 @@ function detectIPv6Tunnel(): { supported: boolean; prefix: string; interfaceName
 
       for (const addr of addrs) {
         if (addr.family === 'IPv6' && !addr.internal) {
+          const ipv6Full = addr.address
+          
+          // 过滤掉本地链路地址（fe80::）和其他特殊地址
+          if (ipv6Full.startsWith('fe80:') || ipv6Full.startsWith('::1')) {
+            continue  // 跳过本地链路地址和 loopback
+          }
+          
           // 从完整地址提取前缀（去掉后缀）
           // 例如：2607:8700:5500:2043::2 → 2607:8700:5500:2043
-          const ipv6Full = addr.address
           const prefix = ipv6Full.split('::')[0]  // 取 :: 前面的部分
-
-          logger.info('✅ 检测到 IPv6 隧道', {
-            interface: tunnelName,
+          
+          logger.info('✅ 检测到 IPv6 隧道', { 
+            interface: tunnelName, 
             prefix: prefix,
             fullAddress: ipv6Full.substring(0, 40)
           })
-
+          
           return { supported: true, prefix, interfaceName: tunnelName }
         }
       }
@@ -62,18 +68,24 @@ function detectIPv6Tunnel(): { supported: boolean; prefix: string; interfaceName
     for (const name in interfaces) {
       const addrs = interfaces[name]
       if (!addrs) continue
-
+      
       for (const addr of addrs) {
         if (addr.family === 'IPv6' && !addr.internal) {
           const ipv6Full = addr.address
+          
+          // 过滤掉本地链路地址（fe80::）和其他特殊地址
+          if (ipv6Full.startsWith('fe80:') || ipv6Full.startsWith('::1') || ipv6Full.startsWith('::')) {
+            continue  // 跳过本地链路地址、loopback 和未分配地址
+          }
+          
           const prefix = ipv6Full.split('::')[0]
-
-          logger.info('✅ 检测到 IPv6 支持', {
-            interface: name,
+          
+          logger.info('✅ 检测到 IPv6 支持', { 
+            interface: name, 
             prefix: prefix,
             fullAddress: ipv6Full.substring(0, 40)
           })
-
+          
           return { supported: true, prefix, interfaceName: name }
         }
       }
