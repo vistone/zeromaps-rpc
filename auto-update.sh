@@ -27,14 +27,14 @@ debug() {
 
 cd $INSTALL_DIR || error "无法进入目录 $INSTALL_DIR"
 
-# 🔧 首要步骤：先同步最新代码和脚本（如果还没重新执行过）
+# 🔧 首要步骤：先同步最新代码和脚本（webhook 已同步时跳过）
 if [ "${AUTO_UPDATE_SYNCED}" != "1" ]; then
     log "🔧 同步最新代码和脚本..."
     debug "执行: git fetch origin master --tags"
     if git fetch origin master --tags 2>&1 | tee -a $LOG_FILE; then
         debug "git fetch 成功"
     else
-        error "git fetch 失败"
+        log "⚠️  git fetch 失败，尝试继续..."
     fi
     
     BEFORE_SYNC=$(git rev-parse HEAD 2>&1)
@@ -44,23 +44,21 @@ if [ "${AUTO_UPDATE_SYNCED}" != "1" ]; then
     if git reset --hard origin/master 2>&1 | tee -a $LOG_FILE; then
         debug "git reset 成功"
     else
-        error "git reset 失败"
+        log "⚠️  git reset 失败，尝试继续..."
     fi
     
     AFTER_SYNC=$(git rev-parse HEAD 2>&1)
     debug "同步后版本: $AFTER_SYNC"
-    
-    log "✅ 代码已同步，重新执行最新脚本..."
-    export AUTO_UPDATE_SYNCED="1"
-    debug "重新执行: bash $INSTALL_DIR/auto-update.sh"
-    # 使用绝对路径重新执行脚本
-    exec bash "$INSTALL_DIR/auto-update.sh" "$@"
+    log "✅ 代码已同步（$BEFORE_SYNC -> $AFTER_SYNC）"
+else
+    log "✅ 代码已由 webhook 同步，跳过同步步骤"
 fi
 
-log "✅ 脚本已同步（AUTO_UPDATE_SYNCED=1），继续执行更新..."
 debug "当前工作目录: $(pwd)"
 debug "当前用户: $(whoami)"
 debug "PATH: $PATH"
+debug "PID: $$"
+debug "PPID: $PPID"
 
 log "======================================"
 log "🚀 开始自动更新（卸载-安装模式）"

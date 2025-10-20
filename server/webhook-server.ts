@@ -334,32 +334,23 @@ export class WebhookServer {
     try {
       const { spawn, execSync } = await import('child_process')
 
-      // 🔧 预处理：总是强制同步到最新版本（确保使用最新脚本）
-      logger.info('预处理：强制同步到最新版本...')
+      // 🔧 预处理：先同步代码（确保脚本是最新的）
+      logger.info('预处理：同步最新代码...')
       try {
-        // 获取最新代码和 tags
-        execSync('cd /opt/zeromaps-rpc && git fetch origin master --tags', { encoding: 'utf-8' })
-
-        // 记录同步前版本
+        execSync('cd /opt/zeromaps-rpc && git fetch origin master --tags 2>&1', { encoding: 'utf-8' })
         const beforeSync = execSync('cd /opt/zeromaps-rpc && git rev-parse HEAD', { encoding: 'utf-8' }).trim()
-
-        // 总是强制同步（确保脚本是最新版本）
-        execSync('cd /opt/zeromaps-rpc && git reset --hard origin/master', { encoding: 'utf-8' })
-
+        execSync('cd /opt/zeromaps-rpc && git reset --hard origin/master 2>&1', { encoding: 'utf-8' })
         const afterSync = execSync('cd /opt/zeromaps-rpc && git rev-parse HEAD', { encoding: 'utf-8' }).trim()
-
+        
         if (beforeSync !== afterSync) {
-          logger.info('✅ 代码已更新', {
-            before: beforeSync.substring(0, 8),
-            after: afterSync.substring(0, 8)
-          })
+          logger.info('✅ 代码已更新', { before: beforeSync.substring(0, 8), after: afterSync.substring(0, 8) })
         } else {
           logger.info('✓ 代码已是最新')
         }
       } catch (error) {
         logger.error('预处理失败（将继续执行更新）', error as Error)
       }
-
+      
       // 执行更新脚本（完全独立，不通过管道，避免父进程被杀后管道断开）
       const child = spawn('bash', [this.updateScript], {
         detached: true,  // 独立进程组，不受父进程影响
@@ -375,6 +366,8 @@ export class WebhookServer {
           NODE_ENV: 'production',
           // PM2 相关
           PM2_HOME: '/root/.pm2',
+          // 标记已同步（让脚本跳过同步步骤）
+          AUTO_UPDATE_SYNCED: '1',
           // 继承关键的环境变量
           ...(process.env.NVM_DIR && { NVM_DIR: process.env.NVM_DIR }),
           ...(process.env.NVM_BIN && { NVM_BIN: process.env.NVM_BIN })
