@@ -257,6 +257,132 @@ export class WebUIGenerator {
             justify-content: center;
             color: #666;
             font-size: 1.1em;
+            padding: 20px;
+        }
+        
+        .simple-chart {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .chart-bar {
+            width: 100%;
+            max-width: 500px;
+        }
+        
+        .bar-label {
+            font-size: 1.2em;
+            font-weight: 600;
+            margin-bottom: 15px;
+            text-align: center;
+            color: #2c3e50;
+        }
+        
+        .bar-container {
+            width: 100%;
+            height: 30px;
+            background: #e9ecef;
+            border-radius: 15px;
+            overflow: hidden;
+            display: flex;
+            margin-bottom: 10px;
+        }
+        
+        .bar-success {
+            background: linear-gradient(90deg, #28a745, #20c997);
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        
+        .bar-failure {
+            background: linear-gradient(90deg, #dc3545, #fd7e14);
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        
+        .bar-legend {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+        }
+        
+        .legend-success {
+            color: #28a745;
+            font-weight: 600;
+        }
+        
+        .legend-failure {
+            color: #dc3545;
+            font-weight: 600;
+        }
+        
+        .chart-metrics {
+            display: flex;
+            gap: 30px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-item {
+            text-align: center;
+        }
+        
+        .metric-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 8px;
+        }
+        
+        .metric-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            padding: 8px 16px;
+            border-radius: 8px;
+        }
+        
+        .metric-value.good {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .metric-value.warning {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .metric-value.bad {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .chart-indicator {
+            width: 100%;
+            max-width: 400px;
+        }
+        
+        .indicator-bar {
+            width: 100%;
+            height: 20px;
+            background: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 8px;
+        }
+        
+        .indicator-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #dc3545, #ffc107, #28a745);
+            transition: width 0.3s ease;
+        }
+        
+        .indicator-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8em;
+            color: #666;
         }
 
         .button {
@@ -968,6 +1094,77 @@ export class WebUIGenerator {
             document.getElementById('success-rate').textContent = \`\${successRate.toFixed(1)}%\`;
             
             updateConnectionStatus(true);
+            
+            // 更新图表
+            updateCharts(data);
+        }
+        
+        // 更新图表显示
+        function updateCharts(data) {
+            updateRequestsChart(data);
+            updateResponseTimeChart(data);
+        }
+        
+        // 更新请求趋势图表
+        function updateRequestsChart(data) {
+            const chartElement = document.getElementById('requests-chart');
+            if (!chartElement) return;
+            
+            const totalRequests = data.requests?.total || 0;
+            const successRequests = data.ipv6?.totalSuccess || 0;
+            const failureRequests = totalRequests - successRequests;
+            
+            // 简单的文本图表
+            chartElement.innerHTML = \`
+                <div class="simple-chart">
+                    <div class="chart-bar">
+                        <div class="bar-label">总请求: \${totalRequests}</div>
+                        <div class="bar-container">
+                            <div class="bar-success" style="width: \${totalRequests > 0 ? (successRequests / totalRequests * 100) : 0}%"></div>
+                            <div class="bar-failure" style="width: \${totalRequests > 0 ? (failureRequests / totalRequests * 100) : 0}%"></div>
+                        </div>
+                        <div class="bar-legend">
+                            <span class="legend-success">✅ 成功: \${successRequests}</span>
+                            <span class="legend-failure">❌ 失败: \${failureRequests}</span>
+                        </div>
+                    </div>
+                </div>
+            \`;
+        }
+        
+        // 更新响应时间分布图表
+        function updateResponseTimeChart(data) {
+            const chartElement = document.getElementById('response-time-chart');
+            if (!chartElement) return;
+            
+            const avgResponseTime = data.ipv6?.avgResponseTime || 0;
+            const successRate = data.ipv6?.successRate || 0;
+            
+            // 简单的文本图表
+            chartElement.innerHTML = \`
+                <div class="simple-chart">
+                    <div class="chart-metrics">
+                        <div class="metric-item">
+                            <div class="metric-label">平均响应时间</div>
+                            <div class="metric-value \${avgResponseTime < 1000 ? 'good' : avgResponseTime < 3000 ? 'warning' : 'bad'}">\${avgResponseTime}ms</div>
+                        </div>
+                        <div class="metric-item">
+                            <div class="metric-label">成功率</div>
+                            <div class="metric-value \${successRate > 80 ? 'good' : successRate > 50 ? 'warning' : 'bad'}">\${successRate.toFixed(1)}%</div>
+                        </div>
+                    </div>
+                    <div class="chart-indicator">
+                        <div class="indicator-bar">
+                            <div class="indicator-fill" style="width: \${Math.min(successRate, 100)}%"></div>
+                        </div>
+                        <div class="indicator-labels">
+                            <span>0%</span>
+                            <span>50%</span>
+                            <span>100%</span>
+                        </div>
+                    </div>
+                </div>
+            \`;
         }
 
         // 切换标签页
@@ -1447,7 +1644,7 @@ export class WebUIGenerator {
 
         async function triggerSync() {
             try {
-                const response = await fetch('/api/ip-pool/sync', { method: 'POST' });
+                const response = await fetch('/api/ip-pool/trigger', { method: 'POST' });
                 if (response.ok) {
                     alert('同步已触发');
                     refreshIPPoolData();

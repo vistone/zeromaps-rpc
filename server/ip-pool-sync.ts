@@ -622,10 +622,46 @@ export class IPPoolSyncManager extends EventEmitter {
    */
   public async handleSyncRequest(request: SyncRequest): Promise<SyncResponse> {
     try {
+      // 验证请求数据
+      if (!request.nodeId) {
+        return {
+          success: false,
+          message: 'Missing nodeId'
+        }
+      }
+      
+      if (!request.type || !['full', 'incremental'].includes(request.type)) {
+        return {
+          success: false,
+          message: 'Invalid sync type. Must be "full" or "incremental"'
+        }
+      }
+      
+      // 处理时间戳
+      let timestamp: Date
+      if (request.timestamp) {
+        try {
+          timestamp = new Date(request.timestamp)
+          if (isNaN(timestamp.getTime())) {
+            return {
+              success: false,
+              message: 'Invalid timestamp format'
+            }
+          }
+        } catch (error) {
+          return {
+            success: false,
+            message: 'Invalid timestamp value'
+          }
+        }
+      } else {
+        timestamp = new Date()
+      }
+      
       logger.info('收到IP池同步请求', {
         from: request.nodeId,
         type: request.type,
-        timestamp: new Date(request.timestamp).toISOString()
+        timestamp: timestamp.toISOString()
       })
       
       if (request.type === 'full' && request.data) {
