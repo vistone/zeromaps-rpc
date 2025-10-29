@@ -1654,19 +1654,54 @@ export class WebUIGenerator {
                         const successRate = health.totalRequests > 0 ? 
                             ((health.successCount / health.totalRequests) * 100).toFixed(1) : 0;
                         
+                        // 格式化时间戳
+                        const formatTimestamp = (timestamp) => {
+                            if (!timestamp) return '--';
+                            try {
+                                const date = new Date(timestamp);
+                                return date.toLocaleString('zh-CN', {
+                                    year: 'numeric',
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit'
+                                });
+                            } catch (e) {
+                                return '--';
+                            }
+                        };
+                        
+                        // 格式化 IP 地址显示
+                        const formatIP = (ip) => {
+                            if (ip.length > 20) {
+                                return \`<span title="\${ip}">\${ip.substring(0, 17)}...</span>\`;
+                            }
+                            return ip;
+                        };
+                        
+                        // 格式化响应时间
+                        const formatResponseTime = (time) => {
+                            if (!time || time === 0) return '--';
+                            return \`\${time.toFixed(1)}ms\`;
+                        };
+                        
                         rows.push(\`
                             <tr>
-                                <td>\${ip}</td>
+                                <td>\${formatIP(ip)}</td>
                                 <td><span class="status-\${health.successCount > 0 ? 'active' : 'blacklisted'}">\${health.successCount > 0 ? 'active' : 'blacklisted'}</span></td>
                                 <td>\${health.totalRequests}</td>
                                 <td>\${health.successCount}</td>
                                 <td>\${health.failureCount}</td>
                                 <td>\${successRate}%</td>
-                                <td>\${health.avgResponseTime}ms</td>
-                                <td>\${health.lastSuccess || '--'}</td>
-                                <td>\${health.lastFailure || '--'}</td>
+                                <td>\${formatResponseTime(health.avgResponseTime)}</td>
+                                <td>\${formatTimestamp(health.lastSuccess)}</td>
+                                <td>\${formatTimestamp(health.lastFailure)}</td>
                                 <td>
                                     <button class="button small" onclick="testIP('\${ip}')">测试</button>
+                                    <button class="button small success" onclick="whitelistIP('\${ip}')">白名单</button>
+                                    <button class="button small warning" onclick="blacklistIP('\${ip}')">黑名单</button>
+                                    <button class="button small danger" onclick="clearIPStats('\${ip}')">清空</button>
                                 </td>
                             </tr>
                         \`);
@@ -1839,7 +1874,7 @@ export class WebUIGenerator {
 
         async function testIPManually(ip) {
             try {
-                const response = await fetch(\`/api/ip-pool/health/test/\${ip}\`, { method: 'POST' });
+                const response = await fetch(\`/api/ip-pool/health/test/\${encodeURIComponent(ip)}\`, { method: 'POST' });
                 if (response.ok) {
                     alert(\`IP \${ip} 测试已触发\`);
                     refreshHealthStatus();
@@ -1849,6 +1884,63 @@ export class WebUIGenerator {
             } catch (error) {
                 console.error('手动测试失败:', error);
                 alert('手动测试失败: ' + error.message);
+            }
+        }
+        
+        async function whitelistIP(ip) {
+            try {
+                const response = await fetch(\`/api/ip-pool/health/update-status/\${encodeURIComponent(ip)}\`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 'active' })
+                });
+                
+                if (response.ok) {
+                    alert(\`IP \${ip} 已加入白名单\`);
+                    refreshHealthStatus();
+                } else {
+                    throw new Error('加入白名单失败');
+                }
+            } catch (error) {
+                console.error('加入白名单失败:', error);
+                alert('加入白名单失败: ' + error.message);
+            }
+        }
+        
+        async function blacklistIP(ip) {
+            try {
+                const response = await fetch(\`/api/ip-pool/health/update-status/\${encodeURIComponent(ip)}\`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: 'blacklisted' })
+                });
+                
+                if (response.ok) {
+                    alert(\`IP \${ip} 已加入黑名单\`);
+                    refreshHealthStatus();
+                } else {
+                    throw new Error('加入黑名单失败');
+                }
+            } catch (error) {
+                console.error('加入黑名单失败:', error);
+                alert('加入黑名单失败: ' + error.message);
+            }
+        }
+        
+        async function clearIPStats(ip) {
+            if (confirm(\`确定要清空IP \${ip} 的统计数据吗？\`)) {
+                try {
+                    const response = await fetch(\`/api/ip-pool/health/clear-stats/\${encodeURIComponent(ip)}\`, { method: 'POST' });
+                    if (response.ok) {
+                        alert(\`IP \${ip} 统计数据已清空\`);
+                        refreshHealthStatus();
+                    } else {
+                        throw new Error('清空统计数据失败');
+                    }
+                } catch (error) {
+                    console.error('清空统计数据失败:', error);
+                    alert('清空统计数据失败: ' + error.message);
+                }
             }
         }
 
