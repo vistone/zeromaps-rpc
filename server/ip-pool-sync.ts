@@ -90,46 +90,57 @@ export class IPPoolSyncManager extends EventEmitter {
   constructor() {
     super()
     
-    this.ipPoolFile = path.join(process.cwd(), 'utls-proxy', 'ip-pools.json')
-    this.currentNodeId = this.getNodeId()
-    this.currentNodeDomain = this.getNodeDomain()
-    
-    // 初始化健康检查器
-    this.healthChecker = new IPHealthChecker({
-      testUrl: '/rt/earth/PlanetoidMetadata',
-      testHeaders: {
-        'Host': 'kh.google.com',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive'
-      },
-      timeout: 10000,
-      retryCount: 2,
-      blacklistThreshold: 3,
-      whitelistThreshold: 2,
-      testInterval: 5 * 60 * 1000, // 5分钟测试一次
-      blacklistTestInterval: 10 * 60 * 1000 // 黑名单IP 10分钟测试一次
-    })
-    
-    // 监听健康检查事件
-    this.healthChecker.on('testResult', (event) => {
-      this.handleHealthCheckResult(event)
-    })
-    
-    this.healthChecker.on('statusChanged', (event) => {
-      this.handleIPStatusChange(event)
-    })
-    
-    this.loadLocalData()
-    this.startPeriodicSync()
-    
-    logger.info('IP池同步管理器已启动', {
-      nodeId: this.currentNodeId,
-      domain: this.currentNodeDomain,
-      ipPoolFile: this.ipPoolFile
-    })
+    try {
+      this.ipPoolFile = path.join(process.cwd(), 'utls-proxy', 'ip-pools.json')
+      this.currentNodeId = this.getNodeId()
+      this.currentNodeDomain = this.getNodeDomain()
+      
+      logger.info('IPPoolSyncManager 初始化开始', {
+        nodeId: this.currentNodeId,
+        domain: this.currentNodeDomain,
+        ipPoolFile: this.ipPoolFile
+      })
+      
+      // 初始化健康检查器
+      this.healthChecker = new IPHealthChecker({
+        testUrl: '/rt/earth/PlanetoidMetadata',
+        testHeaders: {
+          'Host': 'kh.google.com',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Connection': 'keep-alive'
+        },
+        timeout: 10000,
+        retryCount: 2,
+        blacklistThreshold: 3,
+        whitelistThreshold: 2,
+        testInterval: 5 * 60 * 1000, // 5分钟测试一次
+        blacklistTestInterval: 10 * 60 * 1000 // 黑名单IP 10分钟测试一次
+      })
+      
+      // 监听健康检查事件
+      this.healthChecker.on('testResult', (event) => {
+        this.handleHealthCheckResult(event)
+      })
+      
+      this.healthChecker.on('statusChanged', (event) => {
+        this.handleIPStatusChange(event)
+      })
+      
+      this.loadLocalData()
+      this.startPeriodicSync()
+      
+      logger.info('IP池同步管理器已启动', {
+        nodeId: this.currentNodeId,
+        domain: this.currentNodeDomain,
+        ipPoolFile: this.ipPoolFile
+      })
+    } catch (error) {
+      logger.error('IPPoolSyncManager 初始化失败', error as Error)
+      throw error
+    }
   }
 
   /**

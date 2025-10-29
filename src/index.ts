@@ -103,23 +103,43 @@ export class ZeroMapsRPC extends EventEmitter {
             logger.info('正在启动ZeroMaps RPC服务...')
 
             // 启动RPC服务器
-            await this.rpcServer.start()
-            logger.info('RPC服务器启动完成')
+            try {
+                await this.rpcServer.start()
+                logger.info('RPC服务器启动完成')
+            } catch (error) {
+                logger.error('RPC服务器启动失败', error as Error)
+                throw error
+            }
 
             // 启动监控服务器
-            await this.monitorServer.start()
-            logger.info('监控服务器启动完成')
+            try {
+                await this.monitorServer.start()
+                logger.info('监控服务器启动完成')
+            } catch (error) {
+                logger.error('监控服务器启动失败', error as Error)
+                throw error
+            }
 
             // 节点管理器会自动启动健康检查
             logger.info('节点管理器启动完成')
 
             // 启动IP池同步管理器
-            this.ipPoolSyncManager.startPeriodicSync()
-            logger.info('IP池同步管理器启动完成')
+            try {
+                this.ipPoolSyncManager.startPeriodicSync()
+                logger.info('IP池同步管理器启动完成')
+            } catch (error) {
+                logger.error('IP池同步管理器启动失败', error as Error)
+                throw error
+            }
 
             // 启动IP健康检查
-            this.ipPoolSyncManager.startHealthCheck()
-            logger.info('IP健康检查启动完成')
+            try {
+                this.ipPoolSyncManager.startHealthCheck()
+                logger.info('IP健康检查启动完成')
+            } catch (error) {
+                logger.error('IP健康检查启动失败', error as Error)
+                throw error
+            }
 
             this.isRunning = true
             logger.info('ZeroMaps RPC服务启动完成', {

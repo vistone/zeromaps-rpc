@@ -420,7 +420,8 @@ export class ConfigManager extends EventEmitter {
             if (value && typeof value === 'object' && key in value) {
                 value = value[key]
             } else {
-                throw new Error(`配置路径不存在: ${path}`)
+                logger.warn(`配置路径不存在: ${path}，返回 undefined`)
+                return undefined as T
             }
         }
 
