@@ -1688,6 +1688,86 @@ export class MonitorServer {
       background: #f8f9fa;
     }
     
+    /* 健康检查样式 */
+    .health-check-stats {
+      background: #e8f5e8;
+      padding: 15px;
+      border-radius: 5px;
+      margin-bottom: 20px;
+      border-left: 4px solid #28a745;
+    }
+    
+    .health-status-container {
+      margin-bottom: 20px;
+    }
+    
+    .health-status-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+    }
+    
+    .health-status-table th,
+    .health-status-table td {
+      padding: 10px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+      font-size: 12px;
+    }
+    
+    .health-status-table th {
+      background-color: #f8f9fa;
+      font-weight: bold;
+    }
+    
+    .health-status-table tr:hover {
+      background-color: #f5f5f5;
+    }
+    
+    .status-active {
+      color: #28a745;
+      font-weight: bold;
+    }
+    
+    .status-blacklisted {
+      color: #dc3545;
+      font-weight: bold;
+    }
+    
+    .status-testing {
+      color: #ffc107;
+      font-weight: bold;
+    }
+    
+    .health-action-btn {
+      padding: 4px 8px;
+      margin: 2px;
+      font-size: 11px;
+      border: none;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+    
+    .health-action-btn.test {
+      background: #17a2b8;
+      color: white;
+    }
+    
+    .health-action-btn.activate {
+      background: #28a745;
+      color: white;
+    }
+    
+    .health-action-btn.blacklist {
+      background: #dc3545;
+      color: white;
+    }
+    
+    .health-action-btn.clear {
+      background: #6c757d;
+      color: white;
+    }
+    
     .ippool-sync-log {
       margin-top: 20px;
       padding: 15px;
@@ -1932,10 +2012,18 @@ export class MonitorServer {
         
         <div class="ippool-stats" id="ippoolStats"></div>
         
+        <div class="health-check-stats" id="healthCheckStats" style="display: none;">
+          <h4>健康检查统计</h4>
+          <div id="healthStatsContent"></div>
+        </div>
+        
         <div class="ippool-controls">
           <button class="btn btn-primary" onclick="triggerIPPoolSync()">手动同步</button>
           <button class="btn btn-secondary" onclick="exportIPPoolData()">导出数据</button>
           <button class="btn btn-info" onclick="showIPPoolDetails()">查看详情</button>
+          <button class="btn btn-success" onclick="startHealthCheck()">启动健康检查</button>
+          <button class="btn btn-warning" onclick="stopHealthCheck()">停止健康检查</button>
+          <button class="btn btn-danger" onclick="refreshHealthStatus()">刷新健康状态</button>
         </div>
         
         <div class="ippool-table-container">
@@ -1952,6 +2040,26 @@ export class MonitorServer {
               </tr>
             </thead>
             <tbody id="ippoolTableBody">
+            </tbody>
+          </table>
+        </div>
+        
+        <div class="health-status-container" id="healthStatusContainer" style="display: none;">
+          <h4>IP健康状态</h4>
+          <table class="health-status-table">
+            <thead>
+              <tr>
+                <th>IP地址</th>
+                <th>域名</th>
+                <th>状态</th>
+                <th>成功率</th>
+                <th>平均响应时间</th>
+                <th>总测试次数</th>
+                <th>最后测试</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="healthStatusTableBody">
             </tbody>
           </table>
         </div>
@@ -2001,7 +2109,10 @@ export class MonitorServer {
       if (tabName === 'logs') refreshLogs();
       if (tabName === 'config') loadCurrentConfig();
       if (tabName === 'nodes') refreshNodes();
-      if (tabName === 'ippool') refreshIPPoolData();
+      if (tabName === 'ippool') {
+        refreshIPPoolData();
+        refreshHealthStatus();
+      }
     }
     
     function showAlert(elementId, message, type) {
@@ -2425,6 +2536,8 @@ export class MonitorServer {
     // IP池同步功能
     let ipPoolData = null;
     let syncLog = [];
+    let healthCheckStats = null;
+    let healthStatuses = [];
     
     async function refreshIPPoolData() {
       try {
@@ -2439,6 +2552,251 @@ export class MonitorServer {
         renderIPPoolTable();
         
         // 获取同步统计
+        const statsRes = await fetch('/api/ip-pool/stats');
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          renderSyncStats(stats);
+        }
+        
+        showAlert('ippoolAlert', 'IP池数据已刷新', 'success');
+      } catch (error) {
+        showAlert('ippoolAlert', '刷新失败: ' + error.message, 'error');
+      }
+    }
+    
+    async function refreshHealthStatus() {
+      try {
+        // 获取健康检查统计
+        const statsRes = await fetch('/api/ip-pool/health/stats');
+        if (statsRes.ok) {
+          healthCheckStats = await statsRes.json();
+          renderHealthCheckStats();
+        }
+        
+        // 获取IP健康状态
+        const statusRes = await fetch('/api/ip-pool/health/status');
+        if (statusRes.ok) {
+          healthStatuses = await statusRes.json();
+          renderHealthStatusTable();
+        }
+        
+        showAlert('ippoolAlert', '健康状态已刷新', 'success');
+      } catch (error) {
+        showAlert('ippoolAlert', '刷新健康状态失败: ' + error.message, 'error');
+      }
+    }
+    
+    async function startHealthCheck() {
+      try {
+        showAlert('ippoolAlert', '正在启动健康检查...', 'info');
+        addSyncLog('info', '启动IP健康检查');
+        
+        const res = await fetch('/api/ip-pool/health/start', {
+          method: 'POST'
+        });
+        
+        if (res.ok) {
+          showAlert('ippoolAlert', '健康检查已启动', 'success');
+          addSyncLog('success', '健康检查启动成功');
+          
+          // 显示健康检查相关区域
+          document.getElementById('healthCheckStats').style.display = 'block';
+          document.getElementById('healthStatusContainer').style.display = 'block';
+          
+          // 刷新健康状态
+          setTimeout(refreshHealthStatus, 1000);
+        } else {
+          const error = await res.json();
+          showAlert('ippoolAlert', '启动失败: ' + error.message, 'error');
+          addSyncLog('error', '健康检查启动失败: ' + error.message);
+        }
+      } catch (error) {
+        showAlert('ippoolAlert', '启动失败: ' + error.message, 'error');
+        addSyncLog('error', '健康检查启动异常: ' + error.message);
+      }
+    }
+    
+    async function stopHealthCheck() {
+      try {
+        showAlert('ippoolAlert', '正在停止健康检查...', 'info');
+        addSyncLog('info', '停止IP健康检查');
+        
+        const res = await fetch('/api/ip-pool/health/stop', {
+          method: 'POST'
+        });
+        
+        if (res.ok) {
+          showAlert('ippoolAlert', '健康检查已停止', 'success');
+          addSyncLog('success', '健康检查停止成功');
+        } else {
+          const error = await res.json();
+          showAlert('ippoolAlert', '停止失败: ' + error.message, 'error');
+          addSyncLog('error', '健康检查停止失败: ' + error.message);
+        }
+      } catch (error) {
+        showAlert('ippoolAlert', '停止失败: ' + error.message, 'error');
+        addSyncLog('error', '健康检查停止异常: ' + error.message);
+      }
+    }
+    
+    async function testIPManually(ip, domain = 'kh.google.com') {
+      try {
+        showAlert('ippoolAlert', \`正在测试IP \${ip}...\`, 'info');
+        addSyncLog('info', \`手动测试IP: \${ip} (\${domain})\`);
+        
+        const res = await fetch(\`/api/ip-pool/health/test/\${encodeURIComponent(ip)}?domain=\${domain}\`, {
+          method: 'POST'
+        });
+        
+        if (res.ok) {
+          const result = await res.json();
+          const testResult = result.result;
+          
+          if (testResult.success) {
+            showAlert('ippoolAlert', \`IP \${ip} 测试成功 (状态码: \${testResult.statusCode}, 响应时间: \${testResult.responseTime}ms)\`, 'success');
+            addSyncLog('success', \`IP \${ip} 测试成功: \${testResult.statusCode} - \${testResult.responseTime}ms\`);
+          } else {
+            showAlert('ippoolAlert', \`IP \${ip} 测试失败: \${testResult.error}\`, 'error');
+            addSyncLog('error', \`IP \${ip} 测试失败: \${testResult.error}\`);
+          }
+          
+          // 刷新健康状态
+          setTimeout(refreshHealthStatus, 1000);
+        } else {
+          const error = await res.json();
+          showAlert('ippoolAlert', '测试失败: ' + error.message, 'error');
+          addSyncLog('error', \`IP \${ip} 测试失败: \${error.message}\`);
+        }
+      } catch (error) {
+        showAlert('ippoolAlert', '测试失败: ' + error.message, 'error');
+        addSyncLog('error', \`IP \${ip} 测试异常: \${error.message}\`);
+      }
+    }
+    
+    async function updateIPStatus(ip, domain, status) {
+      try {
+        showAlert('ippoolAlert', \`正在更新IP \${ip} 状态为 \${status}...\`, 'info');
+        addSyncLog('info', \`更新IP状态: \${ip} -> \${status}\`);
+        
+        const res = await fetch(\`/api/ip-pool/health/update-status/\${encodeURIComponent(ip)}?domain=\${domain}\`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ status })
+        });
+        
+        if (res.ok) {
+          showAlert('ippoolAlert', \`IP \${ip} 状态已更新为 \${status}\`, 'success');
+          addSyncLog('success', \`IP \${ip} 状态更新成功: \${status}\`);
+          
+          // 刷新健康状态
+          setTimeout(refreshHealthStatus, 1000);
+        } else {
+          const error = await res.json();
+          showAlert('ippoolAlert', '更新失败: ' + error.message, 'error');
+          addSyncLog('error', \`IP \${ip} 状态更新失败: \${error.message}\`);
+        }
+      } catch (error) {
+        showAlert('ippoolAlert', '更新失败: ' + error.message, 'error');
+        addSyncLog('error', \`IP \${ip} 状态更新异常: \${error.message}\`);
+      }
+    }
+    
+    async function clearIPStats(ip, domain) {
+      try {
+        showAlert('ippoolAlert', \`正在清除IP \${ip} 统计数据...\`, 'info');
+        addSyncLog('info', \`清除IP统计数据: \${ip}\`);
+        
+        const res = await fetch(\`/api/ip-pool/health/clear-stats/\${encodeURIComponent(ip)}?domain=\${domain}\`, {
+          method: 'POST'
+        });
+        
+        if (res.ok) {
+          showAlert('ippoolAlert', \`IP \${ip} 统计数据已清除\`, 'success');
+          addSyncLog('success', \`IP \${ip} 统计数据清除成功\`);
+          
+          // 刷新健康状态
+          setTimeout(refreshHealthStatus, 1000);
+        } else {
+          const error = await res.json();
+          showAlert('ippoolAlert', '清除失败: ' + error.message, 'error');
+          addSyncLog('error', \`IP \${ip} 统计数据清除失败: \${error.message}\`);
+        }
+      } catch (error) {
+        showAlert('ippoolAlert', '清除失败: ' + error.message, 'error');
+        addSyncLog('error', \`IP \${ip} 统计数据清除异常: \${error.message}\`);
+      }
+    }
+    
+    function renderHealthCheckStats() {
+      if (!healthCheckStats) return;
+      
+      const container = document.getElementById('healthStatsContent');
+      container.innerHTML = \`
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+          <div class="stat-item">
+            <div class="stat-label">总IP数</div>
+            <div class="stat-value">\${healthCheckStats.totalIPs || 0}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">活跃IP</div>
+            <div class="stat-value" style="color: #28a745;">\${healthCheckStats.activeCount || 0}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">黑名单IP</div>
+            <div class="stat-value" style="color: #dc3545;">\${healthCheckStats.blacklistedCount || 0}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">总测试次数</div>
+            <div class="stat-value">\${healthCheckStats.totalTests || 0}</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">成功率</div>
+            <div class="stat-value" style="color: #28a745;">\${(healthCheckStats.overallSuccessRate || 0).toFixed(1)}%</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">运行状态</div>
+            <div class="stat-value" style="color: \${healthCheckStats.isRunning ? '#28a745' : '#dc3545'};">\${healthCheckStats.isRunning ? '运行中' : '已停止'}</div>
+          </div>
+        </div>
+      \`;
+    }
+    
+    function renderHealthStatusTable() {
+      const tbody = document.getElementById('healthStatusTableBody');
+      if (!healthStatuses || healthStatuses.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: #666;">暂无健康状态数据</td></tr>';
+        return;
+      }
+      
+      tbody.innerHTML = healthStatuses.map(status => {
+        const statusClass = \`status-\${status.status}\`;
+        const statusText = status.status === 'active' ? '活跃' : 
+                         status.status === 'blacklisted' ? '黑名单' : '测试中';
+        
+        const lastTestTime = status.lastTest ? new Date(status.lastTest).toLocaleString() : '从未测试';
+        const avgResponseTime = status.avgResponseTime ? \`\${status.avgResponseTime.toFixed(0)}ms\` : '-';
+        
+        return \`
+          <tr>
+            <td>\${status.ip}</td>
+            <td>\${status.domain}</td>
+            <td><span class="\${statusClass}">\${statusText}</span></td>
+            <td>\${status.successRate.toFixed(1)}%</td>
+            <td>\${avgResponseTime}</td>
+            <td>\${status.totalTests}</td>
+            <td>\${lastTestTime}</td>
+            <td>
+              <button class="health-action-btn test" onclick="testIPManually('\${status.ip}', '\${status.domain}')">测试</button>
+              <button class="health-action-btn activate" onclick="updateIPStatus('\${status.ip}', '\${status.domain}', 'active')">激活</button>
+              <button class="health-action-btn blacklist" onclick="updateIPStatus('\${status.ip}', '\${status.domain}', 'blacklisted')">拉黑</button>
+              <button class="health-action-btn clear" onclick="clearIPStats('\${status.ip}', '\${status.domain}')">清除</button>
+            </td>
+          </tr>
+        \`;
+      }).join('');
+    }
         const statsRes = await fetch('/api/ip-pool/stats');
         if (statsRes.ok) {
           const stats = await statsRes.json();
@@ -2836,6 +3194,16 @@ export class MonitorServer {
             const stats = this.ipPoolSyncManager.getSyncStats()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify(stats))
+          } else if (action === 'health' && pathParts[4] === 'stats') {
+            // 获取健康检查统计
+            const stats = this.ipPoolSyncManager.getHealthCheckStats()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(stats))
+          } else if (action === 'health' && pathParts[4] === 'status') {
+            // 获取所有IP健康状态
+            const statuses = this.ipPoolSyncManager.getAllIPHealthStatus()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(statuses))
           } else {
             res.writeHead(404, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'Not found' }))
@@ -2856,6 +3224,54 @@ export class MonitorServer {
             await this.ipPoolSyncManager.triggerSync()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ success: true, message: '同步已触发' }))
+          } else if (action === 'health' && pathParts[4] === 'start') {
+            // 启动健康检查
+            this.ipPoolSyncManager.startHealthCheck()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true, message: '健康检查已启动' }))
+          } else if (action === 'health' && pathParts[4] === 'stop') {
+            // 停止健康检查
+            this.ipPoolSyncManager.stopHealthCheck()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true, message: '健康检查已停止' }))
+          } else if (action === 'health' && pathParts[4] === 'test' && pathParts[5]) {
+            // 手动测试IP
+            const ip = decodeURIComponent(pathParts[5])
+            const domain = url.searchParams.get('domain') || 'kh.google.com'
+            
+            try {
+              const result = await this.ipPoolSyncManager.testIPManually(ip, domain)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ success: true, result }))
+            } catch (error) {
+              res.writeHead(500, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ success: false, message: (error as Error).message }))
+            }
+          } else if (action === 'health' && pathParts[4] === 'update-status' && pathParts[5]) {
+            // 强制更新IP状态
+            const ip = decodeURIComponent(pathParts[5])
+            const domain = url.searchParams.get('domain') || 'kh.google.com'
+            
+            const body = await this.readRequestBody(req)
+            const { status } = JSON.parse(body)
+            
+            if (status !== 'active' && status !== 'blacklisted') {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ success: false, message: 'Invalid status. Must be "active" or "blacklisted"' }))
+              return
+            }
+            
+            this.ipPoolSyncManager.updateIPStatus(ip, domain, status)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true, message: 'IP状态已更新' }))
+          } else if (action === 'health' && pathParts[4] === 'clear-stats' && pathParts[5]) {
+            // 清除IP统计数据
+            const ip = decodeURIComponent(pathParts[5])
+            const domain = url.searchParams.get('domain') || 'kh.google.com'
+            
+            this.ipPoolSyncManager.clearIPStats(ip, domain)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true, message: 'IP统计数据已清除' }))
           } else {
             res.writeHead(404, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'Not found' }))

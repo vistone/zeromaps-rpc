@@ -10,6 +10,7 @@ import * as https from 'https'
 import { EventEmitter } from 'events'
 import { createLogger } from './logger.js'
 import { getConfig } from './config-manager.js'
+import { IPHealthChecker, IPHealthStatus, IPTestResult } from './ip-health-checker.js'
 
 const logger = createLogger('IPPoolSync')
 
@@ -81,6 +82,7 @@ export class IPPoolSyncManager extends EventEmitter {
   private knownNodes: Map<string, { domain: string, lastSync: number, successCount: number }> = new Map()
   private localData: IPPoolData | null = null
   private syncInProgress = false
+  private healthChecker: IPHealthChecker
   private readonly syncIntervalMs = 5 * 60 * 1000 // 5分钟同步一次
   private readonly maxRetries = 3
   private readonly syncTimeout = 10000 // 10秒超时
@@ -91,6 +93,34 @@ export class IPPoolSyncManager extends EventEmitter {
     this.ipPoolFile = path.join(process.cwd(), 'utls-proxy', 'ip-pools.json')
     this.currentNodeId = this.getNodeId()
     this.currentNodeDomain = this.getNodeDomain()
+    
+    // 初始化健康检查器
+    this.healthChecker = new IPHealthChecker({
+      testUrl: '/rt/earth/PlanetoidMetadata',
+      testHeaders: {
+        'Host': 'kh.google.com',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive'
+      },
+      timeout: 10000,
+      retryCount: 2,
+      blacklistThreshold: 3,
+      whitelistThreshold: 2,
+      testInterval: 5 * 60 * 1000, // 5分钟测试一次
+      blacklistTestInterval: 10 * 60 * 1000 // 黑名单IP 10分钟测试一次
+    })
+    
+    // 监听健康检查事件
+    this.healthChecker.on('testResult', (event) => {
+      this.handleHealthCheckResult(event)
+    })
+    
+    this.healthChecker.on('statusChanged', (event) => {
+      this.handleIPStatusChange(event)
+    })
     
     this.loadLocalData()
     this.startPeriodicSync()
@@ -243,7 +273,7 @@ export class IPPoolSyncManager extends EventEmitter {
   /**
    * 启动定期同步
    */
-  private startPeriodicSync(): void {
+  public startPeriodicSync(): void {
     this.syncInterval = setInterval(() => {
       this.performSync().catch(err => {
         logger.error('定期同步失败', err)
@@ -645,6 +675,207 @@ export class IPPoolSyncManager extends EventEmitter {
   }
 
   /**
+   * 处理健康检查结果
+   */
+  private handleHealthCheckResult(event: any): void {
+    const { key, status, result, wasBlacklisted, statusChanged } = event
+    const [domain, ip] = key.split(':')
+    
+    logger.debug('处理健康检查结果', {
+      ip,
+      domain,
+      success: result.success,
+      statusCode: result.statusCode,
+      responseTime: result.responseTime,
+      status,
+      statusChanged
+    })
+    
+    // 更新本地数据
+    if (this.localData && this.localData.domains[domain]) {
+      const domainData = this.localData.domains[domain]
+      
+      // 更新健康数据
+      if (!domainData.health[ip]) {
+        domainData.health[ip] = {
+          totalRequests: 0,
+          successCount: 0,
+          failureCount: 0,
+          avgResponseTime: 0,
+          lastSuccess: '',
+          lastFailure: '',
+          source: 'local',
+          score: 0
+        }
+      }
+      
+      const health = domainData.health[ip]
+      health.totalRequests++
+      
+      if (result.success) {
+        health.successCount++
+        health.lastSuccess = new Date().toISOString()
+        health.avgResponseTime = health.avgResponseTime === 0 
+          ? result.responseTime 
+          : (health.avgResponseTime + result.responseTime) / 2
+      } else {
+        health.failureCount++
+        health.lastFailure = new Date().toISOString()
+      }
+      
+      // 根据状态更新IP列表
+      if (statusChanged) {
+        if (status === 'active') {
+          // 从黑名单移除，添加到活跃列表
+          const blacklistIndex = domainData.blacklist.indexOf(ip)
+          if (blacklistIndex !== -1) {
+            domainData.blacklist.splice(blacklistIndex, 1)
+          }
+          
+          // 添加到对应的IP列表
+          if (ip.includes(':')) {
+            if (!domainData.ipv6.includes(ip)) {
+              domainData.ipv6.push(ip)
+            }
+          } else {
+            if (!domainData.ipv4.includes(ip)) {
+              domainData.ipv4.push(ip)
+            }
+          }
+          
+        } else if (status === 'blacklisted') {
+          // 从活跃列表移除，添加到黑名单
+          if (ip.includes(':')) {
+            const ipv6Index = domainData.ipv6.indexOf(ip)
+            if (ipv6Index !== -1) {
+              domainData.ipv6.splice(ipv6Index, 1)
+            }
+          } else {
+            const ipv4Index = domainData.ipv4.indexOf(ip)
+            if (ipv4Index !== -1) {
+              domainData.ipv4.splice(ipv4Index, 1)
+            }
+          }
+          
+          if (!domainData.blacklist.includes(ip)) {
+            domainData.blacklist.push(ip)
+          }
+        }
+      }
+      
+      // 保存数据
+      this.saveLocalData()
+      
+      // 发送事件
+      this.emit('ipStatusChanged', {
+        ip,
+        domain,
+        status,
+        result,
+        wasBlacklisted,
+        statusChanged
+      })
+    }
+  }
+
+  /**
+   * 处理IP状态变化
+   */
+  private handleIPStatusChange(event: any): void {
+    const { ip, domain, newStatus } = event
+    
+    logger.info('IP状态变化', { ip, domain, newStatus })
+    
+    // 发送状态变化事件
+    this.emit('ipStatusChanged', {
+      ip,
+      domain,
+      status: newStatus,
+      timestamp: Date.now()
+    })
+  }
+
+  /**
+   * 启动健康检查
+   */
+  public startHealthCheck(): void {
+    if (!this.localData) {
+      logger.warn('本地数据未加载，无法启动健康检查')
+      return
+    }
+    
+    logger.info('启动IP健康检查')
+    
+    // 为所有IP启动健康检查
+    for (const [domain, domainData] of Object.entries(this.localData.domains)) {
+      // 添加活跃IP
+      this.healthChecker.addIPs(domainData.ipv4, domain, 'active')
+      this.healthChecker.addIPs(domainData.ipv6, domain, 'active')
+      
+      // 添加黑名单IP（也会被测试）
+      this.healthChecker.addIPs(domainData.blacklist, domain, 'blacklisted')
+    }
+    
+    // 启动健康检查器
+    this.healthChecker.start()
+    
+    logger.info('IP健康检查已启动', {
+      totalIPs: this.healthChecker.getAllIPStatus().length
+    })
+  }
+
+  /**
+   * 停止健康检查
+   */
+  public stopHealthCheck(): void {
+    logger.info('停止IP健康检查')
+    this.healthChecker.stop()
+  }
+
+  /**
+   * 手动测试IP
+   */
+  public async testIPManually(ip: string, domain: string): Promise<IPTestResult> {
+    logger.info('手动测试IP', { ip, domain })
+    return await this.healthChecker.testIPManually(ip, domain)
+  }
+
+  /**
+   * 获取IP健康状态
+   */
+  public getIPHealthStatus(ip: string, domain: string): IPHealthStatus | undefined {
+    return this.healthChecker.getIPStatus(ip, domain)
+  }
+
+  /**
+   * 获取所有IP健康状态
+   */
+  public getAllIPHealthStatus(): IPHealthStatus[] {
+    return this.healthChecker.getAllIPStatus()
+  }
+
+  /**
+   * 获取健康检查统计
+   */
+  public getHealthCheckStats(): any {
+    return this.healthChecker.getStats()
+  }
+
+  /**
+   * 强制更新IP状态
+   */
+  public updateIPStatus(ip: string, domain: string, status: 'active' | 'blacklisted'): void {
+    this.healthChecker.updateIPStatus(ip, domain, status)
+  }
+
+  /**
+   * 清除IP统计数据
+   */
+  public clearIPStats(ip: string, domain: string): void {
+    this.healthChecker.clearIPStats(ip, domain)
+  }
+
+  /**
    * 停止同步管理器
    */
   public stop(): void {
@@ -652,6 +883,9 @@ export class IPPoolSyncManager extends EventEmitter {
       clearInterval(this.syncInterval)
       this.syncInterval = null
     }
+    
+    // 停止健康检查器
+    this.healthChecker.stop()
     
     logger.info('IP池同步管理器已停止')
   }

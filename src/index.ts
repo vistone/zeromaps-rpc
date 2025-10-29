@@ -9,6 +9,7 @@ import { ConfigManager, getConfig } from '../server/config-manager.js'
 import { RpcServer } from '../server/rpc-server.js'
 import { MonitorServer } from '../server/monitor-server.js'
 import { NodeManager } from '../server/node-manager.js'
+import { IPPoolSyncManager } from '../server/ip-pool-sync.js'
 
 const logger = createLogger('ZeroMapsRPC')
 
@@ -17,6 +18,7 @@ export class ZeroMapsRPC extends EventEmitter {
     private rpcServer: RpcServer
     private monitorServer: MonitorServer
     private nodeManager: NodeManager
+    private ipPoolSyncManager: IPPoolSyncManager
     private isRunning = false
 
     constructor() {
@@ -39,6 +41,9 @@ export class ZeroMapsRPC extends EventEmitter {
 
         // 初始化节点管理器
         this.nodeManager = new NodeManager()
+
+        // 初始化IP池同步管理器
+        this.ipPoolSyncManager = new IPPoolSyncManager()
 
         this.setupEventHandlers()
     }
@@ -74,6 +79,15 @@ export class ZeroMapsRPC extends EventEmitter {
         this.nodeManager.on('nodeToggled', (node) => {
             logger.info('节点状态已切换', { nodeId: node.id, enabled: node.enabled })
         })
+
+        // 监听IP池同步管理器事件
+        this.ipPoolSyncManager.on('ipStatusChanged', (event) => {
+            logger.info('IP状态已变化', { 
+                ip: event.ip, 
+                domain: event.domain, 
+                status: event.status 
+            })
+        })
     }
 
     /**
@@ -98,6 +112,14 @@ export class ZeroMapsRPC extends EventEmitter {
 
             // 节点管理器会自动启动健康检查
             logger.info('节点管理器启动完成')
+
+            // 启动IP池同步管理器
+            this.ipPoolSyncManager.startPeriodicSync()
+            logger.info('IP池同步管理器启动完成')
+
+            // 启动IP健康检查
+            this.ipPoolSyncManager.startHealthCheck()
+            logger.info('IP健康检查启动完成')
 
             this.isRunning = true
             logger.info('ZeroMaps RPC服务启动完成', {
@@ -134,6 +156,12 @@ export class ZeroMapsRPC extends EventEmitter {
             if (this.nodeManager) {
                 this.nodeManager.stop()
                 logger.info('节点管理器已停止')
+            }
+
+            // 停止IP池同步管理器
+            if (this.ipPoolSyncManager) {
+                this.ipPoolSyncManager.stop()
+                logger.info('IP池同步管理器已停止')
             }
 
             // 停止RPC服务器
@@ -178,6 +206,13 @@ export class ZeroMapsRPC extends EventEmitter {
      */
     public getNodeManager(): NodeManager {
         return this.nodeManager
+    }
+
+    /**
+     * 获取IP池同步管理器实例
+     */
+    public getIPPoolSyncManager(): IPPoolSyncManager {
+        return this.ipPoolSyncManager
     }
 
     /**
