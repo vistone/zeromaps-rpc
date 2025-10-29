@@ -1645,75 +1645,77 @@ export class WebUIGenerator {
         
         function updateHealthStatusTable(data) {
             const tbody = document.getElementById('health-status-tbody');
-            if (!tbody || !data.domains) return;
+            if (!tbody) return;
             
-            let rows = [];
-            Object.entries(data.domains).forEach(([domain, domainData]) => {
-                if (domainData.health) {
-                    Object.entries(domainData.health).forEach(([ip, health]) => {
-                        const successRate = health.totalRequests > 0 ? 
-                            ((health.successCount / health.totalRequests) * 100).toFixed(1) : 0;
-                        
-                        // 格式化时间戳
-                        const formatTimestamp = (timestamp) => {
-                            if (!timestamp) return '--';
-                            try {
-                                const date = new Date(timestamp);
-                                return date.toLocaleString('zh-CN', {
-                                    year: 'numeric',
-                                    month: '2-digit',
-                                    day: '2-digit',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                    second: '2-digit'
-                                });
-                            } catch (e) {
-                                return '--';
-                            }
-                        };
-                        
-                        // 格式化 IP 地址显示
-                        const formatIP = (ip) => {
-                            if (ip.length > 20) {
-                                return \`<span title="\${ip}">\${ip.substring(0, 17)}...</span>\`;
-                            }
-                            return ip;
-                        };
-                        
-                        // 格式化响应时间
-                        const formatResponseTime = (time) => {
-                            if (!time || time === 0) return '--';
-                            return \`\${time.toFixed(1)}ms\`;
-                        };
-                        
-                        rows.push(\`
-                            <tr>
-                                <td>\${formatIP(ip)}</td>
-                                <td><span class="status-\${health.successCount > 0 ? 'active' : 'blacklisted'}">\${health.successCount > 0 ? 'active' : 'blacklisted'}</span></td>
-                                <td>\${health.totalRequests}</td>
-                                <td>\${health.successCount}</td>
-                                <td>\${health.failureCount}</td>
-                                <td>\${successRate}%</td>
-                                <td>\${formatResponseTime(health.avgResponseTime)}</td>
-                                <td>\${formatTimestamp(health.lastSuccess)}</td>
-                                <td>\${formatTimestamp(health.lastFailure)}</td>
-                                <td>
-                                    <button class="button small" onclick="testIP('\${ip}')">测试</button>
-                                    <button class="button small success" onclick="whitelistIP('\${ip}')">白名单</button>
-                                    <button class="button small warning" onclick="blacklistIP('\${ip}')">黑名单</button>
-                                    <button class="button small danger" onclick="clearIPStats('\${ip}')">清空</button>
-                                </td>
-                            </tr>
-                        \`);
+            // 处理数组格式的数据
+            const healthData = Array.isArray(data) ? data : [];
+            
+            if (healthData.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">暂无健康检查数据</td></tr>';
+                return;
+            }
+            
+            // 格式化时间戳
+            const formatTimestamp = (timestamp) => {
+                if (!timestamp) return '--';
+                try {
+                    const date = new Date(timestamp);
+                    return date.toLocaleString('zh-CN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit'
                     });
+                } catch (e) {
+                    return '--';
                 }
+            };
+            
+            // 格式化 IP 地址显示
+            const formatIP = (ip) => {
+                if (ip.length > 20) {
+                    return \`<span title="\${ip}">\${ip.substring(0, 17)}...</span>\`;
+                }
+                return ip;
+            };
+            
+            // 格式化响应时间
+            const formatResponseTime = (time) => {
+                if (!time || time === 0) return '--';
+                return \`\${time.toFixed(1)}ms\`;
+            };
+            
+            const rows = healthData.map(health => {
+                const successRate = health.totalTests > 0 ? 
+                    ((health.totalTests - health.consecutiveFailures) / health.totalTests * 100).toFixed(1) : 0;
+                
+                // 根据状态和成功次数判断显示状态
+                const displayStatus = health.status === 'active' && health.consecutiveSuccesses > 0 ? 'active' : 'blacklisted';
+                
+                return \`
+                    <tr>
+                        <td>\${formatIP(health.ip)}</td>
+                        <td><span class="status-\${displayStatus}">\${displayStatus}</span></td>
+                        <td>\${health.totalTests}</td>
+                        <td>\${health.consecutiveSuccesses}</td>
+                        <td>\${health.consecutiveFailures}</td>
+                        <td>\${successRate}%</td>
+                        <td>\${formatResponseTime(health.avgResponseTime)}</td>
+                        <td>\${formatTimestamp(health.lastSuccess)}</td>
+                        <td>\${formatTimestamp(health.lastFailure)}</td>
+                        <td>
+                            <button class="button small" onclick="testIP('\${health.ip}')">测试</button>
+                            <button class="button small success" onclick="whitelistIP('\${health.ip}')">白名单</button>
+                            <button class="button small warning" onclick="blacklistIP('\${health.ip}')">黑名单</button>
+                            <button class="button small danger" onclick="clearIPStats('\${health.ip}')">清空</button>
+                        </td>
+                    </tr>
+                \`;
             });
             
-            if (rows.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">暂无健康检查数据</td></tr>';
-            } else {
-                tbody.innerHTML = rows.join('');
-            }
+            tbody.innerHTML = rows.join('');
         }
 
         async function triggerSync() {
