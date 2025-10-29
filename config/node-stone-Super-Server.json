@@ -1,1 +1,25 @@
-{}
+{
+  "$schema": "./schema.json",
+  "_comment": "节点特定配置 - 主机名: stone-Super-Server",
+  "_lastUpdated": "2025-10-20T10:07:49.273Z",
+  "utls": {
+    "concurrency": 28
+  },
+  "dataValidation": {
+    "allowedContentTypes": [
+      "image/",
+      "application/octet-stream"
+    ]
+  },
+  "p2p": {
+    "nodes": [
+      "tile0.zeromaps.cn:9528",
+      "tile3.zeromaps.cn:9528",
+      "tile4.zeromaps.cn:9528",
+      "tile5.zeromaps.cn:9528",
+      "tile6.zeromaps.cn:9528",
+      "tile12.zeromaps.cn:9528",
+      "www.zeromaps.com.cn:9528"
+    ]
+  }
+}

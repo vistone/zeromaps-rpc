@@ -10,3 +10,4 @@ ecosystem.config.cjs
 
 # 备份文件
 *.backup
+

@@ -7,94 +7,16 @@ import * as fs from 'fs'
 import * as path from 'path'
 import * as os from 'os'
 import { EventEmitter } from 'events'
-import { createLogger } from './logger.js'
+import { ServerConfig } from '../types/index.js'
+import { createLogger } from '../utils/logger.js'
 
 const logger = createLogger('ConfigManager')
 
-/**
- * 服务器配置接口
- */
-export interface ServerConfig {
-    server: {
-        name: string
-        domain: string
-        rpc: {
-            port: number
-            timeout: number
-        }
-        monitor: {
-            port: number
-            statsInterval: number
-        }
-        webhook: {
-            port: number
-            secret: string
-            updateScript: string
-            forwardToOtherNodes: boolean
-        }
-    }
-    utls: {
-        proxyPort: number
-        concurrency: number
-        timeout: number
-        enableKeepAlive?: boolean
-        enableAdaptiveConcurrency?: boolean
-        adaptiveConcurrency?: {
-            adjustmentInterval: number
-            minConcurrency: number
-            maxConcurrency: number
-            responseTimeThreshold: number
-            successRateThreshold: number
-        }
-    }
-    ipv6: {
-        prefix: string
-        start: number
-        count: number
-        healthCheck: {
-            maxError403Count: number
-            minRequestsBeforeCheck: number
-            failureRateThreshold: number
-            responseTimeThreshold: number
-            rateLimitThreshold: number
-        }
-    }
-    logging: {
-        level: string
-        maxFileSize: number
-        maxFiles: number
-    }
-    performance: {
-        maxRequestLogs: number
-        healthCheckInterval: number
-    }
-    dns?: {
-        enabled: boolean
-        ipPoolFile: string
-        ipPoolUsageRate: number
-        probeInterval: number
-        saveInterval: number
-        health: {
-            consecutiveFailsThreshold: number
-            successRateThreshold: number
-            blacklistDuration: number
-            minPoolSize: number
-        }
-    }
-    dataValidation?: {
-        minResponseSize: number
-        allowedContentTypes?: string[]
-    }
-}
-
-/**
- * 配置管理器类
- */
 export class ConfigManager extends EventEmitter {
     private config: ServerConfig
     private configPath: string
     private nodeConfigPath: string
-    private watchers: fs.FSWatcher[] = []  // 修复：使用数组保存所有 watcher
+    private watchers: fs.FSWatcher[] = []
     private static instance: ConfigManager | null = null
 
     private constructor() {
@@ -328,13 +250,6 @@ export class ConfigManager extends EventEmitter {
             const minSize = anyConfig.dataValidation.minResponseSize
             if (!Number.isFinite(minSize) || minSize < 0 || minSize > 1024 * 1024) {
                 throw new Error(`dataValidation.minResponseSize 无效: ${minSize}（必须在 0-1048576 字节之间）`)
-            }
-        }
-
-        if (anyConfig.dataValidation && anyConfig.dataValidation.allowedContentTypes !== undefined) {
-            const list = anyConfig.dataValidation.allowedContentTypes
-            if (!Array.isArray(list) || list.some((x: any) => typeof x !== 'string')) {
-                throw new Error(`dataValidation.allowedContentTypes 无效（必须为字符串数组）`)
             }
         }
 
@@ -591,4 +506,3 @@ export class ConfigManager extends EventEmitter {
 export function getConfig(): ConfigManager {
     return ConfigManager.getInstance()
 }
-

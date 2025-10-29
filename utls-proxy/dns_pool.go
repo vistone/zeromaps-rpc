@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -69,6 +70,14 @@ func NewDNSIPPool(domain string, preferIPv6 bool) *DNSIPPool {
 	// 检测系统 IPv6 支持
 	supportsIPv6 := hasIPv6Support()
 
+	// 允许通过环境变量覆盖默认值
+	rate := 0.95
+	if v := os.Getenv("DNS_IP_POOL_USAGE_RATE"); v != "" {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil && parsed >= 0 && parsed <= 1 {
+			rate = parsed
+		}
+	}
+
 	pool := &DNSIPPool{
 		domain:          domain,
 		activeIPv4:      make([]string, 0),
@@ -77,7 +86,7 @@ func NewDNSIPPool(domain string, preferIPv6 bool) *DNSIPPool {
 		candidateIPv6:   make([]string, 0),
 		blacklist:       make(map[string]time.Time),
 		health:          make(map[string]*IPHealth),
-		ipPoolUsageRate: 0.95, // 95% 用 IP 池
+		ipPoolUsageRate: rate, // 默认 95%，可通过环境变量覆盖
 		preferIPv6:      preferIPv6 && supportsIPv6,
 		probeInterval:   5 * time.Minute,
 		minPoolSize:     2,
@@ -440,9 +449,23 @@ func (p *DNSIPPool) ShouldUseIPPool() bool {
 
 	count := p.requestCounter.Add(1)
 
-	// 每 20 个请求中，1 个用域名（5%）
-	// 这个请求会帮我们发现新的 IP
-	return count%20 != 0
+	// 使用可配置比例：ipPoolUsageRate（例如 0.95 表示 95% 使用 IP 池）
+	// 实现方式：每 N 次请求使用 1 次域名，其中 N = round(1 / (1 - rate))
+	rate := p.ipPoolUsageRate
+	if rate >= 0.999 { // 几乎全部使用 IP 池
+		return true
+	}
+	if rate <= 0 { // 全部使用域名（禁用 IP 池）
+		return false
+	}
+
+	domainEvery := int(1.0/(1.0-rate) + 0.5) // 四舍五入
+	if domainEvery < 2 {
+		domainEvery = 2
+	}
+
+	// 每 domainEvery 个请求中，1 个用域名（刺探/刷新池）
+	return count%int64(domainEvery) != 0
 }
 
 // 获取随机 IP（从健康的 IP 中选择）

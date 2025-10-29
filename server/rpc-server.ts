@@ -43,22 +43,22 @@ function detectIPv6Tunnel(): { supported: boolean; prefix: string; interfaceName
       for (const addr of addrs) {
         if (addr.family === 'IPv6' && !addr.internal) {
           const ipv6Full = addr.address
-          
+
           // 过滤掉本地链路地址（fe80::）和其他特殊地址
           if (ipv6Full.startsWith('fe80:') || ipv6Full.startsWith('::1')) {
             continue  // 跳过本地链路地址和 loopback
           }
-          
+
           // 从完整地址提取前缀（去掉后缀）
           // 例如：2607:8700:5500:2043::2 → 2607:8700:5500:2043
           const prefix = ipv6Full.split('::')[0]  // 取 :: 前面的部分
-          
-          logger.info('✅ 检测到 IPv6 隧道', { 
-            interface: tunnelName, 
+
+          logger.info('✅ 检测到 IPv6 隧道', {
+            interface: tunnelName,
             prefix: prefix,
             fullAddress: ipv6Full.substring(0, 40)
           })
-          
+
           return { supported: true, prefix, interfaceName: tunnelName }
         }
       }
@@ -68,24 +68,24 @@ function detectIPv6Tunnel(): { supported: boolean; prefix: string; interfaceName
     for (const name in interfaces) {
       const addrs = interfaces[name]
       if (!addrs) continue
-      
+
       for (const addr of addrs) {
         if (addr.family === 'IPv6' && !addr.internal) {
           const ipv6Full = addr.address
-          
+
           // 过滤掉本地链路地址（fe80::）和其他特殊地址
           if (ipv6Full.startsWith('fe80:') || ipv6Full.startsWith('::1') || ipv6Full.startsWith('::')) {
             continue  // 跳过本地链路地址、loopback 和未分配地址
           }
-          
+
           const prefix = ipv6Full.split('::')[0]
-          
-          logger.info('✅ 检测到 IPv6 支持', { 
-            interface: name, 
+
+          logger.info('✅ 检测到 IPv6 支持', {
+            interface: name,
             prefix: prefix,
             fullAddress: ipv6Full.substring(0, 40)
           })
-          
+
           return { supported: true, prefix, interfaceName: name }
         }
       }
@@ -132,6 +132,11 @@ export class RpcServer extends EventEmitter {
   private fetcherType: 'utls' = 'utls'  // 当前使用的 fetcher 类型（只支持 uTLS）
   private emergencyStop = false  // 紧急停止标志（检测到 403 时触发）
   private emergencyStopReason = ''  // 紧急停止原因
+  private dynamicConcurrencyEnabled = true  // 是否启用动态并发调节
+  private concurrencyAdjustmentInterval: NodeJS.Timeout | null = null  // 并发调整定时器
+  private healthCheckInterval: NodeJS.Timeout | null = null  // 健康检查定时器
+  private utlsHealthCheckInterval: NodeJS.Timeout | null = null  // uTLS健康检查定时器
+  private lastSystemStats: any = null  // 上次系统统计信息
 
   constructor(
     private port: number,
@@ -166,7 +171,14 @@ export class RpcServer extends EventEmitter {
 
     // 初始化 IPv6 地址池
     if (finalIPv6Prefix && ipv6Detection.supported) {
-      this.ipv6Pool = new IPv6Pool(finalIPv6Prefix, ipv6Start, ipv6Count)
+      const hc = config.get<any>('ipv6.healthCheck')
+      this.ipv6Pool = new IPv6Pool(finalIPv6Prefix, ipv6Start, ipv6Count, {
+        maxError403Count: hc.maxError403Count,
+        minRequestsBeforeCheck: hc.minRequestsBeforeCheck,
+        failureRateThreshold: hc.failureRateThreshold,
+        responseTimeThreshold: hc.responseTimeThreshold,
+        rateLimitThreshold: hc.rateLimitThreshold
+      })
       logger.info('IPv6 地址池已配置', {
         prefix: finalIPv6Prefix,
         range: `::${ipv6Start} ~ ::${ipv6Start + ipv6Count - 1}`,
@@ -174,8 +186,15 @@ export class RpcServer extends EventEmitter {
         source: ipv6BasePrefix ? '手动配置' : '自动检测'
       })
     } else {
-      // 创建空的 IPv6 池（不使用 IPv6）
-      this.ipv6Pool = new IPv6Pool('', 0, 0)
+      // 创建空的 IPv6 池（不使用 IPv6），也保持统一的配置接口
+      const hc = config.get<any>('ipv6.healthCheck')
+      this.ipv6Pool = new IPv6Pool('', 0, 0, {
+        maxError403Count: hc.maxError403Count,
+        minRequestsBeforeCheck: hc.minRequestsBeforeCheck,
+        failureRateThreshold: hc.failureRateThreshold,
+        responseTimeThreshold: hc.responseTimeThreshold,
+        rateLimitThreshold: hc.rateLimitThreshold
+      })
 
       if (finalIPv6Prefix && !ipv6Detection.supported) {
         logger.warn('配置了 IPv6 前缀但系统不支持 IPv6，禁用 IPv6 地址池')
@@ -189,13 +208,32 @@ export class RpcServer extends EventEmitter {
     // 从配置获取 uTLS 参数
     const proxyPort = config.get<number>('utls.proxyPort')
     const concurrency = config.get<number>('utls.concurrency')
+    const enableKeepAlive = config.get<boolean>('utls.enableKeepAlive')
+    const enableAdaptiveConcurrency = config.get<boolean>('utls.enableAdaptiveConcurrency')
 
     logger.info('使用 uTLS 代理', {
       browser: 'Chrome 120',
       proxyPort,
-      concurrency
+      concurrency,
+      keepAlive: enableKeepAlive,
+      adaptiveConcurrency: enableAdaptiveConcurrency
     })
-    this.fetcher = new UTLSFetcher(this.ipv6Pool, concurrency, proxyPort) as IFetcher
+    const fetcherInstance = new UTLSFetcher(
+      this.ipv6Pool,
+      concurrency,
+      proxyPort,
+      enableKeepAlive,
+      enableAdaptiveConcurrency
+    )
+    // 注入数据验证阈值配置
+    try {
+      const dv = config.get<any>('dataValidation')
+      fetcherInstance.updateValidationConfig({
+        minResponseSize: dv.minResponseSize,
+        allowedContentTypes: dv.allowedContentTypes
+      })
+    } catch { }
+    this.fetcher = fetcherInstance as IFetcher
     this.fetcherType = 'utls'
 
     // 从配置获取性能参数
@@ -238,6 +276,9 @@ export class RpcServer extends EventEmitter {
     // 启动健康检查（从配置获取间隔）
     this.startHealthCheck()
     this.startUTLSHealthCheck()
+
+    // 启动动态并发调节
+    this.startDynamicConcurrencyAdjustment()
   }
 
   /**
@@ -577,17 +618,26 @@ export class RpcServer extends EventEmitter {
    */
   public async getStats() {
     const systemStats = await this.systemMonitor.getStats()
+    const fetcherStats = this.fetcher.getStats()
 
     return {
       totalClients: this.clients.size,
       fetcherType: this.fetcherType,
-      fetcherStats: this.fetcher.getStats(),
+      fetcherStats: fetcherStats,
       ipv6Stats: this.ipv6Pool.getDetailedStats(),
       system: systemStats,
       health: this.healthStatus,  // 保持原有字段（Google API 健康状态）
       utlsHealth: this.utlsHealthStatus,  // 新增字段（uTLS 代理健康状态）
       emergencyStop: this.emergencyStop,  // 紧急停止标志
-      emergencyStopReason: this.emergencyStopReason  // 紧急停止原因
+      emergencyStopReason: this.emergencyStopReason,  // 紧急停止原因
+      dynamicConcurrency: {
+        enabled: this.dynamicConcurrencyEnabled,
+        currentConcurrency: fetcherStats.currentConcurrency,
+        adaptiveConcurrency: fetcherStats.adaptiveConcurrency,
+        keepAliveEnabled: fetcherStats.keepAliveEnabled,
+        performanceMetrics: fetcherStats.performanceMetrics,
+        lastSystemStats: this.lastSystemStats
+      }
     }
   }
 
@@ -616,6 +666,22 @@ export class RpcServer extends EventEmitter {
    * 停止服务器
    */
   public async stop(): Promise<void> {
+    // 清理所有定时器
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval)
+      this.healthCheckInterval = null
+    }
+
+    if (this.utlsHealthCheckInterval) {
+      clearInterval(this.utlsHealthCheckInterval)
+      this.utlsHealthCheckInterval = null
+    }
+
+    if (this.concurrencyAdjustmentInterval) {
+      clearInterval(this.concurrencyAdjustmentInterval)
+      this.concurrencyAdjustmentInterval = null
+    }
+
     // 清理 fetcher 资源
     if (this.fetcher.destroy) {
       this.fetcher.destroy()
@@ -652,10 +718,15 @@ export class RpcServer extends EventEmitter {
     // 立即执行一次
     this.checkHealth()
 
+    // 清理旧定时器
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval)
+    }
+
     // 从配置获取健康检查间隔
     const config = getConfig()
     const interval = config.get<number>('performance.healthCheckInterval')
-    setInterval(() => {
+    this.healthCheckInterval = setInterval(() => {
       this.checkHealth()
     }, interval)
   }
@@ -701,47 +772,69 @@ export class RpcServer extends EventEmitter {
   }
 
   /**
-   * 检查节点健康状态（直接用 https 请求，不经过 uTLS 代理）
+   * 检查节点健康状态（直接用 https 请求，不经过 uTLS 代理，带重试）
    */
   private async checkHealth(): Promise<void> {
-    try {
-      const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
+    const testUrl = 'https://kh.google.com/rt/earth/PlanetoidMetadata'
+    let lastError: Error | null = null
 
-      // 直接用 Node.js https 模块，不经过 uTLS 代理
-      // 这样才能真正测试服务器主 IP 是否被拉黑（不使用任何伪装）
-      const result = await this.rawHttpsRequest(testUrl, 10000)
+    // 最多重试3次（总共4次尝试）
+    for (let attempt = 0; attempt < 4; attempt++) {
+      try {
+        // 直接用 Node.js https 模块，不经过 uTLS 代理
+        // 这样才能真正测试服务器主 IP 是否被拉黑（不使用任何伪装）
+        const result = await this.rawHttpsRequest(testUrl, 10000)
 
-      this.healthStatus = {
-        status: result.statusCode,
-        message: result.statusCode === 200 ? '正常（原始 IPv4）' :
-          result.statusCode === 403 ? '节点被拉黑（原始 IPv4）' :
-            result.statusCode === 429 ? '限流（原始 IPv4）' :
-              `HTTP ${result.statusCode}（原始 IPv4）`,
-        lastCheck: Date.now()
+        this.healthStatus = {
+          status: result.statusCode,
+          message: result.statusCode === 200 ? '正常（原始 IPv4）' :
+            result.statusCode === 403 ? '节点被拉黑（原始 IPv4）' :
+              result.statusCode === 429 ? '限流（原始 IPv4）' :
+                `HTTP ${result.statusCode}（原始 IPv4）`,
+          lastCheck: Date.now()
+        }
+
+        if (result.statusCode === 403) {
+          logger.error('健康检查: 节点被拉黑（原始 IPv4，无伪装）', undefined, {
+            statusCode: 403,
+            bodySize: result.body.length
+          })
+        } else if (result.statusCode === 200) {
+          logger.info('健康检查: 节点正常（原始 IPv4，无伪装）', {
+            bodySize: result.body.length,
+            attempt: attempt + 1
+          })
+        } else {
+          logger.warn('健康检查异常（原始 IPv4，无伪装）', {
+            statusCode: result.statusCode,
+            bodySize: result.body.length,
+            attempt: attempt + 1
+          })
+        }
+
+        return // 成功，退出重试循环
+      } catch (error) {
+        lastError = error as Error
+        
+        // 如果不是最后一次尝试，等待后重试（指数退避）
+        if (attempt < 3) {
+          const delay = Math.pow(2, attempt) * 1000 // 1s, 2s, 4s
+          logger.warn(`健康检查失败，${delay}ms 后重试 (${attempt + 1}/3)`, {
+            error: lastError.message
+          })
+          await new Promise(resolve => setTimeout(resolve, delay))
+        }
       }
+    }
 
-      if (result.statusCode === 403) {
-        logger.error('健康检查: 节点被拉黑（原始 IPv4，无伪装）', undefined, {
-          statusCode: 403,
-          bodySize: result.body.length
-        })
-      } else if (result.statusCode === 200) {
-        logger.info('健康检查: 节点正常（原始 IPv4，无伪装）', {
-          bodySize: result.body.length
-        })
-      } else {
-        logger.warn('健康检查异常（原始 IPv4，无伪装）', {
-          statusCode: result.statusCode,
-          bodySize: result.body.length
-        })
-      }
-    } catch (error) {
+    // 所有尝试都失败
+    if (lastError) {
       this.healthStatus = {
         status: 0,
-        message: (error as Error).message,
+        message: lastError.message,
         lastCheck: Date.now()
       }
-      logger.error('健康检查失败', error as Error)
+      logger.error('健康检查失败（所有重试均失败）', lastError)
     }
   }
 
@@ -794,12 +887,17 @@ export class RpcServer extends EventEmitter {
     // 立即执行一次
     this.checkUTLSHealth()
 
+    // 清理旧定时器
+    if (this.utlsHealthCheckInterval) {
+      clearInterval(this.utlsHealthCheckInterval)
+    }
+
     // 从配置获取健康检查间隔
     const config = getConfig()
     const interval = config.get<number>('performance.healthCheckInterval')
 
     // 定期检查（与 Google API 健康检查间隔相同）
-    setInterval(() => {
+    this.utlsHealthCheckInterval = setInterval(() => {
       this.checkUTLSHealth()
     }, interval)
   }
@@ -936,6 +1034,203 @@ export class RpcServer extends EventEmitter {
    */
   public getUTLSHealthStatus() {
     return this.utlsHealthStatus
+  }
+
+  /**
+   * 启动动态并发调节
+   */
+  private startDynamicConcurrencyAdjustment(): void {
+    if (this.concurrencyAdjustmentInterval) {
+      clearInterval(this.concurrencyAdjustmentInterval)
+    }
+
+    // 每60秒检查一次系统资源并调整并发
+    this.concurrencyAdjustmentInterval = setInterval(async () => {
+      await this.adjustConcurrencyBasedOnSystemResources()
+    }, 60000)
+
+    logger.info('动态并发调节已启动', { interval: '60s' })
+  }
+
+  /**
+   * 基于系统资源调整并发数
+   */
+  private async adjustConcurrencyBasedOnSystemResources(): Promise<void> {
+    if (!this.dynamicConcurrencyEnabled) {
+      return
+    }
+
+    try {
+      const systemStats = await this.systemMonitor.getStats()
+      const fetcherStats = this.fetcher.getStats()
+
+      // 计算系统负载指标
+      const cpuUsage = systemStats.cpu.usage
+      const memoryUsage = systemStats.memory.usage
+      const loadAvg = systemStats.cpu.loadAvg[0]  // 1分钟平均负载
+      const cores = systemStats.cpu.cores
+
+      // 计算目标并发数
+      let targetConcurrency = this.calculateTargetConcurrency(
+        cpuUsage,
+        memoryUsage,
+        loadAvg,
+        cores,
+        fetcherStats
+      )
+
+      // 限制并发数范围
+      const config = getConfig()
+      const minConcurrency = config.get<number>('utls.adaptiveConcurrency.minConcurrency') || 5
+      const maxConcurrency = config.get<number>('utls.adaptiveConcurrency.maxConcurrency') || 300
+      targetConcurrency = Math.max(minConcurrency, Math.min(maxConcurrency, targetConcurrency))
+
+      // 如果目标并发数与当前不同，则更新
+      if (targetConcurrency !== fetcherStats.currentConcurrency) {
+        (this.fetcher as any).updateConcurrencyConfig({ concurrency: targetConcurrency })
+
+        logger.info('动态并发调整', {
+          oldConcurrency: fetcherStats.currentConcurrency,
+          newConcurrency: targetConcurrency,
+          cpuUsage: `${cpuUsage}%`,
+          memoryUsage: `${memoryUsage}%`,
+          loadAvg: loadAvg.toFixed(2),
+          cores
+        })
+      }
+
+      this.lastSystemStats = systemStats
+    } catch (error) {
+      logger.error('动态并发调整失败', error as Error)
+    }
+  }
+
+  /**
+   * 计算目标并发数
+   */
+  private calculateTargetConcurrency(
+    cpuUsage: number,
+    memoryUsage: number,
+    loadAvg: number,
+    cores: number,
+    fetcherStats: any
+  ): number {
+    // 基础并发数（基于CPU核心数）
+    let baseConcurrency = cores * 10
+
+    // CPU 使用率调整
+    if (cpuUsage > 80) {
+      baseConcurrency *= 0.7  // CPU 高负载时减少并发
+    } else if (cpuUsage < 30) {
+      baseConcurrency *= 1.3  // CPU 低负载时增加并发
+    }
+
+    // 内存使用率调整
+    if (memoryUsage > 85) {
+      baseConcurrency *= 0.6  // 内存不足时大幅减少并发
+    } else if (memoryUsage < 50) {
+      baseConcurrency *= 1.2  // 内存充足时增加并发
+    }
+
+    // 系统负载调整
+    if (loadAvg > cores * 2) {
+      baseConcurrency *= 0.5  // 系统负载过高时大幅减少并发
+    } else if (loadAvg < cores * 0.5) {
+      baseConcurrency *= 1.4  // 系统负载较低时增加并发
+    }
+
+    // 基于当前性能指标微调
+    const avgResponseTime = fetcherStats.performanceMetrics?.avgResponseTime || 0
+    const successRate = fetcherStats.performanceMetrics?.successRate || 1.0
+
+    if (avgResponseTime > 3000 && successRate > 0.8) {
+      baseConcurrency *= 0.8  // 响应时间过长时减少并发
+    } else if (avgResponseTime < 1000 && successRate > 0.9) {
+      baseConcurrency *= 1.2  // 响应时间短且成功率高时增加并发
+    }
+
+    return Math.round(baseConcurrency)
+  }
+
+  /**
+   * 更新配置（热更新，带原子性保证）
+   */
+  public updateConfig(newConfig: any): void {
+    logger.info('RpcServer 配置热更新开始', {
+      ipv6HealthCheck: newConfig.ipv6?.healthCheck,
+      dataValidation: newConfig.dataValidation,
+      utlsConcurrency: newConfig.utls
+    })
+
+    // 备份当前配置（用于回滚）
+    const backup = {
+      ipv6HealthCheck: { ...this.ipv6Pool['healthCheckConfig'] },
+      currentConcurrency: (this.fetcher as any).currentConcurrency,
+      enableKeepAlive: (this.fetcher as any).enableKeepAlive,
+      enableAdaptiveConcurrency: (this.fetcher as any).enableAdaptiveConcurrency
+    }
+
+    try {
+      // 步骤1: 预验证所有配置项
+      if (newConfig.ipv6?.healthCheck) {
+        const hc = newConfig.ipv6.healthCheck
+        if (hc.maxError403Count !== undefined && (hc.maxError403Count < 1 || hc.maxError403Count > 100)) {
+          throw new Error(`maxError403Count 无效: ${hc.maxError403Count}`)
+        }
+        if (hc.failureRateThreshold !== undefined && (hc.failureRateThreshold < 0 || hc.failureRateThreshold > 1)) {
+          throw new Error(`failureRateThreshold 无效: ${hc.failureRateThreshold}`)
+        }
+      }
+
+      if (newConfig.utls?.concurrency !== undefined) {
+        if (newConfig.utls.concurrency < 1 || newConfig.utls.concurrency > 1000) {
+          throw new Error(`concurrency 无效: ${newConfig.utls.concurrency}`)
+        }
+      }
+
+      // 步骤2: 原子性更新（全部成功或全部失败）
+      const updates: Array<() => void> = []
+
+      if (newConfig.ipv6?.healthCheck) {
+        updates.push(() => this.ipv6Pool.updateHealthCheckConfig(newConfig.ipv6.healthCheck))
+      }
+
+      if (newConfig.dataValidation) {
+        updates.push(() => (this.fetcher as any).updateValidationConfig(newConfig.dataValidation))
+      }
+
+      if (newConfig.utls) {
+        updates.push(() => (this.fetcher as any).updateConcurrencyConfig({
+          concurrency: newConfig.utls.concurrency,
+          enableKeepAlive: newConfig.utls.enableKeepAlive,
+          enableAdaptiveConcurrency: newConfig.utls.enableAdaptiveConcurrency
+        }))
+      }
+
+      // 执行所有更新
+      for (const update of updates) {
+        update()
+      }
+
+      logger.info('RpcServer 配置热更新成功')
+    } catch (error) {
+      // 回滚到备份配置
+      logger.error('RpcServer 配置热更新失败，正在回滚', error as Error)
+
+      try {
+        this.ipv6Pool.updateHealthCheckConfig(backup.ipv6HealthCheck);
+        (this.fetcher as any).updateConcurrencyConfig({
+          concurrency: backup.currentConcurrency,
+          enableKeepAlive: backup.enableKeepAlive,
+          enableAdaptiveConcurrency: backup.enableAdaptiveConcurrency
+        })
+        logger.info('配置已回滚到更新前状态')
+      } catch (rollbackError) {
+        logger.error('配置回滚失败（严重错误）', rollbackError as Error)
+      }
+
+      throw error
+    }
   }
 }
 

@@ -78,6 +78,9 @@ export UTLS_PROXY_PORT=8765
 
 # 并发数（默认 10）
 export UTLS_CONCURRENCY=10
+
+# DNS IP 池使用率（0-1，默认 0.95，值越大越多使用 IP 池）
+export DNS_IP_POOL_USAGE_RATE=0.95
 ```
 
 ### PM2 配置

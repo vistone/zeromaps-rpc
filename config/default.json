@@ -13,7 +13,7 @@
         },
         "webhook": {
             "port": 9530,
-            "secret": "",
+            "secret": "test-secret-local-dev",
             "updateScript": "/opt/zeromaps-rpc/auto-update.sh",
             "forwardToOtherNodes": true
         }
@@ -21,16 +21,28 @@
     "utls": {
         "proxyPort": 8765,
         "concurrency": 20,
-        "timeout": 10000
+        "timeout": 10000,
+        "enableKeepAlive": true,
+        "enableAdaptiveConcurrency": false,
+        "adaptiveConcurrency": {
+            "adjustmentInterval": 30000,
+            "minConcurrency": 5,
+            "maxConcurrency": 300,
+            "responseTimeThreshold": 2000,
+            "successRateThreshold": 0.8,
+            "note": "默认禁用 UTLSFetcher 内部调整，由 RpcServer 统一管理（避免冲突）"
+        }
     },
     "ipv6": {
         "prefix": "",
         "start": 1001,
         "count": 100,
         "healthCheck": {
+            "maxError403Count": 5,
+            "minRequestsBeforeCheck": 20,
             "failureRateThreshold": 0.3,
             "responseTimeThreshold": 3000,
-            "minRequestsBeforeCheck": 20
+            "rateLimitThreshold": 0.2
         }
     },
     "logging": {
@@ -41,6 +53,13 @@
     "performance": {
         "maxRequestLogs": 100,
         "healthCheckInterval": 300000
+    },
+    "dataValidation": {
+        "minResponseSize": 50,
+        "allowedContentTypes": [
+            "image/",
+            "application/octet-stream"
+        ]
     },
     "dns": {
         "enabled": true,

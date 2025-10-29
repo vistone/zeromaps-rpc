@@ -41,22 +41,208 @@ export class UTLSFetcher extends EventEmitter {
   private maxConcurrent = 0
   private queue: queueAsPromised<UTLSTask, FetchResult>
   private proxyUrl: string
+  private minResponseSizeBytes: number = 50  // 数据验证阈值，默认 50B，可通过配置热更新
+  private allowedContentTypes: string[] | null = null
+  private currentConcurrency: number = 100   // 当前并发数
+  private httpAgent: http.Agent | null = null  // HTTP Keep-Alive 连接池
+  private adaptiveConcurrency = true  // 是否启用自适应并发调整
+  private concurrencyAdjustmentInterval: NodeJS.Timeout | null = null
+  private performanceMetrics = {
+    avgResponseTime: 0,
+    successRate: 1.0,
+    lastAdjustment: Date.now(),
+    adjustmentCount: 0
+  }
 
   constructor(
     ipv6Pool?: IPv6Pool,
     concurrency: number = 100,
-    proxyPort: number = 8765
+    proxyPort: number = 8765,
+    enableKeepAlive: boolean = true,
+    enableAdaptiveConcurrency: boolean = true
   ) {
     super()
     this.ipv6Pool = ipv6Pool || null
     this.proxyUrl = `http://localhost:${proxyPort}/proxy`
+    this.currentConcurrency = concurrency
+    this.adaptiveConcurrency = enableAdaptiveConcurrency
+
+    // 初始化 HTTP Keep-Alive 连接池
+    if (enableKeepAlive) {
+      this.httpAgent = new http.Agent({
+        keepAlive: true,
+        maxSockets: concurrency * 2,  // 允许更多连接以支持并发
+        maxFreeSockets: concurrency,
+        timeout: 60000,  // 60秒空闲超时
+        keepAliveMsecs: 30000  // 30秒保活间隔
+      })
+    }
 
     logger.info('UTLSFetcher 初始化', {
       concurrency,
-      proxyPort
+      proxyPort,
+      keepAlive: enableKeepAlive,
+      adaptiveConcurrency: enableAdaptiveConcurrency
     })
 
     this.queue = fastq.promise(this.worker.bind(this), concurrency)
+
+    // 启动自适应并发调整
+    if (this.adaptiveConcurrency) {
+      this.startAdaptiveConcurrencyAdjustment()
+    }
+  }
+
+  /**
+   * 更新数据验证配置（热更新）
+   */
+  public updateValidationConfig(config: { minResponseSize?: number, allowedContentTypes?: string[] }): void {
+    if (config.minResponseSize !== undefined && Number.isFinite(config.minResponseSize)) {
+      this.minResponseSizeBytes = Math.max(0, Math.floor(config.minResponseSize))
+      logger.info('UTLSFetcher 数据验证阈值已更新', { minResponseSizeBytes: this.minResponseSizeBytes })
+    }
+    if (config.allowedContentTypes && Array.isArray(config.allowedContentTypes)) {
+      this.allowedContentTypes = config.allowedContentTypes.filter(t => typeof t === 'string')
+      logger.info('UTLSFetcher 允许的 Content-Type 已更新', { allowedContentTypes: this.allowedContentTypes })
+    }
+  }
+
+  /**
+   * 更新并发配置（热更新）
+   */
+  public updateConcurrencyConfig(config: {
+    concurrency?: number,
+    enableKeepAlive?: boolean,
+    enableAdaptiveConcurrency?: boolean
+  }): void {
+    if (config.concurrency !== undefined && config.concurrency > 0) {
+      this.currentConcurrency = config.concurrency
+      this.queue.concurrency = config.concurrency
+      logger.info('UTLSFetcher 并发数已更新', { concurrency: this.currentConcurrency })
+    }
+
+    if (config.enableKeepAlive !== undefined) {
+      if (config.enableKeepAlive && !this.httpAgent) {
+        this.httpAgent = new http.Agent({
+          keepAlive: true,
+          maxSockets: this.currentConcurrency * 2,
+          maxFreeSockets: this.currentConcurrency,
+          timeout: 60000,
+          keepAliveMsecs: 30000
+        })
+        logger.info('UTLSFetcher Keep-Alive 已启用')
+      } else if (!config.enableKeepAlive && this.httpAgent) {
+        this.httpAgent.destroy()
+        this.httpAgent = null
+        logger.info('UTLSFetcher Keep-Alive 已禁用')
+      }
+    }
+
+    if (config.enableAdaptiveConcurrency !== undefined) {
+      this.adaptiveConcurrency = config.enableAdaptiveConcurrency
+      if (this.adaptiveConcurrency && !this.concurrencyAdjustmentInterval) {
+        this.startAdaptiveConcurrencyAdjustment()
+        logger.info('UTLSFetcher 自适应并发已启用')
+      } else if (!this.adaptiveConcurrency && this.concurrencyAdjustmentInterval) {
+        clearInterval(this.concurrencyAdjustmentInterval)
+        this.concurrencyAdjustmentInterval = null
+        logger.info('UTLSFetcher 自适应并发已禁用')
+      }
+    }
+  }
+
+  /**
+   * 启动自适应并发调整
+   * 注意：如果外部（RpcServer）启用了动态并发调整，此方法不会启动，避免冲突
+   */
+  private startAdaptiveConcurrencyAdjustment(): void {
+    // 检查是否由外部统一管理并发（RpcServer 的动态并发调整）
+    // 如果禁用，则不启动内部调整，避免与 RpcServer 冲突
+    if (!this.adaptiveConcurrency) {
+      logger.info('UTLSFetcher 自适应并发调整已禁用（由外部统一管理）')
+      return
+    }
+
+    if (this.concurrencyAdjustmentInterval) {
+      clearInterval(this.concurrencyAdjustmentInterval)
+    }
+
+    // 每30秒调整一次并发数
+    this.concurrencyAdjustmentInterval = setInterval(() => {
+      this.adjustConcurrency()
+    }, 30000)
+
+    logger.info('UTLSFetcher 自适应并发调整已启动（独立模式）')
+  }
+
+  /**
+   * 调整并发数（基于性能指标）
+   */
+  private adjustConcurrency(): void {
+    const now = Date.now()
+    const timeSinceLastAdjustment = now - this.performanceMetrics.lastAdjustment
+
+    // 至少需要运行1分钟才进行调整
+    if (timeSinceLastAdjustment < 60000) {
+      return
+    }
+
+    const { avgResponseTime, successRate } = this.performanceMetrics
+    const oldConcurrency = this.currentConcurrency
+    let newConcurrency = this.currentConcurrency
+
+    // 基于响应时间和成功率调整并发数
+    if (avgResponseTime > 2000 && successRate > 0.8) {
+      // 响应时间过长但成功率高，可以增加并发
+      newConcurrency = Math.min(this.currentConcurrency + 5, 200)
+    } else if (avgResponseTime < 500 && successRate > 0.9) {
+      // 响应时间短且成功率高，可以进一步增加并发
+      newConcurrency = Math.min(this.currentConcurrency + 10, 300)
+    } else if (successRate < 0.7 || avgResponseTime > 5000) {
+      // 成功率低或响应时间过长，减少并发
+      newConcurrency = Math.max(this.currentConcurrency - 10, 10)
+    } else if (successRate < 0.5) {
+      // 成功率很低，大幅减少并发
+      newConcurrency = Math.max(this.currentConcurrency - 20, 5)
+    }
+
+    if (newConcurrency !== oldConcurrency) {
+      this.currentConcurrency = newConcurrency
+      this.queue.concurrency = newConcurrency
+      this.performanceMetrics.lastAdjustment = now
+      this.performanceMetrics.adjustmentCount++
+
+      logger.info('UTLSFetcher 自适应并发调整', {
+        oldConcurrency,
+        newConcurrency,
+        avgResponseTime: Math.round(avgResponseTime),
+        successRate: Math.round(successRate * 100) / 100,
+        adjustmentCount: this.performanceMetrics.adjustmentCount
+      })
+
+      // 更新 HTTP Agent 的连接池大小
+      if (this.httpAgent) {
+        this.httpAgent.maxSockets = newConcurrency * 2
+        this.httpAgent.maxFreeSockets = newConcurrency
+      }
+    }
+  }
+
+  /**
+   * 更新性能指标
+   */
+  private updatePerformanceMetrics(responseTime: number, success: boolean): void {
+    // 使用指数移动平均更新响应时间
+    const alpha = 0.1  // 平滑因子
+    this.performanceMetrics.avgResponseTime =
+      this.performanceMetrics.avgResponseTime === 0
+        ? responseTime
+        : alpha * responseTime + (1 - alpha) * this.performanceMetrics.avgResponseTime
+
+    // 使用指数移动平均更新成功率
+    const successValue = success ? 1 : 0
+    this.performanceMetrics.successRate =
+      alpha * successValue + (1 - alpha) * this.performanceMetrics.successRate
   }
 
   /**
@@ -145,8 +331,8 @@ export class UTLSFetcher extends EventEmitter {
         } else if (preview.includes('{') && preview.includes('"error"')) {
           isValidData = false
           dataWarning = '返回了 JSON 错误消息'
-        } else if (actualBodySize < 50) {
-          // 修改阈值：小于 50B 都认为无效（正常 protobuf 数据至少几百字节）
+        } else if (actualBodySize < this.minResponseSizeBytes) {
+          // 使用可配置阈值：小于 minResponseSizeBytes 认为无效
           isValidData = false
           dataWarning = `数据过小（${actualBodySize}B），疑似错误页面`
         }
@@ -161,6 +347,18 @@ export class UTLSFetcher extends EventEmitter {
           warning: dataWarning
         })
       } else {
+        // 可选的 Content-Type 允许列表告警（不拦截）
+        const contentType = (result.headers['content-type'] || '').toString()
+        if (this.allowedContentTypes && this.allowedContentTypes.length > 0) {
+          const ok = this.allowedContentTypes.some(t => contentType.includes(t))
+          if (!ok) {
+            logger.warn('Content-Type 不在允许列表（仅告警，不拦截）', {
+              requestId,
+              contentType,
+              allowed: this.allowedContentTypes
+            })
+          }
+        }
         logger.debug('uTLS 代理响应', {
           requestId,
           requestTime,
@@ -191,6 +389,10 @@ export class UTLSFetcher extends EventEmitter {
       // 记录统计
       const totalDuration = Date.now() - queuedAt
       const success = statusCode === 200  // 只有 200 状态码才算成功
+
+      // 更新性能指标（用于自适应并发调整）
+      this.updatePerformanceMetrics(totalDuration, success)
+
       // 只有使用 IPv6 时才记录到 IPv6 池统计
       if (ipv6 && ipv6.length > 0 && this.ipv6Pool) {
         this.ipv6Pool.recordRequest(ipv6, statusCode, totalDuration)
@@ -259,12 +461,17 @@ export class UTLSFetcher extends EventEmitter {
     return new Promise((resolve, reject) => {
       const parsedUrl = new URL(url)
 
-      const options = {
+      const options: any = {
         hostname: parsedUrl.hostname,
         port: parsedUrl.port,
         path: parsedUrl.pathname + parsedUrl.search,
         method: 'GET',
         timeout
+      }
+
+      // 只有在启用 Keep-Alive 时才设置 agent
+      if (this.httpAgent) {
+        options.agent = this.httpAgent
       }
 
       const req = http.request(options, (res) => {
@@ -301,8 +508,32 @@ export class UTLSFetcher extends EventEmitter {
       totalRequests: this.requestCount,
       concurrentRequests: this.concurrentRequests,
       maxConcurrent: this.maxConcurrent,
+      currentConcurrency: this.currentConcurrency,
       queueLength: this.queue.length(),
+      adaptiveConcurrency: this.adaptiveConcurrency,
+      keepAliveEnabled: this.httpAgent !== null,
+      performanceMetrics: {
+        avgResponseTime: Math.round(this.performanceMetrics.avgResponseTime),
+        successRate: Math.round(this.performanceMetrics.successRate * 100) / 100,
+        adjustmentCount: this.performanceMetrics.adjustmentCount,
+        lastAdjustment: this.performanceMetrics.lastAdjustment
+      },
       ipv6PoolStats: this.ipv6Pool ? this.ipv6Pool.getStats() : null
+    }
+  }
+
+  /**
+   * 销毁资源
+   */
+  public destroy(): void {
+    if (this.concurrencyAdjustmentInterval) {
+      clearInterval(this.concurrencyAdjustmentInterval)
+      this.concurrencyAdjustmentInterval = null
+    }
+
+    if (this.httpAgent) {
+      this.httpAgent.destroy()
+      this.httpAgent = null
     }
   }
 }

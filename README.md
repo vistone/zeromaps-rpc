@@ -30,11 +30,16 @@ ZeroMaps RPC 系统
 │   ├── 客户端连接管理
 │   ├── IPv6 地址池轮询
 │   ├── 请求队列管理
+│   ├── 动态并发调节（基于系统资源）
+│   ├── HTTP Keep-Alive 连接池
 │   └── 紧急停止机制
 │
 ├── Monitor Server (端口 9528)
 │   ├── HTTP API（实时统计）
 │   ├── WebSocket（实时推送）
+│   ├── 统计持久化（logs/metrics.log）
+│   ├── 历史统计导出（/api/stats/export）
+│   ├── 运行时配置管理（/api/config）
 │   └── P2P 同步（IP 池共享）
 │
 └── Webhook Server (端口 9530)
@@ -288,12 +293,35 @@ cat /var/log/zeromaps-auto-update-error.log
 
 ## 📊 监控访问
 
-### 统一管理面板
+### 🎛️ Web 管理面板（新功能）
+
+**完整的 Web 管理界面，无需修改代码即可完成所有配置和管理！**
+
+访问地址：`http://节点IP:9528/management`
+
+功能包括：
+- **⚙️ 配置管理**：通过 Web 界面修改所有配置项（并发数、Keep-Alive、健康检查等）
+- **📝 实时日志查看**：在线查看和过滤日志（info/warn/error）
+- **🔧 服务控制**：重新加载配置、触发重启（需配合 PM2）
+
+**快捷配置示例**：
+- 调整并发数：在界面输入数字 → 点击更新
+- 启用/禁用 Keep-Alive：下拉选择 → 点击更新
+- 查看完整配置：点击"查看完整配置" → JSON 格式展示
+
+**鉴权说明**：
+- 所有配置修改需要输入密钥（`server.webhook.secret`）
+- 密钥在 `config/default.json` 中配置
+- 建议生产环境设置强密码
+
+### 📈 监控面板
 
 访问任意已安装 Caddy 的节点（通过 HTTPS）：
 
 ```
-https://tile4.zeromaps.cn
+https://tile4.zeromaps.cn            # 实时监控
+https://tile4.zeromaps.cn/management # Web 管理面板
+
 https://tile12.zeromaps.cn
 https://www.zeromaps.com.cn
 ```
@@ -322,23 +350,69 @@ http://tile3.zeromaps.cn:9528
 - ✅ uTLS 代理健康状态
 - ✅ Google API 健康状态
 
-### HTTP API
+### HTTP API 完整列表
+
+#### 监控 API（无需鉴权）
 
 ```bash
 # 获取节点统计
 curl http://节点:9528/api/stats
 
 # 获取 IPv6 详细统计
-curl http://节点:9528/api/ipv6-stats
+curl http://节点:9528/api/ipv6
 
-# 获取健康状态
-curl http://节点:9528/api/health
+# 获取错误日志
+curl http://节点:9528/api/errorLogs
+
+# 导出历史统计
+curl http://节点:9528/api/stats/export?limit=1000
+
+# 查看实时日志
+curl "http://节点:9528/api/logs?lines=200&level=info"
 
 # uTLS 代理健康
 curl http://节点:8765/health
 
 # uTLS IP 池状态
 curl http://节点:8765/ip-pool
+```
+
+#### 配置管理 API（需要鉴权）
+
+```bash
+# 获取完整配置
+curl -H "X-Secret: your-secret" http://节点:9528/api/config
+
+# 更新单个配置
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Secret: your-secret" \
+  -d '{"path": "utls.concurrency", "value": 30}' \
+  http://节点:9528/api/config
+
+# 批量更新配置
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-Secret: your-secret" \
+  -d '{"updates": [
+    {"path": "utls.concurrency", "value": 30},
+    {"path": "dataValidation.minResponseSize", "value": 100}
+  ]}' \
+  http://节点:9528/api/config
+```
+
+#### 服务控制 API（需要鉴权）
+
+```bash
+# 重新加载配置
+curl -X POST \
+  -H "X-Secret: your-secret" \
+  http://节点:9528/api/service/reload-config
+
+# 重启服务（需配合 PM2）
+curl -X POST \
+  -H "X-Secret: your-secret" \
+  http://节点:9528/api/service/restart
 ```
 
 ## 🎯 已配置的VPS
@@ -360,6 +434,10 @@ curl http://节点:8765/ip-pool
 | 配置项 | 默认值 | 说明 | 配置位置 |
 |--------|--------|------|----------|
 | `utls.concurrency` | 20 | uTLS 并发数（推荐 20，过高易被封） | config/default.json |
+| `utls.enableKeepAlive` | true | HTTP Keep-Alive 连接复用 | config/default.json |
+| `utls.enableAdaptiveConcurrency` | false | UTLSFetcher 内部自适应并发（默认禁用，由 RpcServer 统一管理） | config/default.json |
+| `utls.adaptiveConcurrency.maxConcurrency` | 300 | 最大并发数限制（RpcServer 动态调节使用） | config/default.json |
+| `utls.adaptiveConcurrency.minConcurrency` | 5 | 最小并发数限制（RpcServer 动态调节使用） | config/default.json |
 | `utls.proxyPort` | 8765 | Go uTLS 代理端口 | config/default.json |
 | `server.rpc.port` | 9527 | RPC 服务端口 | config/default.json |
 | `server.monitor.port` | 9528 | 监控服务端口 | config/default.json |
@@ -368,6 +446,8 @@ curl http://节点:8765/ip-pool
 | `ipv6.count` | 100 | IPv6 地址池大小 | config/default.json |
 | `ipv6.start` | 1001 | IPv6 起始编号 | config/default.json |
 | `dns.ipPoolUsageRate` | 0.95 | IP 池使用率（95% IP池，5% 域名） | config/default.json |
+| `dataValidation.minResponseSize` | 50 | 最小响应大小验证（字节） | config/default.json |
+| `dataValidation.allowedContentTypes` | ["image/", "application/octet-stream"] | 允许的 Content-Type 片段列表 | config/default.json |
 | `logging.level` | info | 日志级别 | config/default.json |
 
 ### 修改配置的三种方式
@@ -396,7 +476,51 @@ vim config/node-$(hostname).json
 pm2 restart all
 ```
 
-#### 方式 3：环境变量覆盖（临时）
+#### 方式 3：Web 管理界面（🌟 推荐，最简单）
+
+访问 `http://节点IP:9528/management`，通过可视化界面修改配置：
+
+1. 打开配置管理标签页
+2. 输入配置路径和值（或使用快捷配置）
+3. 点击更新按钮
+4. 输入密钥验证
+5. 配置立即生效，无需重启
+
+**支持的快捷配置**：
+- 并发数调整
+- Keep-Alive 开关
+- 最小响应大小
+- 更多配置可通过"配置路径"自定义
+
+#### 方式 4：运行时配置管理 API（适合脚本）
+
+```bash
+# 获取当前配置
+curl -H "X-Secret: your-secret" http://localhost:9528/api/config
+
+# 单条更新
+curl -X POST -H "Content-Type: application/json" \
+     -H "X-Secret: your-secret" \
+     -d '{"path": "utls.concurrency", "value": 30}' \
+     http://localhost:9528/api/config
+
+# 批量更新
+curl -X POST -H "Content-Type: application/json" \
+     -H "X-Secret: your-secret" \
+     -d '{"updates": [
+       {"path": "utls.concurrency", "value": 30},
+       {"path": "utls.enableKeepAlive", "value": true}
+     ]}' \
+     http://localhost:9528/api/config
+
+# 重新加载配置
+curl -X POST -H "X-Secret: your-secret" http://localhost:9528/api/service/reload-config
+
+# 查看日志
+curl "http://localhost:9528/api/logs?lines=100&level=info"
+```
+
+#### 方式 5：环境变量覆盖（临时）
 
 ```bash
 # 修改 PM2 配置
@@ -861,13 +985,32 @@ tail -f /opt/zeromaps-rpc/logs/utls-proxy.log
 ## 📊 更新记录
 
 ### v2.3.x (2025-10-20)
+
+#### 核心功能
+- ✅ **Web 管理面板**：通过 Web 界面管理配置、查看日志、控制服务
 - ✅ 配置体系重构：configs/ 物理配置 + config/ 运行时配置
 - ✅ 自动更新脚本增强：卸载-安装模式，自动升级 Go
 - ✅ Webhook 更新稳定性：nohup 独立进程，环境变量修复
+
+#### 性能优化
+- ✅ 动态并发调节：基于系统资源智能调整并发数（避免冲突）
+- ✅ HTTP Keep-Alive：连接池复用，提高效率
 - ✅ IPv6 自动检测：从 configs/ 读取配置（不再尝试自动检测）
 - ✅ DNS IP 池优化：自动识别 IPv6 支持，IPv4 机器禁用 IP 池
-- ✅ 紧急停止机制：检测 403 自动停止服务
+
+#### 监控与管理
 - ✅ 统一管理面板：一页查看所有节点状态
+- ✅ 配置参数统一化：消除硬编码，支持热更新
+- ✅ 监控增强：统计持久化、历史导出、运行时配置管理
+- ✅ 实时日志 API：通过 HTTP 接口查看服务器日志
+- ✅ 服务控制 API：重新加载配置、触发重启
+
+#### 稳定性改进
+- ✅ 紧急停止机制：检测 403 自动停止服务
+- ✅ 内存泄漏修复：所有定时器正确清理
+- ✅ 配置热更新原子性：预验证 + 回滚机制
+- ✅ 健康检查重试：指数退避重试（最多4次）
+- ✅ WebSocket 连接限制：防止资源耗尽（最大100连接）
 
 ### v2.2.x (2025-10-19)
 - ✅ Go 版本自动升级（1.24.9）
@@ -891,3 +1034,4 @@ MIT
 **项目维护**: Stone (vistone)  
 **GitHub**: https://github.com/vistone/zeromaps-rpc  
 **文档版本**: v2.3.x (2025-10-20)
+

@@ -1,14 +1,16 @@
 {
   "name": "zeromaps-rpc",
-  "version": "2.3.27",
+  "version": "2.3.28",
   "description": "ZeroMaps RPC Protocol - 基于 Go uTLS 完美模拟 Chrome 指纹的高性能 Google Earth 数据获取系统",
   "type": "module",
   "scripts": {
     "proto:build": "protoc --plugin=node_modules/.bin/protoc-gen-ts_proto --ts_proto_out=./proto --ts_proto_opt=esModuleInterop=true ./proto/zeromaps-rpc.proto",
     "build": "tsc",
-    "server": "tsx server/index.ts",
+    "start": "tsx src/main.ts",
+    "server": "tsx src/main.ts",
     "client": "tsx client/index.ts",
-    "example": "tsx examples/basic-usage.ts"
+    "example": "tsx examples/basic-usage.ts",
+    "dev": "tsx --watch src/main.ts"
   },
   "keywords": [
     "zeromaps",

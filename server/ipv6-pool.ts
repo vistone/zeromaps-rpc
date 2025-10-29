@@ -22,20 +22,43 @@ interface IPv6Stats {
   isBlacklisted: boolean     // 是否被拉黑（403 次数过多）
 }
 
+export interface IPv6HealthCheckConfig {
+  maxError403Count: number           // 最大403错误次数
+  minRequestsBeforeCheck: number     // 健康检查前的最小请求数
+  failureRateThreshold: number       // 失败率阈值
+  responseTimeThreshold: number      // 响应时间阈值(ms)
+  rateLimitThreshold: number         // 限流(429)比例阈值
+}
+
 export class IPv6Pool {
   private addresses: string[] = []
   private currentIndex = 0
   private usageStats = new Map<string, number>() // 统计每个IP的使用次数
   private detailedStats = new Map<string, IPv6Stats>() // 详细统计信息
   private poolStartTime = Date.now() // 池启动时间
+  private healthCheckConfig: IPv6HealthCheckConfig // 健康检查配置
 
   /**
    * 初始化 IPv6 地址池
    * @param basePrefix IPv6 前缀，如 "2607:8700:5500:2043"
    * @param start 起始编号，如 1001
    * @param count 地址数量，如 100
+   * @param healthCheckConfig 健康检查配置（可选）
    */
-  constructor(basePrefix: string, start: number, count: number) {
+  constructor(
+    basePrefix: string,
+    start: number,
+    count: number,
+    healthCheckConfig?: Partial<IPv6HealthCheckConfig>
+  ) {
+    // 设置健康检查配置（使用提供的配置或默认值）
+    this.healthCheckConfig = {
+      maxError403Count: healthCheckConfig?.maxError403Count ?? 5,
+      minRequestsBeforeCheck: healthCheckConfig?.minRequestsBeforeCheck ?? 20,
+      failureRateThreshold: healthCheckConfig?.failureRateThreshold ?? 0.3,
+      responseTimeThreshold: healthCheckConfig?.responseTimeThreshold ?? 3000,
+      rateLimitThreshold: healthCheckConfig?.rateLimitThreshold ?? 0.2
+    }
     for (let i = 0; i < count; i++) {
       const addr = `${basePrefix}::${start + i}`
       this.addresses.push(addr)
@@ -92,23 +115,25 @@ export class IPv6Pool {
     // 过滤出健康的IP
     const healthyAddresses = this.addresses.filter(addr => {
       const stats = this.detailedStats.get(addr)!
-      
-      // 1. 被拉黑的IP直接排除（403次数超过5次）
-      if (stats.isBlacklisted || stats.error403Count >= 5) {
+
+      // 1. 被拉黑的IP直接排除（使用配置的最大403次数）
+      if (stats.isBlacklisted || stats.error403Count >= this.healthCheckConfig.maxError403Count) {
         return false
       }
 
-      // 2. 新IP给机会（少于20次请求）
-      if (stats.totalRequests < 20) return true
+      // 2. 新IP给机会（少于配置的最小请求数）
+      if (stats.totalRequests < this.healthCheckConfig.minRequestsBeforeCheck) return true
 
       const failRate = stats.failureCount / stats.totalRequests
       const avgRT = stats.totalResponseTime / stats.totalRequests
 
-      // 3. 失败率<30% 且 平均响应时间<3000ms
-      // 4. 如果429（限流）次数过多，降低优先级
-      const tooManyRateLimits = stats.error429Count > stats.totalRequests * 0.2  // 超过20%是429
-      
-      return failRate < 0.3 && avgRT < 3000 && !tooManyRateLimits
+      // 3. 失败率 < 配置的失败率阈值 且 平均响应时间 < 配置的响应时间阈值
+      // 4. 如果429（限流）次数过多，降低优先级（使用配置的限流阈值）
+      const tooManyRateLimits = stats.error429Count > stats.totalRequests * this.healthCheckConfig.rateLimitThreshold
+
+      return failRate < this.healthCheckConfig.failureRateThreshold &&
+        avgRT < this.healthCheckConfig.responseTimeThreshold &&
+        !tooManyRateLimits
     })
 
     // 如果没有健康IP，降级到普通轮询
@@ -230,12 +255,12 @@ export class IPv6Pool {
       stats.successCount++
     } else {
       stats.failureCount++
-      
+
       // 详细分类错误
       if (statusCode === 403) {
         stats.error403Count++
-        // 403 超过 3 次，标记为拉黑
-        if (stats.error403Count >= 3) {
+        // 403 次数达到阈值，标记为拉黑（使用配置）
+        if (stats.error403Count >= this.healthCheckConfig.maxError403Count) {
           stats.isBlacklisted = true
           logger.error(`IPv6 ${ipv6.substring(0, 30)} 被拉黑！(403 次数: ${stats.error403Count})`, undefined, {
             ipv6: ipv6.substring(0, 30),
@@ -412,5 +437,35 @@ export class IPv6Pool {
 
     return header + rows.join('\n')
   }
+
+  /**
+   * 更新健康检查配置（用于热更新）
+   * @param config 新的健康检查配置
+   */
+  public updateHealthCheckConfig(config: Partial<IPv6HealthCheckConfig>): void {
+    const oldConfig = { ...this.healthCheckConfig }
+
+    this.healthCheckConfig = {
+      maxError403Count: config.maxError403Count ?? this.healthCheckConfig.maxError403Count,
+      minRequestsBeforeCheck: config.minRequestsBeforeCheck ?? this.healthCheckConfig.minRequestsBeforeCheck,
+      failureRateThreshold: config.failureRateThreshold ?? this.healthCheckConfig.failureRateThreshold,
+      responseTimeThreshold: config.responseTimeThreshold ?? this.healthCheckConfig.responseTimeThreshold,
+      rateLimitThreshold: config.rateLimitThreshold ?? this.healthCheckConfig.rateLimitThreshold
+    }
+
+    logger.info('IPv6健康检查配置已更新', {
+      old: oldConfig,
+      new: this.healthCheckConfig
+    })
+  }
+
+  /**
+   * 获取当前健康检查配置
+   */
+  public getHealthCheckConfig(): IPv6HealthCheckConfig {
+    return { ...this.healthCheckConfig }
+  }
 }
+
+
 

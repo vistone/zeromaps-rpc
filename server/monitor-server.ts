@@ -11,6 +11,7 @@ import WebSocket, { WebSocketServer } from 'ws'
 import { RpcServer } from './rpc-server.js'
 import { createLogger } from './logger.js'
 import { getConfig } from './config-manager.js'
+import { NodeManager } from './node-manager.js'
 
 const logger = createLogger('MonitorServer')
 
@@ -35,12 +36,18 @@ export class MonitorServer {
   private server: http.Server | null = null
   private wss: WebSocketServer | null = null
   private rpcServer: RpcServer
+  private nodeManager: NodeManager
+  private metricsInterval: NodeJS.Timeout | null = null
+  private metricsFilePath: string = path.join(process.cwd(), 'logs', 'metrics.log')
+  private activeWSConnections = new Set<WebSocket>()
+  private readonly maxWSConnections = 100 // WebSocket 最大并发连接数
 
   constructor(
     private port: number,
     rpcServer: RpcServer
   ) {
     this.rpcServer = rpcServer
+    this.nodeManager = new NodeManager()
   }
 
   /**
@@ -50,20 +57,20 @@ export class MonitorServer {
     try {
       // 方法1：从 dist/server 向上两级到项目根目录
       let packagePath = path.join(__dirname, '../../package.json')
-      
+
       // 方法2：如果方法1失败，尝试绝对路径
       if (!fs.existsSync(packagePath)) {
         packagePath = '/opt/zeromaps-rpc/package.json'
         logger.debug('使用绝对路径读取版本号', { path: packagePath })
       }
-      
+
       const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'))
       const version = packageJson.version || 'unknown'
-      
+
       logger.debug('读取版本号成功', { version, path: packagePath })
       return version
     } catch (error) {
-      logger.error('读取版本号失败', error as Error, { 
+      logger.error('读取版本号失败', error as Error, {
         __dirname,
         attemptedPath: path.join(__dirname, '../../package.json')
       })
@@ -75,20 +82,53 @@ export class MonitorServer {
    * 启动监控服务器（HTTP + WebSocket）
    */
   public start(): void {
+    // 确保日志目录存在
+    try {
+      const dir = path.dirname(this.metricsFilePath)
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true })
+      }
+    } catch { }
+
     this.server = http.createServer((req, res) => {
       this.handleRequest(req, res)
     })
 
     // 创建 WebSocket 服务器（在同一个 HTTP 服务器上）
-    this.wss = new WebSocketServer({
-      server: this.server,
-      path: '/ws'
-    })
+    this.wss = new WebSocketServer({ server: this.server })
+
+    // 定时持久化统计数据（每60秒写一次）
+    if (!this.metricsInterval) {
+      this.metricsInterval = setInterval(async () => {
+        try {
+          const stats = await this.rpcServer.getStats()
+          const record = JSON.stringify({ ts: Date.now(), stats }) + '\n'
+          fs.appendFile(this.metricsFilePath, record, () => { })
+        } catch { }
+      }, 60000)
+    }
 
     // 处理 WebSocket 连接
     this.wss.on('connection', (ws: WebSocket, req) => {
       const clientIP = req.socket.remoteAddress
-      logger.info('WebSocket 客户端连接', { clientIP })
+
+      // 检查连接数限制
+      if (this.activeWSConnections.size >= this.maxWSConnections) {
+        logger.warn('WebSocket 连接数已达上限，拒绝新连接', {
+          current: this.activeWSConnections.size,
+          max: this.maxWSConnections,
+          clientIP
+        })
+        ws.close(1008, 'Too many connections')
+        return
+      }
+
+      // 添加到活跃连接集合
+      this.activeWSConnections.add(ws)
+      logger.info('WebSocket 客户端连接', {
+        clientIP,
+        activeConnections: this.activeWSConnections.size
+      })
 
       // 定时推送统计数据（每秒一次）
       const statsInterval = setInterval(async () => {
@@ -109,7 +149,15 @@ export class MonitorServer {
                 total: stats.fetcherStats.totalRequests,
                 concurrent: stats.fetcherStats.concurrentRequests,
                 maxConcurrent: stats.fetcherStats.maxConcurrent,
+                currentConcurrency: stats.fetcherStats.currentConcurrency,
                 queueLength: stats.fetcherStats.queueLength || 0
+              },
+              concurrency: {
+                enabled: stats.dynamicConcurrency?.enabled || false,
+                current: stats.dynamicConcurrency?.currentConcurrency || 0,
+                adaptive: stats.dynamicConcurrency?.adaptiveConcurrency || false,
+                keepAlive: stats.dynamicConcurrency?.keepAliveEnabled || false,
+                performance: stats.dynamicConcurrency?.performanceMetrics || null
               },
               ipv6: {
                 total: detailedStats.totalAddresses,
@@ -125,7 +173,10 @@ export class MonitorServer {
                 hasIPv6: detailedStats.hasIPv6
               },
               system: stats.system,
-              health: stats.health
+              health: stats.health,
+              utlsHealth: stats.utlsHealth,
+              emergencyStop: stats.emergencyStop,
+              emergencyStopReason: stats.emergencyStopReason
             }
           }
           ws.send(JSON.stringify(statsResponse))
@@ -251,7 +302,12 @@ export class MonitorServer {
       })
 
       ws.on('close', () => {
-        logger.info('WebSocket 客户端断开', { clientIP })
+        // 从活跃连接集合中移除
+        this.activeWSConnections.delete(ws)
+        logger.info('WebSocket 客户端断开', {
+          clientIP,
+          activeConnections: this.activeWSConnections.size
+        })
         clearInterval(statsInterval)  // 清理统计推送定时器
         this.rpcServer.off('requestLog', requestLogHandler)  // 移除请求日志监听器
         this.rpcServer.off('errorLog', errorLogHandler)  // 移除错误日志监听器
@@ -279,22 +335,38 @@ export class MonitorServer {
 
     if (url === '/' || url === '/index.html') {
       this.serveHTML(res)
+    } else if (url === '/management' || url === '/management.html') {
+      this.serveManagementHTML(res)
     } else if (url === '/api/stats') {
       await this.serveStats(res)
     } else if (url === '/api/ipv6') {
-      this.serveIPv6Stats(res)
-    } else if (url === '/api/errorLogs') {
+      this.serveIPv6(res)
+    } else if (url.startsWith('/api/errorLogs')) {
       this.serveErrorLogs(res)
-    } else if (url === '/api/config') {
+    } else if (url.startsWith('/api/logs')) {
+      await this.serveLogs(req, res)
+    } else if (url.startsWith('/api/stats/export')) {
+      await this.serveStatsExport(req, res)
+    } else if (url.startsWith('/api/config')) {
       await this.serveConfig(req, res)
-    } else if (url === '/api/ip-pool') {
-      await this.serveIPPool(res)
-    } else if (url.startsWith('/api/fetch')) {
-      await this.serveFetch(req, res, url)
+    } else if (url.startsWith('/api/service')) {
+      await this.serveServiceControl(req, res)
+    } else if (url.startsWith('/api/nodes')) {
+      await this.serveNodeManagement(req, res)
+    } else if (url.startsWith('/ws')) {
+      this.handleWebSocket(req, res)
     } else {
       res.writeHead(404)
       res.end('Not Found')
     }
+  }
+
+  /**
+   * 当 HTTP 请求访问 /ws 时，提示使用 WebSocket 协议
+   */
+  private handleWebSocket(_req: http.IncomingMessage, res: http.ServerResponse): void {
+    res.writeHead(426, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ error: 'Please connect via WebSocket protocol: ws://host:port/ws' }))
   }
 
   /**
@@ -342,7 +414,15 @@ export class MonitorServer {
         total: stats.fetcherStats.totalRequests,
         concurrent: stats.fetcherStats.concurrentRequests,
         maxConcurrent: stats.fetcherStats.maxConcurrent,
+        currentConcurrency: stats.fetcherStats.currentConcurrency,
         queueLength: stats.fetcherStats.queueLength || 0
+      },
+      concurrency: {
+        enabled: stats.dynamicConcurrency?.enabled || false,
+        current: stats.dynamicConcurrency?.currentConcurrency || 0,
+        adaptive: stats.dynamicConcurrency?.adaptiveConcurrency || false,
+        keepAlive: stats.dynamicConcurrency?.keepAliveEnabled || false,
+        performance: stats.dynamicConcurrency?.performanceMetrics || null
       },
       ipv6: {
         total: detailedStats.totalAddresses,
@@ -358,7 +438,10 @@ export class MonitorServer {
         hasIPv6: detailedStats.hasIPv6  // 标识是否有 IPv6
       },
       system: stats.system,
-      health: stats.health
+      health: stats.health,
+      utlsHealth: stats.utlsHealth,
+      emergencyStop: stats.emergencyStop,
+      emergencyStopReason: stats.emergencyStopReason
     }
 
     res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -368,7 +451,7 @@ export class MonitorServer {
   /**
    * 返回每个IPv6的详细统计
    */
-  private serveIPv6Stats(res: http.ServerResponse): void {
+  private serveIPv6(res: http.ServerResponse): void {
     const ipv6Pool = this.rpcServer.getIPv6Pool()
     const perIPStats = ipv6Pool.getPerIPStats()
 
@@ -408,49 +491,104 @@ export class MonitorServer {
   }
 
   /**
-   * 返回配置数据或更新配置
+   * 导出历史统计：支持查询字符串 ?limit=1000
+   */
+  private async serveStatsExport(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const url = new URL(req.url || '', 'http://localhost')
+      const limitParam = parseInt(url.searchParams.get('limit') || '1000')
+      const limit = Math.max(1, Math.min(100000, isNaN(limitParam) ? 1000 : limitParam))
+
+      if (!fs.existsSync(this.metricsFilePath)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ items: [] }))
+        return
+      }
+
+      // 高效倒序读取最后 N 行（简单实现：读取全部后切片，文件小场景足够）
+      const content = fs.readFileSync(this.metricsFilePath, 'utf-8')
+      const lines = content.trim().split('\n')
+      const last = lines.slice(-limit)
+      const items = last.map(line => {
+        try { return JSON.parse(line) } catch { return null }
+      }).filter(Boolean)
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ items }))
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: (error as Error).message }))
+    }
+  }
+
+  /**
+   * 配置管理接口（鉴权：使用 server.webhook.secret）
+   * GET  /api/config        → 返回完整配置
+   * POST /api/config        → body: { path, value } | { updates: [{ path, value }] }
    */
   private async serveConfig(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     try {
       const config = getConfig()
+      const secret = config.get<string>('server.webhook.secret')
+      const headerSecret = String((req.headers['x-webhook-secret'] || req.headers['x-secret'] || '')).trim()
 
-      // GET - 获取配置
-      if (req.method === 'GET') {
-        const configData = config.getAll()
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify(configData, null, 2))
+      if (!secret || headerSecret !== secret) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized' }))
         return
       }
 
-      // POST - 更新配置
+      if (req.method === 'GET') {
+        const all = config.getAll()
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify(all, null, 2))
+        return
+      }
+
       if (req.method === 'POST') {
-        const chunks: Buffer[] = []
-        for await (const chunk of req) {
-          chunks.push(chunk as Buffer)
-        }
-        const body = Buffer.concat(chunks).toString()
-        const updates = JSON.parse(body)
+        const body = await new Promise<string>((resolve) => {
+          let data = ''
+          req.on('data', chunk => { data += chunk })
+          req.on('end', () => resolve(data))
+        })
 
-        // 更新配置
-        for (const [key, value] of Object.entries(updates)) {
-          await config.set(key, value)
+        let payload: any
+        try {
+          payload = body ? JSON.parse(body) : {}
+        } catch (e) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Invalid JSON body' }))
+          return
         }
 
-        logger.info('配置已通过 API 更新', { updates })
+        const updates: Array<{ path: string, value: any }> = Array.isArray(payload?.updates)
+          ? payload.updates
+          : (payload?.path !== undefined ? [{ path: payload.path, value: payload.value }] : [])
+
+        if (updates.length === 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'No updates provided' }))
+          return
+        }
+
+        // 依次应用更新（每次会做校验）
+        for (const u of updates) {
+          if (!u.path) {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Invalid update item: missing path' }))
+            return
+          }
+          await config.set(u.path, u.value)
+        }
 
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({
-          success: true,
-          message: '配置已更新',
-          config: config.getAll()
-        }))
+        res.end(JSON.stringify({ success: true }))
         return
       }
 
       res.writeHead(405, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ error: 'Method not allowed' }))
+      res.end(JSON.stringify({ error: 'Method Not Allowed' }))
     } catch (error) {
-      logger.error('[配置 API] 错误', error as Error)
       res.writeHead(500, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: (error as Error).message }))
     }
@@ -741,6 +879,18 @@ export class MonitorServer {
       </div>
       
       <div class="card">
+        <div class="card-title">并发配置</div>
+        <div class="card-value" id="currentConcurrency">-</div>
+        <div class="card-subtitle">自适应: <span id="adaptiveConcurrency">-</span></div>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">连接池</div>
+        <div class="card-value" id="keepAliveStatus">-</div>
+        <div class="card-subtitle">性能: <span id="avgResponseTime">-</span>ms</div>
+      </div>
+      
+      <div class="card">
         <div class="card-title">请求速率</div>
         <div class="card-value" id="qps">-</div>
         <div class="card-subtitle">req/s</div>
@@ -889,6 +1039,19 @@ export class MonitorServer {
         document.getElementById('success').textContent = formatNumber(stats.ipv6.totalSuccess);
         document.getElementById('failure').textContent = formatNumber(stats.ipv6.totalFailure);
         document.getElementById('avgRT').textContent = stats.ipv6.avgResponseTime + 'ms';
+        
+        // 更新并发配置信息
+        if (stats.concurrency) {
+          document.getElementById('currentConcurrency').textContent = stats.concurrency.current || '-';
+          document.getElementById('adaptiveConcurrency').textContent = stats.concurrency.adaptive ? '启用' : '禁用';
+          document.getElementById('keepAliveStatus').textContent = stats.concurrency.keepAlive ? '启用' : '禁用';
+          
+          if (stats.concurrency.performance && stats.concurrency.performance.avgResponseTime) {
+            document.getElementById('avgResponseTime').textContent = stats.concurrency.performance.avgResponseTime;
+          } else {
+            document.getElementById('avgResponseTime').textContent = '-';
+          }
+        }
         
         // 根据是否有 IPv6 显示不同内容
         if (stats.ipv6.hasIPv6) {
@@ -1089,9 +1252,1215 @@ export class MonitorServer {
   }
 
   /**
+   * 实时日志查看 API
+   * GET /api/logs?lines=100&level=info
+   */
+  private async serveLogs(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const url = new URL(req.url || '', 'http://localhost')
+      const linesParam = parseInt(url.searchParams.get('lines') || '100')
+      const level = url.searchParams.get('level') || 'all'
+      const lines = Math.max(1, Math.min(10000, isNaN(linesParam) ? 100 : linesParam))
+
+      const logPath = path.join(process.cwd(), 'logs', 'combined.log')
+
+      if (!fs.existsSync(logPath)) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ lines: [] }))
+        return
+      }
+
+      const content = fs.readFileSync(logPath, 'utf-8')
+      const allLines = content.trim().split('\n')
+      const last = allLines.slice(-lines)
+
+      // 解析并过滤日志
+      const logs = last.map(line => {
+        try {
+          return JSON.parse(line)
+        } catch {
+          return { message: line, level: 'unknown' }
+        }
+      }).filter(log => level === 'all' || log.level === level)
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ lines: logs }))
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: (error as Error).message }))
+    }
+  }
+
+  /**
+   * 服务控制 API（重启、停止等）
+   * POST /api/service/restart
+   * POST /api/service/reload-config
+   */
+  private async serveServiceControl(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const config = getConfig()
+      const secret = config.get<string>('server.webhook.secret')
+      const headerSecret = String((req.headers['x-webhook-secret'] || req.headers['x-secret'] || '')).trim()
+
+      if (!secret || headerSecret !== secret) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized' }))
+        return
+      }
+
+      const url = req.url || ''
+
+      if (req.method === 'POST' && url.includes('/restart')) {
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({
+          success: true,
+          message: '服务重启命令已接收，请使用 PM2 或系统服务管理器重启'
+        }))
+
+        // 注意：实际重启需要外部进程管理器（如 PM2）
+        // 这里只是触发配置重新加载
+        logger.info('收到重启请求，重新加载配置')
+        config.reload()
+        return
+      }
+
+      if (req.method === 'POST' && url.includes('/reload-config')) {
+        logger.info('收到配置重新加载请求')
+        config.reload()
+
+        res.writeHead(200, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ success: true, message: '配置已重新加载' }))
+        return
+      }
+
+      res.writeHead(404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Unknown service action' }))
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: (error as Error).message }))
+    }
+  }
+
+  /**
+   * 返回管理界面 HTML
+   */
+  private serveManagementHTML(res: http.ServerResponse): void {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    res.end(this.getManagementHTMLContent())
+  }
+
+  /**
+   * 获取管理界面 HTML 内容（将在下一步实现）
+   */
+  private getManagementHTMLContent(): string {
+    return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ZeroMaps RPC 管理面板</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      background: #f5f5f5;
+      color: #333;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .header h1 {
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      background: white;
+      padding: 10px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .tab {
+      padding: 10px 20px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 14px;
+      transition: all 0.3s;
+    }
+    .tab:hover {
+      background: #f0f0f0;
+    }
+    .tab.active {
+      background: #667eea;
+      color: white;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .card-title {
+      font-size: 18px;
+      font-weight: bold;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #f0f0f0;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+      font-size: 14px;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .form-group textarea {
+      min-height: 100px;
+      font-family: 'Courier New', monospace;
+    }
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s;
+    }
+    .btn-primary {
+      background: #667eea;
+      color: white;
+    }
+    .btn-primary:hover {
+      background: #5568d3;
+    }
+    .btn-success {
+      background: #10b981;
+      color: white;
+    }
+    .btn-success:hover {
+      background: #059669;
+    }
+    .btn-danger {
+      background: #ef4444;
+      color: white;
+    }
+    .btn-danger:hover {
+      background: #dc2626;
+    }
+    
+    /* 节点管理样式 */
+    .nodes-stats {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .stat-item {
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: bold;
+      color: #667eea;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: #666;
+    }
+    
+    .nodes-table-container {
+      overflow-x: auto;
+      margin-bottom: 20px;
+    }
+    
+    .nodes-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    
+    .nodes-table th,
+    .nodes-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .nodes-table th {
+      background: #f8f9fa;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .nodes-table tr:hover {
+      background: #f8f9fa;
+    }
+    
+    .status-online {
+      color: #27ae60;
+      font-weight: bold;
+    }
+    
+    .status-offline {
+      color: #e74c3c;
+      font-weight: bold;
+    }
+    
+    .status-unknown {
+      color: #f39c12;
+      font-weight: bold;
+    }
+    
+    .health-healthy {
+      color: #27ae60;
+    }
+    
+    .health-degraded {
+      color: #f39c12;
+    }
+    
+    .health-unhealthy {
+      color: #e74c3c;
+    }
+    
+    .health-offline {
+      color: #95a5a6;
+    }
+    
+    .enabled-true {
+      color: #27ae60;
+    }
+    
+    .enabled-false {
+      color: #e74c3c;
+    }
+    
+    .node-actions {
+      display: flex;
+      gap: 5px;
+    }
+    
+    .btn-small {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    
+    .btn-toggle {
+      background: #3498db;
+      color: white;
+    }
+    
+    .btn-delete {
+      background: #e74c3c;
+      color: white;
+    }
+    
+    /* 模态框样式 */
+    .modal {
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.5);
+    }
+    
+    .modal-content {
+      background-color: white;
+      margin: 5% auto;
+      padding: 20px;
+      border-radius: 8px;
+      width: 80%;
+      max-width: 600px;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    
+    .close {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    
+    .close:hover {
+      color: #000;
+    }
+    
+    .form-actions {
+      margin-top: 20px;
+      text-align: right;
+    }
+    
+    .form-actions button {
+      margin-left: 10px;
+    }
+    .alert {
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-size: 14px;
+    }
+    .alert-success {
+      background: #d1fae5;
+      color: #065f46;
+      border-left: 4px solid #10b981;
+    }
+    .alert-error {
+      background: #fee2e2;
+      color: #991b1b;
+      border-left: 4px solid #ef4444;
+    }
+    .log-viewer {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .log-line {
+      margin-bottom: 5px;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .log-line.info { color: #4fc3f7; }
+    .log-line.warn { color: #ffa726; }
+    .log-line.error { color: #ef5350; }
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 15px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🎛️ ZeroMaps RPC 管理面板</h1>
+    <p>配置管理 · 日志查看 · 服务控制</p>
+  </div>
+  
+  <div class="container">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('config')">⚙️ 配置管理</button>
+      <button class="tab" onclick="switchTab('logs')">📝 日志查看</button>
+      <button class="tab" onclick="switchTab('service')">🔧 服务控制</button>
+      <button class="tab" onclick="switchTab('nodes')">🌐 节点管理</button>
+    </div>
+    
+    <!-- 配置管理 -->
+    <div id="config" class="tab-content active">
+      <div class="card">
+        <div class="card-title">
+          常用配置 
+          <button class="btn btn-success" onclick="loadCurrentConfig()" style="float: right;">刷新当前值</button>
+        </div>
+        <div id="configAlert"></div>
+        <div class="config-grid" id="configGrid">
+          <!-- 动态加载配置项 -->
+        </div>
+      </div>
+      
+      <div class="card">
+        <div class="card-title">高级配置（JSON编辑）</div>
+        <div class="form-group">
+          <label>配置路径（点点分隔）</label>
+          <input type="text" id="configPath" placeholder="例如: utls.concurrency 或 ipv6.healthCheck.maxError403Count">
+        </div>
+        <div class="form-group">
+          <label>配置值（JSON格式）</label>
+          <textarea id="configValue" placeholder="输入 JSON 格式的值，如: 30 或 true 或 [1,2,3]"></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="updateCustomConfig()">更新自定义配置</button>
+        <button class="btn btn-success" onclick="showFullConfig()">查看完整配置（JSON）</button>
+      </div>
+    </div>
+    
+    <!-- 日志查看 -->
+    <div id="logs" class="tab-content">
+      <div class="card">
+        <div class="card-title">实时日志 <button class="btn btn-success" onclick="refreshLogs()">刷新</button></div>
+        <div class="form-group">
+          <label>日志级别</label>
+          <select id="logLevel" onchange="refreshLogs()">
+            <option value="all">全部</option>
+            <option value="info">INFO</option>
+            <option value="warn">WARN</option>
+            <option value="error">ERROR</option>
+          </select>
+        </div>
+        <div class="log-viewer" id="logViewer">
+          <div class="log-line">加载中...</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 服务控制 -->
+    <div id="service" class="tab-content">
+      <div class="card">
+        <div class="card-title">服务操作</div>
+        <div id="serviceAlert"></div>
+        <p style="margin-bottom: 15px;">执行服务控制操作需要鉴权密钥</p>
+        <div class="form-group">
+          <label>密钥 (X-Secret)</label>
+          <input type="password" id="serviceSecret" placeholder="输入 webhook secret">
+        </div>
+        <button class="btn btn-success" onclick="reloadConfig()">重新加载配置</button>
+        <button class="btn btn-danger" onclick="restartService()">重启服务 (需要PM2)</button>
+      </div>
+    </div>
+    
+    <!-- 节点管理 -->
+    <div id="nodes" class="tab-content">
+      <div class="card">
+        <div class="card-title">
+          节点管理
+          <button class="btn btn-success" onclick="refreshNodes()" style="float: right;">刷新</button>
+        </div>
+        <div id="nodesAlert"></div>
+        
+        <div class="nodes-stats" id="nodesStats"></div>
+        
+        <div class="nodes-table-container">
+          <table class="nodes-table">
+            <thead>
+              <tr>
+                <th>节点名称</th>
+                <th>域名</th>
+                <th>IPv4</th>
+                <th>状态</th>
+                <th>健康状态</th>
+                <th>响应时间</th>
+                <th>启用状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="nodesTableBody">
+            </tbody>
+          </table>
+        </div>
+        
+        <div style="margin-top: 20px;">
+          <button class="btn btn-primary" onclick="showAddNodeForm()">添加新节点</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- 添加节点表单 -->
+    <div id="addNodeModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <span class="close" onclick="hideAddNodeForm()">&times;</span>
+        <h3>添加新节点</h3>
+        <form id="addNodeForm">
+          <div class="form-group">
+            <label>节点名称:</label>
+            <input type="text" id="nodeName" required>
+          </div>
+          <div class="form-group">
+            <label>域名:</label>
+            <input type="text" id="nodeDomain" required placeholder="example.com">
+          </div>
+          <div class="form-group">
+            <label>IPv4地址:</label>
+            <input type="text" id="nodeIPv4" placeholder="192.168.1.1">
+          </div>
+          <div class="form-group">
+            <label>IPv6前缀:</label>
+            <input type="text" id="nodeIPv6Prefix" placeholder="2607:8700:5500:2043">
+          </div>
+          <div class="form-group">
+            <label>位置:</label>
+            <input type="text" id="nodeLocation" placeholder="US">
+          </div>
+          <div class="form-group">
+            <label>描述:</label>
+            <textarea id="nodeDescription" placeholder="节点描述"></textarea>
+          </div>
+          <div class="form-group">
+            <label>RPC端口:</label>
+            <input type="number" id="nodeRpcPort" value="9527">
+          </div>
+          <div class="form-group">
+            <label>监控端口:</label>
+            <input type="number" id="nodeMonitorPort" value="9528">
+          </div>
+          <div class="form-actions">
+            <button type="button" onclick="hideAddNodeForm()">取消</button>
+            <button type="submit">添加节点</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    let currentConfig = null;
+    let savedSecret = localStorage.getItem('zeromaps-secret') || '';
+    
+    // 配置项定义（名称、路径、类型、说明）
+    const configItems = [
+      { name: '并发数', path: 'utls.concurrency', type: 'number', min: 1, max: 300, desc: '推荐20-50，过高易被封' },
+      { name: 'Keep-Alive', path: 'utls.enableKeepAlive', type: 'boolean', desc: 'HTTP连接复用，提高效率' },
+      { name: 'UTLSFetcher自适应', path: 'utls.enableAdaptiveConcurrency', type: 'boolean', desc: '默认禁用，由RpcServer统一管理' },
+      { name: '最大并发数', path: 'utls.adaptiveConcurrency.maxConcurrency', type: 'number', min: 10, max: 1000, desc: 'RpcServer动态调节上限' },
+      { name: '最小并发数', path: 'utls.adaptiveConcurrency.minConcurrency', type: 'number', min: 1, max: 100, desc: 'RpcServer动态调节下限' },
+      { name: '最小响应大小', path: 'dataValidation.minResponseSize', type: 'number', min: 0, max: 10000, desc: '数据验证阈值(字节)' },
+      { name: '最大403错误数', path: 'ipv6.healthCheck.maxError403Count', type: 'number', min: 1, max: 100, desc: 'IPv6被拉黑阈值' },
+      { name: '失败率阈值', path: 'ipv6.healthCheck.failureRateThreshold', type: 'number', min: 0, max: 1, step: 0.1, desc: 'IPv6健康检查失败率' },
+      { name: '响应时间阈值', path: 'ipv6.healthCheck.responseTimeThreshold', type: 'number', min: 100, max: 10000, desc: 'IPv6响应时间上限(ms)' },
+      { name: '日志级别', path: 'logging.level', type: 'select', options: ['debug', 'info', 'warn', 'error'], desc: '日志详细程度' },
+      { name: '健康检查间隔', path: 'performance.healthCheckInterval', type: 'number', min: 10000, max: 600000, desc: '健康检查间隔(ms)' }
+    ];
+    
+    function switchTab(tabName) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tabName).classList.add('active');
+      
+      if (tabName === 'logs') refreshLogs();
+      if (tabName === 'config') loadCurrentConfig();
+      if (tabName === 'nodes') refreshNodes();
+    }
+    
+    function showAlert(elementId, message, type) {
+      const alertDiv = document.getElementById(elementId);
+      alertDiv.innerHTML = \`<div class="alert alert-\${type}">\${message}</div>\`;
+      setTimeout(() => alertDiv.innerHTML = '', 5000);
+    }
+    
+    function getValueByPath(obj, path) {
+      return path.split('.').reduce((o, key) => o?.[key], obj);
+    }
+    
+    async function loadCurrentConfig() {
+      const secret = savedSecret || prompt('输入密钥（留空使用已保存密钥）:');
+      if (secret) savedSecret = secret;
+      localStorage.setItem('zeromaps-secret', savedSecret);
+      
+      try {
+        const res = await fetch('/api/config', {
+          headers: { 'X-Secret': savedSecret }
+        });
+        
+        if (!res.ok) {
+          showAlert('configAlert', '获取配置失败: 请检查密钥', 'error');
+          savedSecret = '';
+          localStorage.removeItem('zeromaps-secret');
+          return;
+        }
+        
+        currentConfig = await res.json();
+        renderConfigItems();
+        showAlert('configAlert', '配置已加载', 'success');
+      } catch (error) {
+        showAlert('configAlert', '加载失败: ' + error.message, 'error');
+      }
+    }
+    
+    function renderConfigItems() {
+      const grid = document.getElementById('configGrid');
+      grid.innerHTML = configItems.map(item => {
+        const currentValue = getValueByPath(currentConfig, item.path);
+        const valueStr = currentValue !== undefined ? currentValue : '未设置';
+        
+        let inputHTML = '';
+        if (item.type === 'number') {
+          inputHTML = \`<input type="number" id="cfg-\${item.path}" value="\${currentValue || ''}" 
+            min="\${item.min || 0}" max="\${item.max || 999999}" step="\${item.step || 1}">\`;
+        } else if (item.type === 'boolean') {
+          inputHTML = \`<select id="cfg-\${item.path}">
+            <option value="true" \${currentValue === true ? 'selected' : ''}>启用</option>
+            <option value="false" \${currentValue === false ? 'selected' : ''}>禁用</option>
+          </select>\`;
+        } else if (item.type === 'select') {
+          inputHTML = \`<select id="cfg-\${item.path}">
+            \${item.options.map(opt => 
+              \`<option value="\${opt}" \${currentValue === opt ? 'selected' : ''}>\${opt}</option>\`
+            ).join('')}
+          </select>\`;
+        }
+        
+        return \`
+          <div class="form-group">
+            <label>\${item.name} <span style="color: #999; font-size: 12px;">(当前: \${valueStr})</span></label>
+            <small style="display: block; color: #666; margin-bottom: 5px;">\${item.desc}</small>
+            \${inputHTML}
+            <button class="btn btn-primary" onclick="updateConfigItem('\${item.path}', '\${item.type}')" 
+              style="margin-top: 5px; width: 100%;">更新</button>
+          </div>
+        \`;
+      }).join('');
+    }
+    
+    async function updateConfigItem(path, type) {
+      const input = document.getElementById('cfg-' + path);
+      let value = input.value;
+      
+      if (type === 'number') {
+        value = parseFloat(value);
+        if (isNaN(value)) {
+          showAlert('configAlert', '请输入有效的数字', 'error');
+          return;
+        }
+      } else if (type === 'boolean') {
+        value = value === 'true';
+      }
+      
+      try {
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Secret': savedSecret
+          },
+          body: JSON.stringify({ path, value })
+        });
+        
+        const data = await res.json();
+        if (res.ok) {
+          showAlert('configAlert', \`✅ \${path} 更新成功\`, 'success');
+          // 重新加载配置
+          setTimeout(loadCurrentConfig, 1000);
+        } else {
+          showAlert('configAlert', '更新失败: ' + data.error, 'error');
+        }
+      } catch (error) {
+        showAlert('configAlert', '请求失败: ' + error.message, 'error');
+      }
+    }
+    
+    async function updateCustomConfig() {
+      const path = document.getElementById('configPath').value;
+      const value = document.getElementById('configValue').value;
+      
+      if (!path || !value) {
+        showAlert('configAlert', '请填写配置路径和值', 'error');
+        return;
+      }
+      
+      try {
+        let parsedValue;
+        try {
+          parsedValue = JSON.parse(value);
+        } catch {
+          parsedValue = value;
+        }
+        
+        const res = await fetch('/api/config', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Secret': savedSecret
+          },
+          body: JSON.stringify({ path, value: parsedValue })
+        });
+        
+        const data = await res.json();
+        if (res.ok) {
+          showAlert('configAlert', '配置更新成功', 'success');
+          setTimeout(loadCurrentConfig, 1000);
+        } else {
+          showAlert('configAlert', '更新失败: ' + data.error, 'error');
+        }
+      } catch (error) {
+        showAlert('configAlert', '请求失败: ' + error.message, 'error');
+      }
+    }
+    
+    async function showFullConfig() {
+      if (!currentConfig) {
+        await loadCurrentConfig();
+      }
+      document.getElementById('configValue').value = JSON.stringify(currentConfig, null, 2);
+      showAlert('configAlert', '完整配置已显示在下方', 'success');
+    }
+    
+    async function refreshLogs() {
+      const level = document.getElementById('logLevel').value;
+      try {
+        const res = await fetch(\`/api/logs?lines=200&level=\${level}\`);
+        const data = await res.json();
+        const viewer = document.getElementById('logViewer');
+        
+        if (data.lines.length === 0) {
+          viewer.innerHTML = '<div class="log-line">暂无日志</div>';
+          return;
+        }
+        
+        viewer.innerHTML = data.lines.map(log => {
+          const levelClass = log.level || 'info';
+          const time = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
+          return \`<div class="log-line \${levelClass}">[[\${time}]] [\${log.level}] \${log.message}</div>\`;
+        }).join('');
+        
+        viewer.scrollTop = viewer.scrollHeight;
+      } catch (error) {
+        document.getElementById('logViewer').innerHTML = \`<div class="log-line error">加载日志失败: \${error.message}</div>\`;
+      }
+    }
+    
+    async function reloadConfig() {
+      const secret = document.getElementById('serviceSecret').value;
+      try {
+        const res = await fetch('/api/service/reload-config', {
+          method: 'POST',
+          headers: { 'X-Secret': secret }
+        });
+        const data = await res.json();
+        showAlert('serviceAlert', data.message || '配置已重新加载', 'success');
+      } catch (error) {
+        showAlert('serviceAlert', '操作失败: ' + error.message, 'error');
+      }
+    }
+    
+    async function restartService() {
+      const secret = document.getElementById('serviceSecret').value;
+      if (!confirm('确认重启服务？')) return;
+      
+      try {
+        const res = await fetch('/api/service/restart', {
+          method: 'POST',
+          headers: { 'X-Secret': secret }
+        });
+        const data = await res.json();
+        showAlert('serviceAlert', data.message, 'success');
+      } catch (error) {
+        showAlert('serviceAlert', '操作失败: ' + error.message, 'error');
+      }
+    }
+    
+    // 页面加载时初始化
+    window.addEventListener('DOMContentLoaded', () => {
+      loadCurrentConfig();
+    });
+    
+    // 自动刷新日志
+    setInterval(() => {
+      if (document.getElementById('logs').classList.contains('active')) {
+        refreshLogs();
+      }
+    }, 5000);
+    
+    // 节点管理功能
+    let nodesData = null;
+    
+    async function refreshNodes() {
+      try {
+        const secret = savedSecret || prompt('输入密钥（留空使用已保存密钥）:');
+        if (secret) savedSecret = secret;
+        localStorage.setItem('zeromaps-secret', savedSecret);
+        
+        const res = await fetch('/api/nodes', {
+          headers: { 'X-Secret': savedSecret }
+        });
+        
+        if (!res.ok) {
+          showAlert('nodesAlert', '获取节点信息失败: 请检查密钥', 'error');
+          return;
+        }
+        
+        nodesData = await res.json();
+        renderNodesStats();
+        renderNodesTable();
+        
+      } catch (error) {
+        showAlert('nodesAlert', '获取节点信息失败: ' + error.message, 'error');
+      }
+    }
+    
+    function renderNodesStats() {
+      if (!nodesData || !nodesData.stats) return;
+      
+      const stats = nodesData.stats;
+      const statsHtml = \`
+        <div class="stat-item">
+          <div class="stat-value">\${stats.total}</div>
+          <div class="stat-label">总节点</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">\${stats.online}</div>
+          <div class="stat-label">在线</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">\${stats.offline}</div>
+          <div class="stat-label">离线</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">\${stats.enabled}</div>
+          <div class="stat-label">启用</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">\${stats.disabled}</div>
+          <div class="stat-label">禁用</div>
+        </div>
+      \`;
+      
+      document.getElementById('nodesStats').innerHTML = statsHtml;
+    }
+    
+    function renderNodesTable() {
+      if (!nodesData || !nodesData.nodes) return;
+      
+      const tbody = document.getElementById('nodesTableBody');
+      tbody.innerHTML = '';
+      
+      nodesData.nodes.forEach(node => {
+        const health = nodesData.health.find(h => h.nodeId === node.id);
+        const row = document.createElement('tr');
+        
+        row.innerHTML = \`
+          <td>\${node.name}</td>
+          <td>\${node.domain}</td>
+          <td>\${node.ipv4 || 'unknown'}</td>
+          <td><span class="status-\${node.status}">\${node.status}</span></td>
+          <td><span class="health-\${health?.status || 'offline'}">\${health?.status || 'offline'}</span></td>
+          <td>\${health?.responseTime ? health.responseTime + 'ms' : '-'}</td>
+          <td><span class="enabled-\${node.enabled}">\${node.enabled ? '启用' : '禁用'}</span></td>
+          <td class="node-actions">
+            <button class="btn-small btn-toggle" onclick="toggleNode('\${node.id}', \${!node.enabled})">
+              \${node.enabled ? '禁用' : '启用'}
+            </button>
+            <button class="btn-small btn-delete" onclick="deleteNode('\${node.id}')">删除</button>
+          </td>
+        \`;
+        
+        tbody.appendChild(row);
+      });
+    }
+    
+    async function toggleNode(nodeId, enabled) {
+      if (!confirm(\`确认\${enabled ? '启用' : '禁用'}节点 \${nodeId}？\`)) return;
+      
+      try {
+        const secret = savedSecret || prompt('输入密钥:');
+        if (!secret) return;
+        
+        const res = await fetch(\`/api/nodes/\${nodeId}/toggle\`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Secret': secret
+          },
+          body: JSON.stringify({ enabled })
+        });
+        
+        if (res.ok) {
+          showAlert('nodesAlert', \`节点 \${nodeId} \${enabled ? '已启用' : '已禁用'}\`, 'success');
+          refreshNodes();
+        } else {
+          const error = await res.json();
+          showAlert('nodesAlert', '操作失败: ' + error.error, 'error');
+        }
+      } catch (error) {
+        showAlert('nodesAlert', '操作失败: ' + error.message, 'error');
+      }
+    }
+    
+    async function deleteNode(nodeId) {
+      if (!confirm(\`确认删除节点 \${nodeId}？此操作不可撤销！\`)) return;
+      
+      try {
+        const secret = savedSecret || prompt('输入密钥:');
+        if (!secret) return;
+        
+        const res = await fetch(\`/api/nodes/\${nodeId}\`, {
+          method: 'DELETE',
+          headers: { 'X-Secret': secret }
+        });
+        
+        if (res.ok) {
+          showAlert('nodesAlert', \`节点 \${nodeId} 已删除\`, 'success');
+          refreshNodes();
+        } else {
+          const error = await res.json();
+          showAlert('nodesAlert', '删除失败: ' + error.error, 'error');
+        }
+      } catch (error) {
+        showAlert('nodesAlert', '删除失败: ' + error.message, 'error');
+      }
+    }
+    
+    function showAddNodeForm() {
+      document.getElementById('addNodeModal').style.display = 'block';
+    }
+    
+    function hideAddNodeForm() {
+      document.getElementById('addNodeModal').style.display = 'none';
+      document.getElementById('addNodeForm').reset();
+    }
+    
+    // 添加节点表单提交
+    document.getElementById('addNodeForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const nodeData = {
+        name: document.getElementById('nodeName').value,
+        domain: document.getElementById('nodeDomain').value,
+        ipv4: document.getElementById('nodeIPv4').value,
+        ipv6Prefix: document.getElementById('nodeIPv6Prefix').value,
+        location: document.getElementById('nodeLocation').value,
+        description: document.getElementById('nodeDescription').value,
+        config: {
+          rpcPort: parseInt(document.getElementById('nodeRpcPort').value),
+          monitorPort: parseInt(document.getElementById('nodeMonitorPort').value)
+        }
+      };
+      
+      try {
+        const secret = savedSecret || prompt('输入密钥:');
+        if (!secret) return;
+        
+        const res = await fetch('/api/nodes', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Secret': secret
+          },
+          body: JSON.stringify(nodeData)
+        });
+        
+        if (res.ok) {
+          showAlert('nodesAlert', '节点添加成功', 'success');
+          hideAddNodeForm();
+          refreshNodes();
+        } else {
+          const error = await res.json();
+          showAlert('nodesAlert', '添加失败: ' + error.error, 'error');
+        }
+      } catch (error) {
+        showAlert('nodesAlert', '添加失败: ' + error.message, 'error');
+      }
+    });
+    
+    // 点击模态框外部关闭
+    window.onclick = function(event) {
+      const modal = document.getElementById('addNodeModal');
+      if (event.target === modal) {
+        hideAddNodeForm();
+      }
+    };
+  </script>
+</body>
+</html>`;
+  }
+
+  /**
+   * 节点管理 API
+   * GET    /api/nodes           → 获取所有节点
+   * GET    /api/nodes/{id}       → 获取单个节点
+   * POST   /api/nodes            → 添加新节点
+   * PUT    /api/nodes/{id}       → 更新节点
+   * DELETE /api/nodes/{id}       → 删除节点
+   * POST   /api/nodes/{id}/toggle → 启用/禁用节点
+   * GET    /api/nodes/{id}/health → 获取节点健康状态
+   */
+  private async serveNodeManagement(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const url = new URL(req.url || '', 'http://localhost')
+      const pathParts = url.pathname.split('/').filter(p => p)
+      
+      // 解析节点ID（如果有）
+      const nodeId = pathParts[3] // /api/nodes/{id}
+      const action = pathParts[4] // /api/nodes/{id}/action
+      
+      // 设置CORS头
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Secret')
+      
+      // 处理OPTIONS请求
+      if (req.method === 'OPTIONS') {
+        res.writeHead(200)
+        res.end()
+        return
+      }
+      
+      // 验证权限（使用webhook secret）
+      const config = getConfig()
+      const secret = config.get<string>('server.webhook.secret')
+      const providedSecret = req.headers['x-secret'] as string
+      
+      if (secret && providedSecret !== secret) {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'Unauthorized' }))
+        return
+      }
+      
+      switch (req.method) {
+        case 'GET':
+          if (nodeId) {
+            if (action === 'health') {
+              // 获取节点健康状态
+              const health = this.nodeManager.getNodeHealth(nodeId)
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify(health))
+            } else {
+              // 获取单个节点
+              const node = this.nodeManager.getNode(nodeId)
+              if (node) {
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify(node))
+              } else {
+                res.writeHead(404, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ error: 'Node not found' }))
+              }
+            }
+          } else {
+            // 获取所有节点
+            const nodes = this.nodeManager.getAllNodes()
+            const healthData = this.nodeManager.getAllNodeHealth()
+            const stats = this.nodeManager.getStats()
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({
+              nodes,
+              health: healthData,
+              stats
+            }))
+          }
+          break
+          
+        case 'POST':
+          if (nodeId && action === 'toggle') {
+            // 切换节点启用/禁用状态
+            const body = await this.readRequestBody(req)
+            const { enabled } = JSON.parse(body)
+            
+            const success = await this.nodeManager.toggleNode(nodeId, enabled)
+            if (success) {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ success: true, message: `Node ${enabled ? 'enabled' : 'disabled'}` }))
+            } else {
+              res.writeHead(404, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'Node not found' }))
+            }
+          } else {
+            // 添加新节点
+            const body = await this.readRequestBody(req)
+            const nodeData = JSON.parse(body)
+            
+            const node = await this.nodeManager.addNode(nodeData)
+            res.writeHead(201, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(node))
+          }
+          break
+          
+        case 'PUT':
+          if (nodeId) {
+            // 更新节点
+            const body = await this.readRequestBody(req)
+            const updates = JSON.parse(body)
+            
+            const node = await this.nodeManager.updateNode(nodeId, updates)
+            if (node) {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify(node))
+            } else {
+              res.writeHead(404, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'Node not found' }))
+            }
+          } else {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Node ID required' }))
+          }
+          break
+          
+        case 'DELETE':
+          if (nodeId) {
+            // 删除节点
+            const success = await this.nodeManager.removeNode(nodeId)
+            if (success) {
+              res.writeHead(200, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ success: true, message: 'Node deleted' }))
+            } else {
+              res.writeHead(404, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'Node not found' }))
+            }
+          } else {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Node ID required' }))
+          }
+          break
+          
+        default:
+          res.writeHead(405, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Method not allowed' }))
+      }
+      
+    } catch (error) {
+      logger.error('节点管理API错误', error as Error)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Internal server error' }))
+    }
+  }
+  
+  /**
+   * 读取请求体
+   */
+  private async readRequestBody(req: http.IncomingMessage): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = []
+      req.on('data', (chunk) => chunks.push(chunk))
+      req.on('end', () => resolve(Buffer.concat(chunks).toString()))
+      req.on('error', reject)
+    })
+  }
+
+  /**
    * 停止监控服务器
    */
   public stop(): void {
+    if (this.metricsInterval) {
+      clearInterval(this.metricsInterval)
+      this.metricsInterval = null
+    }
+    if (this.nodeManager) {
+      this.nodeManager.stop()
+    }
     if (this.server) {
       this.server.close()
       logger.info('监控服务器已停止')
