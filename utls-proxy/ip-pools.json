@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdate": "2025-10-29T04:11:42.559Z",
+  "lastUpdate": "2025-10-29T04:16:42.986Z",
   "domains": {
     "kh.google.com": {
       "preferIPv6": true,
@@ -20,12 +20,12 @@
       ],
       "health": {
         "2607": {
-          "totalRequests": 44,
+          "totalRequests": 52,
           "successCount": 0,
-          "failureCount": 44,
+          "failureCount": 52,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.559Z",
+          "lastFailure": "2025-10-29T04:16:42.986Z",
           "source": "local",
           "score": 0
         },
@@ -35,7 +35,7 @@
           "failureCount": 8,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.334Z",
+          "lastFailure": "2025-10-29T04:11:42.280Z",
           "source": "local",
           "score": 0
         },
@@ -45,7 +45,7 @@
           "failureCount": 8,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.207Z",
+          "lastFailure": "2025-10-29T04:11:42.342Z",
           "source": "local",
           "score": 0
         },
@@ -55,7 +55,7 @@
           "failureCount": 8,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.265Z",
+          "lastFailure": "2025-10-29T04:11:42.257Z",
           "source": "local",
           "score": 0
         },
@@ -65,7 +65,7 @@
           "failureCount": 8,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.344Z",
+          "lastFailure": "2025-10-29T04:11:42.202Z",
           "source": "local",
           "score": 0
         }
@@ -83,6 +83,6 @@
     "nodeId": "stone-Super-Server",
     "nodeDomain": "tile10.zeromaps.cn",
     "syncCount": 0,
-    "lastSync": "2025-10-29T04:11:42.559Z"
+    "lastSync": "2025-10-29T04:16:42.986Z"
   }
 }
