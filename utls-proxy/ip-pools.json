@@ -1,10 +1,15 @@
 {
   "version": "1.0.0",
-  "lastUpdate": "2025-10-29T05:47:58.860Z",
+  "lastUpdate": "2025-10-29T06:05:40.576Z",
   "domains": {
     "kh.google.com": {
       "preferIPv6": true,
-      "ipv4": [],
+      "ipv4": [
+        "142.250.105.91",
+        "142.250.105.136",
+        "142.250.105.93",
+        "142.250.105.190"
+      ],
       "ipv6": [
         "2607:f8b0:4002:c1b::be",
         "2607:f8b0:4002:c1b::5b",
@@ -20,54 +25,54 @@
       ],
       "health": {
         "2607": {
-          "totalRequests": 235,
-          "successCount": 0,
-          "failureCount": 235,
-          "avgResponseTime": 0,
-          "lastSuccess": "",
-          "lastFailure": "2025-10-29T05:47:58.860Z",
-          "source": "local",
-          "score": 0
+          "totalRequests": 3578,
+          "successCount": 96,
+          "failureCount": 3482,
+          "avgResponseTime": 164.3837890625,
+          "lastSuccess": "2025-10-29T05:50:25.827Z",
+          "lastFailure": "2025-10-29T06:05:22.611Z",
+          "source": "merged",
+          "score": 0.29427200910541373
         },
         "142.250.105.136": {
-          "totalRequests": 39,
-          "successCount": 0,
-          "failureCount": 39,
-          "avgResponseTime": 0,
-          "lastSuccess": "",
-          "lastFailure": "2025-10-29T05:47:58.820Z",
-          "source": "local",
-          "score": 0
+          "totalRequests": 686,
+          "successCount": 37,
+          "failureCount": 649,
+          "avgResponseTime": 161.84375,
+          "lastSuccess": "2025-10-29T06:00:06.384Z",
+          "lastFailure": "2025-10-29T06:05:22.512Z",
+          "source": "remote",
+          "score": 0.312792921852123
         },
         "142.250.105.190": {
-          "totalRequests": 39,
-          "successCount": 0,
-          "failureCount": 39,
-          "avgResponseTime": 0,
-          "lastSuccess": "",
-          "lastFailure": "2025-10-29T05:47:58.642Z",
-          "source": "local",
-          "score": 0
+          "totalRequests": 686,
+          "successCount": 37,
+          "failureCount": 649,
+          "avgResponseTime": 163.15625,
+          "lastSuccess": "2025-10-29T06:00:06.383Z",
+          "lastFailure": "2025-10-29T06:05:22.471Z",
+          "source": "remote",
+          "score": 0.312549171852123
         },
         "142.250.105.91": {
-          "totalRequests": 39,
-          "successCount": 0,
-          "failureCount": 39,
-          "avgResponseTime": 0,
-          "lastSuccess": "",
-          "lastFailure": "2025-10-29T05:47:58.808Z",
-          "source": "local",
-          "score": 0
+          "totalRequests": 687,
+          "successCount": 37,
+          "failureCount": 650,
+          "avgResponseTime": 160.5,
+          "lastSuccess": "2025-10-29T06:00:22.271Z",
+          "lastFailure": "2025-10-29T06:05:22.541Z",
+          "source": "remote",
+          "score": 0.312596046852123
         },
         "142.250.105.93": {
-          "totalRequests": 39,
-          "successCount": 0,
-          "failureCount": 39,
-          "avgResponseTime": 0,
-          "lastSuccess": "",
-          "lastFailure": "2025-10-29T05:47:58.644Z",
-          "source": "local",
-          "score": 0
+          "totalRequests": 686,
+          "successCount": 37,
+          "failureCount": 649,
+          "avgResponseTime": 161.875,
+          "lastSuccess": "2025-10-29T06:00:06.389Z",
+          "lastFailure": "2025-10-29T06:05:22.609Z",
+          "source": "remote",
+          "score": 0.31263354685212297
         }
       }
     },
@@ -82,7 +87,7 @@
   "metadata": {
     "nodeId": "stone-Super-Server",
     "nodeDomain": "tile10.zeromaps.cn",
-    "syncCount": 0,
-    "lastSync": "2025-10-29T05:47:58.860Z"
+    "syncCount": 12,
+    "lastSync": "2025-10-29T06:05:40.576Z"
   }
 }

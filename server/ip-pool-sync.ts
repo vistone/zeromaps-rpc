@@ -83,7 +83,7 @@ export class IPPoolSyncManager extends EventEmitter {
   private localData: IPPoolData | null = null
   private syncInProgress = false
   private healthChecker: IPHealthChecker
-  private readonly syncIntervalMs = 5 * 60 * 1000 // 5分钟同步一次
+  private readonly syncIntervalMs = 60 * 1000 // 60秒同步一次
   private readonly maxRetries = 3
   private readonly syncTimeout = 10000 // 10秒超时
 
@@ -123,14 +123,20 @@ export class IPPoolSyncManager extends EventEmitter {
       // 监听健康检查事件
       this.healthChecker.on('testResult', (event) => {
         this.handleHealthCheckResult(event)
+        // 健康检查产生新结果后自动尝试同步（并发保护由 syncInProgress 保证）
+        this.performSync().catch(() => {})
       })
       
       this.healthChecker.on('statusChanged', (event) => {
         this.handleIPStatusChange(event)
+        // 状态变化后自动尝试同步
+        this.performSync().catch(() => {})
       })
       
       this.loadLocalData()
       this.startPeriodicSync()
+      // 启动后立即尝试一次同步
+      this.performSync().catch(() => {})
       
       logger.info('IP池同步管理器已启动', {
         nodeId: this.currentNodeId,
@@ -297,10 +303,14 @@ export class IPPoolSyncManager extends EventEmitter {
   /**
    * 执行同步
    */
-  public async performSync(): Promise<void> {
+  public async performSync(): Promise<{
+    targets: Array<{ id: string, domain: string }>
+    results: Array<{ node: { id: string, domain: string }, ok: boolean, error?: string }>
+    summary: { total: number, succeeded: number, failed: number }
+  }> {
     if (this.syncInProgress) {
       logger.debug('同步已在进行中，跳过')
-      return
+      return { targets: [], results: [], summary: { total: 0, succeeded: 0, failed: 0 } }
     }
     
     this.syncInProgress = true
@@ -313,16 +323,23 @@ export class IPPoolSyncManager extends EventEmitter {
       
       if (nodes.length === 0) {
         logger.debug('没有已知节点，跳过同步')
-        return
+        return { targets: [], results: [], summary: { total: 0, succeeded: 0, failed: 0 } }
       }
       
       // 2. 并发同步到所有节点
-      const syncPromises = nodes.map(node => this.syncWithNode(node))
-      const results = await Promise.allSettled(syncPromises)
+      const syncPromises = nodes.map(async (node) => {
+        try {
+          await this.syncWithNode(node)
+          return { node, ok: true as const }
+        } catch (e) {
+          return { node, ok: false as const, error: (e as Error).message }
+        }
+      })
+      const results = await Promise.all(syncPromises)
       
       // 3. 统计结果
-      const succeeded = results.filter(r => r.status === 'fulfilled').length
-      const failed = results.filter(r => r.status === 'rejected').length
+      const succeeded = results.filter(r => r.ok).length
+      const failed = results.filter(r => !r.ok).length
       
       logger.info('IP池同步完成', {
         total: nodes.length,
@@ -335,9 +352,14 @@ export class IPPoolSyncManager extends EventEmitter {
         this.localData.metadata.syncCount++
         this.saveLocalData()
       }
-      
+      return {
+        targets: nodes,
+        results,
+        summary: { total: nodes.length, succeeded, failed }
+      }
     } catch (error) {
       logger.error('IP池同步失败', error as Error)
+      return { targets: [], results: [], summary: { total: 0, succeeded: 0, failed: 0 } }
     } finally {
       this.syncInProgress = false
     }
@@ -347,65 +369,92 @@ export class IPPoolSyncManager extends EventEmitter {
    * 获取已知节点列表
    */
   private async getKnownNodes(): Promise<Array<{ id: string, domain: string }>> {
-    // 这里可以从节点管理器获取，暂时使用硬编码的节点列表
     const config = getConfig()
+    const nodes: Array<{ id: string, domain: string }> = []
+
+    // 来源1：节点列表（如存在）
     const nodesConfig = config.get<any>('nodes') || []
-    
-    return nodesConfig.map((node: any) => ({
-      id: node.name,
-      domain: node.domain
-    })).filter((node: any) => node.domain !== this.currentNodeDomain)
+    for (const node of nodesConfig) {
+      if (node?.domain) {
+        nodes.push({ id: node.name || node.domain, domain: node.domain })
+      }
+    }
+
+    // 来源2：p2p.nodes 列表（字符串，如 tile12.zeromaps.cn:9528）
+    const p2pList = (config.get<string[]>('p2p.nodes') || []).filter(Boolean)
+    for (const entry of p2pList) {
+      const host = String(entry).split(',')[0].trim()
+      const domain = host.includes(':') ? host.split(':')[0] : host
+      if (domain) {
+        nodes.push({ id: domain, domain })
+      }
+    }
+
+    // 去重并排除自身
+    const unique = new Map<string, { id: string, domain: string }>()
+    for (const n of nodes) {
+      if (n.domain && n.domain !== this.currentNodeDomain) {
+        unique.set(n.domain, n)
+      }
+    }
+    return Array.from(unique.values())
   }
 
   /**
-   * 与单个节点同步
+   * 与单个节点同步 - 双向对比分析，相互优化补缺
    */
   private async syncWithNode(node: { id: string, domain: string }): Promise<void> {
     try {
-      logger.debug('开始与节点同步', { nodeId: node.id, domain: node.domain })
+      logger.debug('开始与节点双向同步', { nodeId: node.id, domain: node.domain })
       
-      // 1. 发送同步请求
-      const syncRequest: SyncRequest = {
-        type: 'full',
-        nodeId: this.currentNodeId,
-        timestamp: Date.now(),
-        data: this.localData || undefined
+      // 1. 获取远程节点的IP池数据
+      const remoteData = await this.fetchRemoteIPPool(node.domain)
+      
+      if (!remoteData) {
+        throw new Error('无法获取远程节点数据')
       }
       
-      const response = await this.sendSyncRequest(node.domain, syncRequest)
+      // 2. 对比分析本地和远程数据
+      const comparison = this.compareIPPools(this.localData!, remoteData)
       
-      if (response.success && response.data) {
-        // 2. 合并数据
-        const mergedData = this.mergeData(this.localData!, response.data)
-        
-        // 3. 解决冲突
-        if (response.conflicts) {
-          this.resolveConflicts(mergedData, response.conflicts)
-        }
-        
-        // 4. 更新本地数据
-        this.localData = mergedData
-        this.saveLocalData()
-        
-        // 5. 更新节点状态
-        this.knownNodes.set(node.id, {
-          domain: node.domain,
-          lastSync: Date.now(),
-          successCount: (this.knownNodes.get(node.id)?.successCount || 0) + 1
-        })
-        
-        logger.info('节点同步成功', {
-          nodeId: node.id,
-          domain: node.domain,
-          mergedIPs: this.getTotalIPCount()
-        })
-        
-      } else {
-        throw new Error(response.message || '同步失败')
-      }
+      logger.info('IP池对比分析完成', {
+        nodeId: node.id,
+        domain: node.domain,
+        localIPs: comparison.local.totalIPs,
+        remoteIPs: comparison.remote.totalIPs,
+        commonIPs: comparison.common.length,
+        localOnly: comparison.localOnly.length,
+        remoteOnly: comparison.remoteOnly.length,
+        conflicts: comparison.conflicts.length
+      })
+      
+      // 3. 智能合并策略
+      const mergedData = this.intelligentMerge(this.localData!, remoteData, comparison)
+      
+      // 4. 更新本地数据
+      this.localData = mergedData
+      this.saveLocalData()
+      
+      // 5. 推送合并后的数据回远程节点（确保一致性）
+      await this.pushMergedData(node.domain, mergedData)
+      
+      // 6. 更新节点状态
+      this.knownNodes.set(node.id, {
+        domain: node.domain,
+        lastSync: Date.now(),
+        successCount: (this.knownNodes.get(node.id)?.successCount || 0) + 1
+      })
+      
+      logger.info('节点双向同步成功', {
+        nodeId: node.id,
+        domain: node.domain,
+        finalIPs: this.getTotalIPCount(),
+        addedIPs: comparison.remoteOnly.length,
+        improvedIPs: comparison.conflicts.length
+      })
       
     } catch (error) {
-      logger.warn('节点同步失败', {
+      logger.warn('节点双向同步失败', {
         nodeId: node.id,
         domain: node.domain,
         error: (error as Error).message
@@ -416,6 +465,300 @@ export class IPPoolSyncManager extends EventEmitter {
       if (nodeInfo) {
         nodeInfo.successCount = Math.max(0, nodeInfo.successCount - 1)
       }
+    }
+  }
+
+  /**
+   * 获取远程节点的IP池数据
+   */
+  private async fetchRemoteIPPool(domain: string): Promise<IPPoolData | null> {
+    try {
+      const url = `https://${domain}:9528/api/ip-pool/data`
+      
+      const options: https.RequestOptions = {
+        hostname: domain,
+        port: 443,
+        path: '/api/ip-pool/data',
+        method: 'GET',
+        headers: {
+          'User-Agent': 'ZeroMaps-IPPoolSync/1.0',
+          'Accept': 'application/json'
+        },
+        timeout: this.syncTimeout,
+        rejectUnauthorized: false
+      }
+      
+      return new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+          let data = ''
+          
+          res.on('data', (chunk) => {
+            data += chunk
+          })
+          
+          res.on('end', () => {
+            try {
+              if (res.statusCode === 200) {
+                const response = JSON.parse(data)
+                resolve(response)
+              } else {
+                reject(new Error(`HTTP ${res.statusCode}`))
+              }
+            } catch (error) {
+              reject(new Error('解析远程数据失败'))
+            }
+          })
+        })
+        
+        req.on('error', reject)
+        req.on('timeout', () => {
+          req.destroy()
+          reject(new Error('请求超时'))
+        })
+        
+        req.end()
+      })
+      
+    } catch (error) {
+      logger.error('获取远程IP池数据失败', error as Error, { domain })
+      return null
+    }
+  }
+
+  /**
+   * 对比分析两个IP池
+   */
+  private compareIPPools(local: IPPoolData, remote: IPPoolData): {
+    local: { totalIPs: number, domains: string[] },
+    remote: { totalIPs: number, domains: string[] },
+    common: Array<{ domain: string, ip: string, type: 'ipv4' | 'ipv6' }>,
+    localOnly: Array<{ domain: string, ip: string, type: 'ipv4' | 'ipv6' }>,
+    remoteOnly: Array<{ domain: string, ip: string, type: 'ipv4' | 'ipv6' }>,
+    conflicts: Array<{ domain: string, ip: string, localHealth: any, remoteHealth: any }>
+  } {
+    const localIPs = this.extractAllIPs(local)
+    const remoteIPs = this.extractAllIPs(remote)
+    
+    const localSet = new Set(localIPs.map(ip => `${ip.domain}:${ip.ip}`))
+    const remoteSet = new Set(remoteIPs.map(ip => `${ip.domain}:${ip.ip}`))
+    
+    const common: Array<{ domain: string, ip: string, type: 'ipv4' | 'ipv6' }> = []
+    const localOnly: Array<{ domain: string, ip: string, type: 'ipv4' | 'ipv6' }> = []
+    const remoteOnly: Array<{ domain: string, ip: string, type: 'ipv4' | 'ipv6' }> = []
+    const conflicts: Array<{ domain: string, ip: string, localHealth: any, remoteHealth: any }> = []
+    
+    // 分析共同IP和冲突
+    for (const localIP of localIPs) {
+      const key = `${localIP.domain}:${localIP.ip}`
+      if (remoteSet.has(key)) {
+        common.push(localIP)
+        
+        // 检查健康数据冲突
+        const localHealth = local.domains[localIP.domain]?.health?.[localIP.ip]
+        const remoteHealth = remote.domains[localIP.domain]?.health?.[localIP.ip]
+        
+        if (localHealth && remoteHealth && this.hasHealthConflict(localHealth, remoteHealth)) {
+          conflicts.push({
+            domain: localIP.domain,
+            ip: localIP.ip,
+            localHealth,
+            remoteHealth
+          })
+        }
+      } else {
+        localOnly.push(localIP)
+      }
+    }
+    
+    // 分析远程独有IP
+    for (const remoteIP of remoteIPs) {
+      const key = `${remoteIP.domain}:${remoteIP.ip}`
+      if (!localSet.has(key)) {
+        remoteOnly.push(remoteIP)
+      }
+    }
+    
+    return {
+      local: { 
+        totalIPs: localIPs.length, 
+        domains: Object.keys(local.domains) 
+      },
+      remote: { 
+        totalIPs: remoteIPs.length, 
+        domains: Object.keys(remote.domains) 
+      },
+      common,
+      localOnly,
+      remoteOnly,
+      conflicts
+    }
+  }
+
+  /**
+   * 提取所有IP地址
+   */
+  private extractAllIPs(data: IPPoolData): Array<{ domain: string, ip: string, type: 'ipv4' | 'ipv6' }> {
+    const ips: Array<{ domain: string, ip: string, type: 'ipv4' | 'ipv6' }> = []
+    
+    for (const [domain, domainData] of Object.entries(data.domains)) {
+      for (const ip of domainData.ipv4) {
+        ips.push({ domain, ip, type: 'ipv4' })
+      }
+      for (const ip of domainData.ipv6) {
+        ips.push({ domain, ip, type: 'ipv6' })
+      }
+    }
+    
+    return ips
+  }
+
+  /**
+   * 检查健康数据是否有冲突
+   */
+  private hasHealthConflict(local: any, remote: any): boolean {
+    // 如果成功率差异超过20%，认为有冲突
+    const localSuccessRate = local.totalRequests > 0 ? (local.successCount / local.totalRequests) : 0
+    const remoteSuccessRate = remote.totalRequests > 0 ? (remote.successCount / remote.totalRequests) : 0
+    
+    return Math.abs(localSuccessRate - remoteSuccessRate) > 0.2
+  }
+
+  /**
+   * 智能合并策略
+   */
+  private intelligentMerge(local: IPPoolData, remote: IPPoolData, comparison: any): IPPoolData {
+    const merged = JSON.parse(JSON.stringify(local)) // 深拷贝本地数据
+    
+    // 1. 添加远程独有IP
+    for (const remoteIP of comparison.remoteOnly) {
+      const domain = remoteIP.domain
+      if (!merged.domains[domain]) {
+        merged.domains[domain] = {
+          preferIPv6: remote.domains[domain]?.preferIPv6 || false,
+          ipv4: [],
+          ipv6: [],
+          blacklist: [],
+          health: {}
+        }
+      }
+      
+      const domainData = merged.domains[domain]
+      if (remoteIP.type === 'ipv4' && !domainData.ipv4.includes(remoteIP.ip)) {
+        domainData.ipv4.push(remoteIP.ip)
+      } else if (remoteIP.type === 'ipv6' && !domainData.ipv6.includes(remoteIP.ip)) {
+        domainData.ipv6.push(remoteIP.ip)
+      }
+      
+      // 复制健康数据
+      const remoteHealth = remote.domains[domain]?.health?.[remoteIP.ip]
+      if (remoteHealth) {
+        domainData.health[remoteIP.ip] = { ...remoteHealth, source: 'remote' }
+      }
+    }
+    
+    // 2. 解决冲突 - 选择更好的健康数据
+    for (const conflict of comparison.conflicts) {
+      const domain = conflict.domain
+      const ip = conflict.ip
+      const localHealth = conflict.localHealth
+      const remoteHealth = conflict.remoteHealth
+      
+      const localSuccessRate = localHealth.totalRequests > 0 ? (localHealth.successCount / localHealth.totalRequests) : 0
+      const remoteSuccessRate = remoteHealth.totalRequests > 0 ? (remoteHealth.successCount / remoteHealth.totalRequests) : 0
+      
+      // 选择成功率更高的数据
+      if (remoteSuccessRate > localSuccessRate) {
+        merged.domains[domain].health[ip] = { 
+          ...remoteHealth, 
+          source: 'remote-merged',
+          mergedAt: new Date().toISOString()
+        }
+        logger.debug('采用远程健康数据', { domain, ip, remoteSuccessRate, localSuccessRate })
+      } else {
+        merged.domains[domain].health[ip].source = 'local-merged'
+        merged.domains[domain].health[ip].mergedAt = new Date().toISOString()
+        logger.debug('保持本地健康数据', { domain, ip, localSuccessRate, remoteSuccessRate })
+      }
+    }
+    
+    // 3. 合并黑名单
+    for (const [domain, remoteDomainData] of Object.entries(remote.domains)) {
+      if (merged.domains[domain] && remoteDomainData.blacklist) {
+        const mergedBlacklist = [...new Set([...merged.domains[domain].blacklist, ...remoteDomainData.blacklist])]
+        merged.domains[domain].blacklist = mergedBlacklist
+      }
+    }
+    
+    // 4. 更新元数据
+    merged.metadata.lastSync = new Date().toISOString()
+    merged.metadata.syncCount = (merged.metadata.syncCount || 0) + 1
+    
+    return merged
+  }
+
+  /**
+   * 推送合并后的数据到远程节点
+   */
+  private async pushMergedData(domain: string, mergedData: IPPoolData): Promise<void> {
+    try {
+      const url = `https://${domain}:9528/api/ip-pool/sync`
+      
+      const syncRequest: SyncRequest = {
+        type: 'full',
+        nodeId: this.currentNodeId,
+        timestamp: Date.now(),
+        data: mergedData
+      }
+      
+      const options: https.RequestOptions = {
+        hostname: domain,
+        port: 443,
+        path: '/api/ip-pool/sync',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'ZeroMaps-IPPoolSync/1.0'
+        },
+        timeout: this.syncTimeout,
+        rejectUnauthorized: false
+      }
+      
+      return new Promise((resolve, reject) => {
+        const req = https.request(options, (res) => {
+          let data = ''
+          
+          res.on('data', (chunk) => {
+            data += chunk
+          })
+          
+          res.on('end', () => {
+            try {
+              const response = JSON.parse(data)
+              if (response.success) {
+                logger.debug('成功推送合并数据到远程节点', { domain })
+                resolve()
+              } else {
+                reject(new Error(response.message || '推送失败'))
+              }
+            } catch (error) {
+              reject(new Error('解析推送响应失败'))
+            }
+          })
+        })
+        
+        req.on('error', reject)
+        req.on('timeout', () => {
+          req.destroy()
+          reject(new Error('推送请求超时'))
+        })
+        
+        req.write(JSON.stringify(syncRequest))
+        req.end()
+      })
+      
+    } catch (error) {
+      logger.warn('推送合并数据失败', { domain, error: (error as Error).message })
+      // 不抛出错误，因为本地数据已经更新成功
     }
   }
 
@@ -717,8 +1060,12 @@ export class IPPoolSyncManager extends EventEmitter {
   /**
    * 手动触发同步
    */
-  public async triggerSync(): Promise<void> {
-    await this.performSync()
+  public async triggerSync(): Promise<{
+    targets: Array<{ id: string, domain: string }>
+    results: Array<{ node: { id: string, domain: string }, ok: boolean, error?: string }>
+    summary: { total: number, succeeded: number, failed: number }
+  }> {
+    return this.performSync()
   }
 
   /**

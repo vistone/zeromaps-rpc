@@ -627,11 +627,15 @@ export class APIRoutes {
             const response = await this.ipPoolSyncManager.handleSyncRequest(syncRequest)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify(response))
-          } else if (action === 'trigger') {
-            // 手动触发同步
-            await this.ipPoolSyncManager.triggerSync()
-            res.writeHead(200, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ success: true, message: '同步已触发' }))
+              } else if (action === 'trigger') {
+                // 手动触发同步并返回报告
+                const report = await this.ipPoolSyncManager.triggerSync()
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ 
+                  success: true, 
+                  message: '同步已触发',
+                  report
+                }))
           } else if (action === 'health' && subAction === 'start') {
             // 启动健康检查
             this.ipPoolSyncManager.startHealthCheck()
