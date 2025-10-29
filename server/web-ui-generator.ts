@@ -1272,16 +1272,16 @@ export class WebUIGenerator {
                 return;
             }
             
-            container.innerHTML = data.logs.map(logStr => {
-                try {
-                    const log = JSON.parse(logStr);
-                    return \`<div class="log-entry log-\${log.level}">
-                        [\${log.timestamp}] \${log.message}
-                        \${log.context ? \`<br><small>上下文: \${JSON.stringify(log.context)}</small>\` : ''}
-                    </div>\`;
-                } catch (e) {
-                    return \`<div class="log-entry log-error">解析日志失败: \${logStr}</div>\`;
-                }
+            container.innerHTML = data.logs.map(log => {
+                // log 已经是解析后的对象，不需要再次 parse
+                const timestamp = log.timestamp || new Date().toISOString();
+                const level = log.level || 'info';
+                const message = log.message || JSON.stringify(log);
+                
+                return \`<div class="log-entry log-\${level}">
+                    [\${timestamp}] \${message}
+                    \${log.context ? \`<br><small>上下文: \${JSON.stringify(log.context)}</small>\` : ''}
+                </div>\`;
             }).join('');
         }
 

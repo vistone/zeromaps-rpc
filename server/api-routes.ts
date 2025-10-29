@@ -399,9 +399,19 @@ export class APIRoutes {
       const logContent = fs.readFileSync(logPath, 'utf-8')
       const logLines = logContent.split('\n').filter(line => line.trim())
       const recentLines = logLines.slice(-lines)
+      
+      // 解析JSON格式的日志行
+      const parsedLogs = recentLines.map(line => {
+        try {
+          return JSON.parse(line)
+        } catch {
+          // 如果不是JSON格式，返回原始字符串
+          return { message: line, timestamp: new Date().toISOString(), level: 'unknown' }
+        }
+      })
 
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ logs: recentLines }))
+      res.end(JSON.stringify({ logs: parsedLogs }))
     } catch (error) {
       logger.error('获取日志失败', error as Error)
       res.writeHead(500, { 'Content-Type': 'application/json' })
