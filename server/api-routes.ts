@@ -60,6 +60,8 @@ export class APIRoutes {
         await this.serveFetch(req, res, pathname)
       } else if (pathname === '/api/logs') {
         await this.serveLogs(req, res)
+      } else if (pathname === '/api/request-logs') {
+        this.serveRequestLogs(res)
       } else if (pathname === '/api/service-control') {
         await this.serveServiceControl(req, res)
       } else if (pathname.startsWith('/api/nodes')) {
@@ -230,32 +232,20 @@ export class APIRoutes {
   }
 
   /**
-   * 提供错误日志
+   * 提供错误日志（从 RPC 服务器内存获取）
    */
   private serveErrorLogs(res: http.ServerResponse): void {
     try {
-      const errorLogPath = path.join(process.cwd(), 'logs', 'error.log')
+      const errorLogs = this.rpcServer.getErrorLogs()
       
-      if (!fs.existsSync(errorLogPath)) {
-        res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ logs: [] }))
-        return
+      const data = {
+        timestamp: Date.now(),
+        total: errorLogs.length,
+        logs: errorLogs
       }
 
-      const logs = fs.readFileSync(errorLogPath, 'utf-8')
-        .split('\n')
-        .filter(line => line.trim())
-        .slice(-50) // 最近50条
-        .map(line => {
-          try {
-            return JSON.parse(line)
-          } catch {
-            return { message: line, timestamp: Date.now() }
-          }
-        })
-
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ logs }))
+      res.end(JSON.stringify(data))
     } catch (error) {
       logger.error('获取错误日志失败', error as Error)
       res.writeHead(500, { 'Content-Type': 'application/json' })
@@ -376,6 +366,28 @@ export class APIRoutes {
       logger.error('[API] 请求失败', error as Error)
       res.writeHead(500, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Fetch failed' }))
+    }
+  }
+
+  /**
+   * 提供请求日志（从 RPC 服务器内存获取）
+   */
+  private serveRequestLogs(res: http.ServerResponse): void {
+    try {
+      const requestLogs = this.rpcServer.getRequestLogs()
+      
+      const data = {
+        timestamp: Date.now(),
+        total: requestLogs.length,
+        logs: requestLogs
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(data))
+    } catch (error) {
+      logger.error('获取请求日志失败', error as Error)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Failed to get request logs' }))
     }
   }
 
