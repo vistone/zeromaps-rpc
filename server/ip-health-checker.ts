@@ -248,7 +248,9 @@ export class IPHealthChecker extends EventEmitter {
         },
         timeout: this.config.timeout,
         rejectUnauthorized: false, // 忽略SSL证书验证
-        family: isIPv6 ? 6 : 4 // 强制使用IPv4或IPv6
+        family: isIPv6 ? 6 : 4, // 强制使用IPv4或IPv6
+        // 关键：为 SNI 指定目标域名，避免使用 IP 作为 SNI 导致后端路由错误
+        servername: domain
       }
       
       const req = https.request(options, (res) => {
