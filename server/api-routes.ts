@@ -53,7 +53,7 @@ export class APIRoutes {
         this.serveErrorLogs(res)
       } else if (pathname === '/api/config') {
         await this.serveConfig(req, res)
-      } else if (pathname.startsWith('/api/fetch/')) {
+      } else if (pathname.startsWith('/api/fetch')) {
         await this.serveFetch(req, res, pathname)
       } else if (pathname === '/api/logs') {
         await this.serveLogs(req, res)
@@ -265,20 +265,25 @@ export class APIRoutes {
    */
   private async serveConfig(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     try {
-      const secret = req.headers['x-secret'] as string
       const config = getConfig()
       
-      if (!secret || secret !== config.get<string>('server.secret')) {
-        res.writeHead(401, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ error: 'Unauthorized' }))
-        return
-      }
-
+      // 对于 GET 请求，不需要认证（只读访问）
       if (req.method === 'GET') {
         const allConfig = config.getAll()
         res.writeHead(200, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify(allConfig))
-      } else if (req.method === 'POST') {
+        return
+      }
+      
+      // 对于 POST 请求，需要认证
+      if (req.method === 'POST') {
+        const secret = req.headers['x-secret'] as string
+        if (!secret || secret !== config.get<string>('server.webhook.secret')) {
+          res.writeHead(401, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Unauthorized' }))
+          return
+        }
+        
         const body = await this.readRequestBody(req)
         const updates = JSON.parse(body)
         
@@ -304,19 +309,49 @@ export class APIRoutes {
    */
   private async serveFetch(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): Promise<void> {
     try {
-      const uri = decodeURIComponent(pathname.replace('/api/fetch/', ''))
-      const url = `https://kh.google.com/rt/earth/${uri}`
+      // 处理 POST 请求体中的 URI
+      if (req.method === 'POST') {
+        const body = await this.readRequestBody(req)
+        const { uri } = JSON.parse(body)
+        
+        if (!uri) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'URI is required' }))
+          return
+        }
+        
+        const url = `https://kh.google.com/rt/earth/${uri}`
+        logger.debug('[API] 收到请求', { uri: uri.substring(0, 80) })
 
-      logger.debug('[API] 收到请求', { uri: uri.substring(0, 80) })
+        const fetcher = this.rpcServer.getFetcher()
+        const result = await fetcher.fetch({ url, timeout: 10000 })
 
-      const fetcher = this.rpcServer.getFetcher()
-      const result = await fetcher.fetch({ url, timeout: 10000 })
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': result.body.length.toString()
+        })
+        res.end(Buffer.from(result.body))
+      } else {
+        // 处理 GET 请求中的 URI 参数
+        const uri = decodeURIComponent(pathname.replace('/api/fetch/', ''))
+        if (!uri) {
+          res.writeHead(400, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'URI is required' }))
+          return
+        }
+        
+        const url = `https://kh.google.com/rt/earth/${uri}`
+        logger.debug('[API] 收到请求', { uri: uri.substring(0, 80) })
 
-      res.writeHead(200, {
-        'Content-Type': 'application/octet-stream',
-        'Content-Length': result.body.length.toString()
-      })
-      res.end(Buffer.from(result.body))
+        const fetcher = this.rpcServer.getFetcher()
+        const result = await fetcher.fetch({ url, timeout: 10000 })
+
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': result.body.length.toString()
+        })
+        res.end(Buffer.from(result.body))
+      }
     } catch (error) {
       logger.error('[API] 请求失败', error as Error)
       res.writeHead(500, { 'Content-Type': 'application/json' })
@@ -512,7 +547,7 @@ export class APIRoutes {
       const pathParts = url.pathname.split('/').filter(p => p)
       
       // 解析API路径
-      const action = pathParts[3] // /api/ip-pool/{action}
+      const action = pathParts[3] || 'data' // /api/ip-pool/{action}，默认为 'data'
       
       // 设置CORS头
       res.setHeader('Access-Control-Allow-Origin', '*')
