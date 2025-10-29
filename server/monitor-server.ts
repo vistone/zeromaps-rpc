@@ -12,6 +12,7 @@ import { RpcServer } from './rpc-server.js'
 import { createLogger } from './logger.js'
 import { getConfig } from './config-manager.js'
 import { NodeManager } from './node-manager.js'
+import { IPPoolSyncManager } from './ip-pool-sync.js'
 
 const logger = createLogger('MonitorServer')
 
@@ -37,6 +38,7 @@ export class MonitorServer {
   private wss: WebSocketServer | null = null
   private rpcServer: RpcServer
   private nodeManager: NodeManager
+  private ipPoolSyncManager: IPPoolSyncManager
   private metricsInterval: NodeJS.Timeout | null = null
   private metricsFilePath: string = path.join(process.cwd(), 'logs', 'metrics.log')
   private activeWSConnections = new Set<WebSocket>()
@@ -48,6 +50,7 @@ export class MonitorServer {
   ) {
     this.rpcServer = rpcServer
     this.nodeManager = new NodeManager()
+    this.ipPoolSyncManager = new IPPoolSyncManager()
   }
 
   /**
@@ -353,6 +356,8 @@ export class MonitorServer {
       await this.serveServiceControl(req, res)
     } else if (url.startsWith('/api/nodes')) {
       await this.serveNodeManagement(req, res)
+    } else if (url.startsWith('/api/ip-pool')) {
+      await this.serveIPPoolSync(req, res)
     } else if (url.startsWith('/ws')) {
       this.handleWebSocket(req, res)
     } else {
@@ -1636,6 +1641,86 @@ export class MonitorServer {
     .form-actions button {
       margin-left: 10px;
     }
+    
+    /* IP池同步样式 */
+    .ippool-stats {
+      display: flex;
+      gap: 20px;
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    
+    .ippool-controls {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+    }
+    
+    .ippool-table-container {
+      overflow-x: auto;
+      margin-bottom: 20px;
+    }
+    
+    .ippool-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    
+    .ippool-table th,
+    .ippool-table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid #eee;
+    }
+    
+    .ippool-table th {
+      background: #f8f9fa;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    .ippool-table tr:hover {
+      background: #f8f9fa;
+    }
+    
+    .ippool-sync-log {
+      margin-top: 20px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    
+    .log-content {
+      max-height: 200px;
+      overflow-y: auto;
+      background: white;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    
+    .log-entry {
+      margin-bottom: 5px;
+      padding: 2px 0;
+    }
+    
+    .log-entry.success {
+      color: #27ae60;
+    }
+    
+    .log-entry.error {
+      color: #e74c3c;
+    }
+    
+    .log-entry.info {
+      color: #3498db;
+    }
     .alert {
       padding: 12px 16px;
       border-radius: 4px;
@@ -1689,6 +1774,7 @@ export class MonitorServer {
       <button class="tab" onclick="switchTab('logs')">📝 日志查看</button>
       <button class="tab" onclick="switchTab('service')">🔧 服务控制</button>
       <button class="tab" onclick="switchTab('nodes')">🌐 节点管理</button>
+      <button class="tab" onclick="switchTab('ippool')">🌍 IP池同步</button>
     </div>
     
     <!-- 配置管理 -->
@@ -1834,6 +1920,57 @@ export class MonitorServer {
         </form>
       </div>
     </div>
+    
+    <!-- IP池同步管理 -->
+    <div id="ippool" class="tab-content">
+      <div class="card">
+        <div class="card-title">
+          IP池同步管理
+          <button class="btn btn-success" onclick="refreshIPPoolData()" style="float: right;">刷新</button>
+        </div>
+        <div id="ippoolAlert"></div>
+        
+        <div class="ippool-stats" id="ippoolStats"></div>
+        
+        <div class="ippool-controls">
+          <button class="btn btn-primary" onclick="triggerIPPoolSync()">手动同步</button>
+          <button class="btn btn-secondary" onclick="exportIPPoolData()">导出数据</button>
+          <button class="btn btn-info" onclick="showIPPoolDetails()">查看详情</button>
+        </div>
+        
+        <div class="ippool-table-container">
+          <table class="ippool-table">
+            <thead>
+              <tr>
+                <th>域名</th>
+                <th>IPv4数量</th>
+                <th>IPv6数量</th>
+                <th>黑名单</th>
+                <th>偏好IPv6</th>
+                <th>最后更新</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="ippoolTableBody">
+            </tbody>
+          </table>
+        </div>
+        
+        <div class="ippool-sync-log" id="ippoolSyncLog">
+          <h4>同步日志</h4>
+          <div id="syncLogContent" class="log-content"></div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- IP池详情模态框 -->
+    <div id="ippoolDetailsModal" class="modal" style="display: none;">
+      <div class="modal-content">
+        <span class="close" onclick="hideIPPoolDetails()">&times;</span>
+        <h3>IP池详情</h3>
+        <div id="ippoolDetailsContent"></div>
+      </div>
+    </div>
   </div>
   
   <script>
@@ -1864,6 +2001,7 @@ export class MonitorServer {
       if (tabName === 'logs') refreshLogs();
       if (tabName === 'config') loadCurrentConfig();
       if (tabName === 'nodes') refreshNodes();
+      if (tabName === 'ippool') refreshIPPoolData();
     }
     
     function showAlert(elementId, message, type) {
@@ -2283,6 +2421,215 @@ export class MonitorServer {
         hideAddNodeForm();
       }
     };
+    
+    // IP池同步功能
+    let ipPoolData = null;
+    let syncLog = [];
+    
+    async function refreshIPPoolData() {
+      try {
+        const res = await fetch('/api/ip-pool/data');
+        if (!res.ok) {
+          showAlert('ippoolAlert', '获取IP池数据失败', 'error');
+          return;
+        }
+        
+        ipPoolData = await res.json();
+        renderIPPoolStats();
+        renderIPPoolTable();
+        
+        // 获取同步统计
+        const statsRes = await fetch('/api/ip-pool/stats');
+        if (statsRes.ok) {
+          const stats = await statsRes.json();
+          renderIPPoolStats(stats);
+        }
+        
+      } catch (error) {
+        showAlert('ippoolAlert', '获取IP池数据失败: ' + error.message, 'error');
+      }
+    }
+    
+    function renderIPPoolStats(stats) {
+      if (!stats) return;
+      
+      const statsHtml = \`
+        <div class="stat-item">
+          <div class="stat-value">\${stats.totalIPs || 0}</div>
+          <div class="stat-label">总IP数</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">\${stats.knownNodes || 0}</div>
+          <div class="stat-label">已知节点</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">\${stats.syncCount || 0}</div>
+          <div class="stat-label">同步次数</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">\${stats.syncInProgress ? '进行中' : '空闲'}</div>
+          <div class="stat-label">同步状态</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value">\${stats.nodeId || 'unknown'}</div>
+          <div class="stat-label">节点ID</div>
+        </div>
+      \`;
+      
+      document.getElementById('ippoolStats').innerHTML = statsHtml;
+    }
+    
+    function renderIPPoolTable() {
+      if (!ipPoolData || !ipPoolData.domains) return;
+      
+      const tbody = document.getElementById('ippoolTableBody');
+      tbody.innerHTML = '';
+      
+      for (const [domain, domainData] of Object.entries(ipPoolData.domains)) {
+        const row = document.createElement('tr');
+        
+        row.innerHTML = \`
+          <td>\${domain}</td>
+          <td>\${domainData.ipv4.length}</td>
+          <td>\${domainData.ipv6.length}</td>
+          <td>\${domainData.blacklist.length}</td>
+          <td>\${domainData.preferIPv6 ? '是' : '否'}</td>
+          <td>\${new Date(ipPoolData.lastUpdate).toLocaleString()}</td>
+          <td>
+            <button class="btn-small btn-info" onclick="showDomainDetails('\${domain}')">详情</button>
+          </td>
+        \`;
+        
+        tbody.appendChild(row);
+      }
+    }
+    
+    async function triggerIPPoolSync() {
+      try {
+        showAlert('ippoolAlert', '正在触发IP池同步...', 'info');
+        addSyncLog('info', '手动触发IP池同步');
+        
+        const res = await fetch('/api/ip-pool/trigger', {
+          method: 'POST'
+        });
+        
+        if (res.ok) {
+          const result = await res.json();
+          showAlert('ippoolAlert', 'IP池同步已触发', 'success');
+          addSyncLog('success', 'IP池同步触发成功');
+          
+          // 延迟刷新数据
+          setTimeout(() => {
+            refreshIPPoolData();
+          }, 2000);
+        } else {
+          throw new Error('同步触发失败');
+        }
+      } catch (error) {
+        showAlert('ippoolAlert', '触发同步失败: ' + error.message, 'error');
+        addSyncLog('error', '同步触发失败: ' + error.message);
+      }
+    }
+    
+    function exportIPPoolData() {
+      if (!ipPoolData) {
+        showAlert('ippoolAlert', '没有可导出的数据', 'error');
+        return;
+      }
+      
+      const dataStr = JSON.stringify(ipPoolData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = \`ip-pool-\${new Date().toISOString().split('T')[0]}.json\`;
+      link.click();
+      
+      URL.revokeObjectURL(url);
+      showAlert('ippoolAlert', 'IP池数据已导出', 'success');
+    }
+    
+    function showIPPoolDetails() {
+      if (!ipPoolData) {
+        showAlert('ippoolAlert', '没有可显示的数据', 'error');
+        return;
+      }
+      
+      const content = document.getElementById('ippoolDetailsContent');
+      content.innerHTML = \`
+        <div style="max-height: 400px; overflow-y: auto;">
+          <pre>\${JSON.stringify(ipPoolData, null, 2)}</pre>
+        </div>
+      \`;
+      
+      document.getElementById('ippoolDetailsModal').style.display = 'block';
+    }
+    
+    function hideIPPoolDetails() {
+      document.getElementById('ippoolDetailsModal').style.display = 'none';
+    }
+    
+    function showDomainDetails(domain) {
+      if (!ipPoolData || !ipPoolData.domains[domain]) return;
+      
+      const domainData = ipPoolData.domains[domain];
+      const content = document.getElementById('ippoolDetailsContent');
+      
+      content.innerHTML = \`
+        <h4>\${domain} 详情</h4>
+        <div style="max-height: 400px; overflow-y: auto;">
+          <h5>IPv4 地址 (\${domainData.ipv4.length}):</h5>
+          <ul>\${domainData.ipv4.map(ip => \`<li>\${ip}</li>\`).join('')}</ul>
+          
+          <h5>IPv6 地址 (\${domainData.ipv6.length}):</h5>
+          <ul>\${domainData.ipv6.map(ip => \`<li>\${ip}</li>\`).join('')}</ul>
+          
+          <h5>黑名单 (\${domainData.blacklist.length}):</h5>
+          <ul>\${domainData.blacklist.map(ip => \`<li>\${ip}</li>\`).join('')}</ul>
+          
+          <h5>健康数据:</h5>
+          <pre>\${JSON.stringify(domainData.health, null, 2)}</pre>
+        </div>
+      \`;
+      
+      document.getElementById('ippoolDetailsModal').style.display = 'block';
+    }
+    
+    function addSyncLog(type, message) {
+      const timestamp = new Date().toLocaleTimeString();
+      syncLog.push({ type, message, timestamp });
+      
+      // 保持最近50条日志
+      if (syncLog.length > 50) {
+        syncLog = syncLog.slice(-50);
+      }
+      
+      renderSyncLog();
+    }
+    
+    function renderSyncLog() {
+      const content = document.getElementById('syncLogContent');
+      content.innerHTML = syncLog.map(entry => 
+        \`<div class="log-entry \${entry.type}">[\${entry.timestamp}] \${entry.message}</div>\`
+      ).join('');
+      
+      // 滚动到底部
+      content.scrollTop = content.scrollHeight;
+    }
+    
+    // 点击模态框外部关闭
+    window.onclick = function(event) {
+      const addNodeModal = document.getElementById('addNodeModal');
+      const ippoolDetailsModal = document.getElementById('ippoolDetailsModal');
+      
+      if (event.target === addNodeModal) {
+        hideAddNodeForm();
+      }
+      if (event.target === ippoolDetailsModal) {
+        hideIPPoolDetails();
+      }
+    };
   </script>
 </body>
 </html>`;
@@ -2451,6 +2798,83 @@ export class MonitorServer {
   }
 
   /**
+   * IP池同步 API
+   * GET    /api/ip-pool/data        → 获取当前IP池数据
+   * GET    /api/ip-pool/stats       → 获取同步统计
+   * POST   /api/ip-pool/sync        → 处理同步请求
+   * POST   /api/ip-pool/trigger     → 手动触发同步
+   */
+  private async serveIPPoolSync(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    try {
+      const url = new URL(req.url || '', 'http://localhost')
+      const pathParts = url.pathname.split('/').filter(p => p)
+      
+      // 解析API路径
+      const action = pathParts[3] // /api/ip-pool/{action}
+      
+      // 设置CORS头
+      res.setHeader('Access-Control-Allow-Origin', '*')
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Secret')
+      
+      // 处理OPTIONS请求
+      if (req.method === 'OPTIONS') {
+        res.writeHead(200)
+        res.end()
+        return
+      }
+      
+      switch (req.method) {
+        case 'GET':
+          if (action === 'data') {
+            // 获取当前IP池数据
+            const data = this.ipPoolSyncManager.getCurrentData()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(data))
+          } else if (action === 'stats') {
+            // 获取同步统计
+            const stats = this.ipPoolSyncManager.getSyncStats()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(stats))
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Not found' }))
+          }
+          break
+          
+        case 'POST':
+          if (action === 'sync') {
+            // 处理同步请求
+            const body = await this.readRequestBody(req)
+            const syncRequest = JSON.parse(body)
+            
+            const response = await this.ipPoolSyncManager.handleSyncRequest(syncRequest)
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify(response))
+          } else if (action === 'trigger') {
+            // 手动触发同步
+            await this.ipPoolSyncManager.triggerSync()
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: true, message: '同步已触发' }))
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Not found' }))
+          }
+          break
+          
+        default:
+          res.writeHead(405, { 'Content-Type': 'application/json' })
+          res.end(JSON.stringify({ error: 'Method not allowed' }))
+      }
+      
+    } catch (error) {
+      logger.error('IP池同步API错误', error as Error)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ error: 'Internal server error' }))
+    }
+  }
+
+  /**
    * 停止监控服务器
    */
   public stop(): void {
@@ -2460,6 +2884,9 @@ export class MonitorServer {
     }
     if (this.nodeManager) {
       this.nodeManager.stop()
+    }
+    if (this.ipPoolSyncManager) {
+      this.ipPoolSyncManager.stop()
     }
     if (this.server) {
       this.server.close()
