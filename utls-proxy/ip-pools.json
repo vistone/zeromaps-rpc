@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdate": "2025-10-29T06:56:44.645Z",
+  "lastUpdate": "2025-10-29T07:01:22.250Z",
   "domains": {
     "kh.google.com": {
       "preferIPv6": true,
@@ -19,12 +19,12 @@
       ],
       "health": {
         "2607": {
-          "totalRequests": 3592,
+          "totalRequests": 3594,
           "successCount": 96,
-          "failureCount": 3496,
+          "failureCount": 3498,
           "avgResponseTime": 164.3837890625,
           "lastSuccess": "2025-10-29T05:50:25.827Z",
-          "lastFailure": "2025-10-29T06:56:44.538Z",
+          "lastFailure": "2025-10-29T07:00:04.040Z",
           "source": "merged",
           "score": 0.29427200910541373
         },
@@ -34,7 +34,7 @@
           "failureCount": 7.69316774480696e+78,
           "avgResponseTime": 154.421875,
           "lastSuccess": "2025-10-29T06:26:49.779Z",
-          "lastFailure": "2025-10-29T06:56:44.495Z",
+          "lastFailure": "2025-10-29T07:00:04.205Z",
           "source": "remote",
           "score": 0.3152732389416548
         },
@@ -44,7 +44,7 @@
           "failureCount": 8.787469678462267e+78,
           "avgResponseTime": 154.51953125,
           "lastSuccess": "2025-10-29T06:26:49.781Z",
-          "lastFailure": "2025-10-29T06:56:44.498Z",
+          "lastFailure": "2025-10-29T07:00:04.028Z",
           "source": "remote",
           "score": 0.3152629070329145
         },
@@ -54,7 +54,7 @@
           "failureCount": 8.95023903408458e+78,
           "avgResponseTime": 152.125,
           "lastSuccess": "2025-10-29T06:26:49.777Z",
-          "lastFailure": "2025-10-29T06:56:44.514Z",
+          "lastFailure": "2025-10-29T07:00:04.212Z",
           "source": "remote",
           "score": 0.31554464780807445
         },
@@ -64,7 +64,7 @@
           "failureCount": 1.0519188047749495e+79,
           "avgResponseTime": 155.96875,
           "lastSuccess": "2025-10-29T06:26:49.780Z",
-          "lastFailure": "2025-10-29T06:56:44.645Z",
+          "lastFailure": "2025-10-29T07:00:04.193Z",
           "source": "remote",
           "score": 0.31503797461752386
         },
@@ -74,7 +74,7 @@
           "failureCount": 1.2222640010160595e+66,
           "avgResponseTime": 426.5,
           "lastSuccess": "2025-10-29T06:25:21.442Z",
-          "lastFailure": "2025-10-29T06:56:44.550Z",
+          "lastFailure": "2025-10-29T07:00:04.180Z",
           "source": "remote",
           "score": 0.236025
         },
@@ -84,7 +84,7 @@
           "failureCount": 1.1147585641868412e+66,
           "avgResponseTime": 429.25,
           "lastSuccess": "2025-10-29T06:25:21.451Z",
-          "lastFailure": "2025-10-29T06:56:44.533Z",
+          "lastFailure": "2025-10-29T07:00:04.249Z",
           "source": "remote",
           "score": 0.23561249999999997
         },
@@ -94,7 +94,7 @@
           "failureCount": 1.1147585641868412e+66,
           "avgResponseTime": 426.25,
           "lastSuccess": "2025-10-29T06:25:21.443Z",
-          "lastFailure": "2025-10-29T06:56:44.452Z",
+          "lastFailure": "2025-10-29T07:00:04.220Z",
           "source": "remote",
           "score": 0.23606249999999998
         },
@@ -104,7 +104,7 @@
           "failureCount": 1.2013740447240128e+66,
           "avgResponseTime": 429.75,
           "lastSuccess": "2025-10-29T06:25:21.482Z",
-          "lastFailure": "2025-10-29T06:56:44.553Z",
+          "lastFailure": "2025-10-29T07:00:04.232Z",
           "source": "remote",
           "score": 0.23553749999999998
         }
@@ -121,7 +121,7 @@
   "metadata": {
     "nodeId": "stone-Super-Server",
     "nodeDomain": "tile10.zeromaps.cn",
-    "syncCount": 237,
-    "lastSync": "2025-10-29T06:56:44.645Z"
+    "syncCount": 243,
+    "lastSync": "2025-10-29T07:01:22.250Z"
   }
 }

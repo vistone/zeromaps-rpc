@@ -517,6 +517,21 @@ export class WebUIGenerator {
             background: #ffebee;
             color: #d32f2f;
         }
+        
+        .log-level-error {
+            color: #d32f2f;
+            font-weight: bold;
+        }
+        
+        .log-level-warn {
+            color: #f57c00;
+            font-weight: bold;
+        }
+        
+        .log-level-info {
+            color: #1976d2;
+            font-weight: bold;
+        }
 
         .log-debug {
             background: #f3e5f5;
@@ -1275,11 +1290,24 @@ export class WebUIGenerator {
             container.innerHTML = data.logs.map(log => {
                 // log 已经是解析后的对象，不需要再次 parse
                 const timestamp = log.timestamp || new Date().toISOString();
-                const level = log.level || 'info';
+                // 确定日志级别和样式
+                let level = 'info';
+                if (log.level) {
+                    level = log.level.toLowerCase();
+                } else if (log.message) {
+                    // 根据消息内容推断级别
+                    const msg = log.message.toLowerCase();
+                    if (msg.includes('error') || msg.includes('失败') || msg.includes('失败')) {
+                        level = 'error';
+                    } else if (msg.includes('warn') || msg.includes('警告')) {
+                        level = 'warn';
+                    }
+                }
+                
                 const message = log.message || JSON.stringify(log);
                 
                 return \`<div class="log-entry log-\${level}">
-                    [\${timestamp}] \${message}
+                    <strong>[\${timestamp}]</strong> <span class="log-level-\${level}">\${level.toUpperCase()}</span> \${message}
                     \${log.context ? \`<br><small>上下文: \${JSON.stringify(log.context)}</small>\` : ''}
                 </div>\`;
             }).join('');
