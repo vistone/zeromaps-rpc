@@ -253,6 +253,8 @@ export class IPPoolSyncManager extends EventEmitter {
       // 更新元数据
       this.localData.lastUpdate = new Date().toISOString()
       this.localData.metadata.lastSync = new Date().toISOString()
+      this.localData.metadata.nodeId = this.currentNodeId
+      this.localData.metadata.nodeDomain = this.currentNodeDomain
       
       // 确保目录存在
       const dir = path.dirname(this.ipPoolFile)
@@ -1073,7 +1075,10 @@ export class IPPoolSyncManager extends EventEmitter {
    */
   private handleHealthCheckResult(event: any): void {
     const { key, status, result, wasBlacklisted, statusChanged } = event
-    const [domain, ip] = key.split(':')
+    // key 由 `${domain}:${ip}` 组成，IPv6 地址包含冒号，必须只在第一个冒号处分割
+    const sepIndex = key.indexOf(':')
+    const domain = sepIndex >= 0 ? key.slice(0, sepIndex) : key
+    const ip = sepIndex >= 0 ? key.slice(sepIndex + 1) : ''
     
     logger.debug('处理健康检查结果', {
       ip,
@@ -1267,6 +1272,49 @@ export class IPPoolSyncManager extends EventEmitter {
    */
   public clearIPStats(ip: string, domain: string): void {
     this.healthChecker.clearIPStats(ip, domain)
+  }
+
+  /**
+   * 清理无效健康数据与黑名单（移除被截断的IPv6如“2607”，非法IP字符串等）
+   */
+  public clearInvalidData(): { removedHealth: number, removedBlacklist: number } {
+    if (!this.localData) return { removedHealth: 0, removedBlacklist: 0 }
+    const ipv4Re = /^(?:\d{1,3}\.){3}\d{1,3}$/
+    const ipv6Re = /:/ // 粗略判断，包含冒号
+    let removedHealth = 0
+    let removedBlacklist = 0
+    
+    for (const [domain, domainData] of Object.entries(this.localData.domains)) {
+      // 清理 health 中的无效 key
+      for (const ip of Object.keys(domainData.health)) {
+        const valid = ipv4Re.test(ip) || (ipv6Re.test(ip) && ip.length >= 8)
+        if (!valid) {
+          delete domainData.health[ip]
+          removedHealth++
+        }
+      }
+      // 清理 blacklist 中的无效项
+      const before = domainData.blacklist.length
+      domainData.blacklist = domainData.blacklist.filter(ip => ipv4Re.test(ip) || (ipv6Re.test(ip) && ip.length >= 8))
+      removedBlacklist += before - domainData.blacklist.length
+    }
+    this.saveLocalData()
+    return { removedHealth, removedBlacklist }
+  }
+
+  /**
+   * 一键清空所有健康统计（不动 ipv4/ipv6 列表，仅清空 health 与重置统计）
+   */
+  public clearAllHealthData(): { cleared: number } {
+    if (!this.localData) return { cleared: 0 }
+    let cleared = 0
+    for (const [, domainData] of Object.entries(this.localData.domains)) {
+      const ips = Object.keys(domainData.health)
+      cleared += ips.length
+      domainData.health = {}
+    }
+    this.saveLocalData()
+    return { cleared }
   }
 
   /**

@@ -646,7 +646,7 @@ export class APIRoutes {
             this.ipPoolSyncManager.stopHealthCheck()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ success: true, message: '健康检查已停止' }))
-          } else if (action === 'health' && subAction === 'test' && pathParts[4]) {
+              } else if (action === 'health' && subAction === 'test' && pathParts[4]) {
             // 手动测试IP
             const ip = decodeURIComponent(pathParts[4])
             const domain = url.searchParams.get('domain') || 'kh.google.com'
@@ -659,6 +659,16 @@ export class APIRoutes {
               res.writeHead(500, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: false, message: (error as Error).message }))
             }
+              } else if (action === 'health' && subAction === 'clear-invalid') {
+                // 清理无效健康数据与黑名单
+                const result = this.ipPoolSyncManager.clearInvalidData()
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: true, message: '无效数据已清理', result }))
+              } else if (action === 'health' && subAction === 'clear-all') {
+                // 一键清空所有健康统计
+                const result = this.ipPoolSyncManager.clearAllHealthData()
+                res.writeHead(200, { 'Content-Type': 'application/json' })
+                res.end(JSON.stringify({ success: true, message: '已清空所有健康统计', result }))
           } else if (action === 'health' && subAction === 'update-status' && pathParts[4]) {
             // 强制更新IP状态
             const ip = decodeURIComponent(pathParts[4])

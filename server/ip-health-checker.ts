@@ -262,7 +262,15 @@ export class IPHealthChecker extends EventEmitter {
           responseTime,
           timestamp: Date.now()
         }
-        
+        if (!result.success) {
+          logger.warn('健康检查HTTP非200', {
+            ip,
+            domain,
+            statusCode: res.statusCode,
+            responseTime
+          })
+        }
+
         resolve(result)
       })
       
@@ -277,7 +285,12 @@ export class IPHealthChecker extends EventEmitter {
           error: error.message,
           timestamp: Date.now()
         }
-        
+        logger.error('健康检查HTTP错误', error, {
+          ip,
+          domain,
+          responseTime
+        })
+
         resolve(result)
       })
       
@@ -293,7 +306,13 @@ export class IPHealthChecker extends EventEmitter {
           error: 'Request timeout',
           timestamp: Date.now()
         }
-        
+        logger.error('健康检查HTTP超时', undefined, {
+          ip,
+          domain,
+          timeoutMs: (options.timeout as number) || 0,
+          responseTime
+        })
+
         resolve(result)
       })
       
