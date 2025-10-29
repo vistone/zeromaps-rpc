@@ -1419,9 +1419,14 @@ export class WebUIGenerator {
             }
         }
 
-        function updateNodesDisplay(nodes) {
+        function updateNodesDisplay(data) {
             const container = document.getElementById('nodes-container');
             if (!container) return;
+            
+            // 处理 API 返回的数据结构
+            const nodes = data.nodes || data;
+            const health = data.health || [];
+            const stats = data.stats || {};
             
             nodesData = nodes;
             
@@ -1430,39 +1435,73 @@ export class WebUIGenerator {
                 return;
             }
             
-            container.innerHTML = nodes.map(node => \`
-                <div class="node-card">
-                    <div class="node-header">
-                        <div class="node-name">\${node.name}</div>
-                        <div class="node-status status-\${node.status}">\${node.status}</div>
+            // 创建健康状态映射
+            const healthMap = {};
+            health.forEach(h => {
+                healthMap[h.nodeId] = h;
+            });
+            
+            container.innerHTML = nodes.map(node => {
+                const nodeHealth = healthMap[node.id] || {};
+                const lastCheck = nodeHealth.timestamp ? new Date(nodeHealth.timestamp).toLocaleString() : '未知';
+                const responseTime = nodeHealth.responseTime || 0;
+                
+                return \`
+                    <div class="node-card">
+                        <div class="node-header">
+                            <div class="node-name">\${node.name}</div>
+                            <div class="node-status status-\${node.status}">\${node.status}</div>
+                        </div>
+                        <div class="node-details">
+                            <div class="node-detail">
+                                <div class="node-detail-label">域名</div>
+                                <div class="node-detail-value">\${node.domain}</div>
+                            </div>
+                            <div class="node-detail">
+                                <div class="node-detail-label">IPv4</div>
+                                <div class="node-detail-value">\${node.ipv4}</div>
+                            </div>
+                            <div class="node-detail">
+                                <div class="node-detail-label">IPv6前缀</div>
+                                <div class="node-detail-value">\${node.ipv6Prefix || 'N/A'}</div>
+                            </div>
+                            <div class="node-detail">
+                                <div class="node-detail-label">位置</div>
+                                <div class="node-detail-value">\${node.location || 'N/A'}</div>
+                            </div>
+                            <div class="node-detail">
+                                <div class="node-detail-label">最后检查</div>
+                                <div class="node-detail-value">\${lastCheck}</div>
+                            </div>
+                            <div class="node-detail">
+                                <div class="node-detail-label">响应时间</div>
+                                <div class="node-detail-value">\${responseTime}ms</div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 15px;">
+                            <button class="button \${node.enabled ? 'warning' : 'success'}" 
+                                    onclick="toggleNode('\${node.name}')">
+                                \${node.enabled ? '禁用' : '启用'}
+                            </button>
+                            <button class="button danger" onclick="deleteNode('\${node.name}')">删除</button>
+                        </div>
                     </div>
-                    <div class="node-details">
-                        <div class="node-detail">
-                            <div class="node-detail-label">主机地址</div>
-                            <div class="node-detail-value">\${node.host}:\${node.port}</div>
-                        </div>
-                        <div class="node-detail">
-                            <div class="node-detail-label">描述</div>
-                            <div class="node-detail-value">\${node.description || '--'}</div>
-                        </div>
-                        <div class="node-detail">
-                            <div class="node-detail-label">最后检查</div>
-                            <div class="node-detail-value">\${node.lastCheck || '--'}</div>
-                        </div>
-                        <div class="node-detail">
-                            <div class="node-detail-label">响应时间</div>
-                            <div class="node-detail-value">\${node.responseTime || '--'}ms</div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 15px;">
-                        <button class="button \${node.enabled ? 'warning' : 'success'}" 
-                                onclick="toggleNode('\${node.name}')">
-                            \${node.enabled ? '禁用' : '启用'}
-                        </button>
-                        <button class="button danger" onclick="deleteNode('\${node.name}')">删除</button>
-                    </div>
-                </div>
-            \`).join('');
+                \`;
+            }).join('');
+            
+            // 更新统计信息
+            if (stats.total !== undefined) {
+                const statsInfo = \`总节点: \${stats.total} | 在线: \${stats.online} | 离线: \${stats.offline} | 启用: \${stats.enabled} | 禁用: \${stats.disabled}\`;
+                const statsElement = document.getElementById('nodes-stats');
+                if (statsElement) {
+                    statsElement.textContent = statsInfo;
+                } else {
+                    // 如果没有统计元素，在容器顶部添加
+                    container.insertAdjacentHTML('afterbegin', \`
+                        <div class="log-entry log-info" id="nodes-stats">\${statsInfo}</div>
+                    \`);
+                }
+            }
         }
 
         function showAddNodeForm() {
