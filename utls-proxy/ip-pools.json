@@ -1,21 +1,11 @@
 {
   "version": "1.0.0",
-  "lastUpdate": "2025-10-29T06:38:44.197Z",
+  "lastUpdate": "2025-10-29T06:50:44.166Z",
   "domains": {
     "kh.google.com": {
       "preferIPv6": true,
-      "ipv4": [
-        "142.250.105.91",
-        "142.250.105.136",
-        "142.250.105.190",
-        "142.250.105.93"
-      ],
-      "ipv6": [
-        "2607:f8b0:4002:c1b::88",
-        "2607:f8b0:4002:c1b::5b",
-        "2607:f8b0:4002:c1b::be",
-        "2607:f8b0:4002:c1b::5d"
-      ],
+      "ipv4": [],
+      "ipv6": [],
       "blacklist": [
         "2607",
         "142.250.105.91",
@@ -29,12 +19,12 @@
       ],
       "health": {
         "2607": {
-          "totalRequests": 3587,
+          "totalRequests": 3588,
           "successCount": 96,
-          "failureCount": 3491,
+          "failureCount": 3492,
           "avgResponseTime": 164.3837890625,
           "lastSuccess": "2025-10-29T05:50:25.827Z",
-          "lastFailure": "2025-10-29T06:36:26.159Z",
+          "lastFailure": "2025-10-29T06:46:24.881Z",
           "source": "merged",
           "score": 0.29427200910541373
         },
@@ -44,7 +34,7 @@
           "failureCount": 7.69316774480696e+78,
           "avgResponseTime": 154.421875,
           "lastSuccess": "2025-10-29T06:26:49.779Z",
-          "lastFailure": "2025-10-29T06:36:26.092Z",
+          "lastFailure": "2025-10-29T06:41:26.811Z",
           "source": "remote",
           "score": 0.3152732389416548
         },
@@ -54,7 +44,7 @@
           "failureCount": 8.787469678462267e+78,
           "avgResponseTime": 154.51953125,
           "lastSuccess": "2025-10-29T06:26:49.781Z",
-          "lastFailure": "2025-10-29T06:36:26.068Z",
+          "lastFailure": "2025-10-29T06:41:26.672Z",
           "source": "remote",
           "score": 0.3152629070329145
         },
@@ -64,7 +54,7 @@
           "failureCount": 8.95023903408458e+78,
           "avgResponseTime": 152.125,
           "lastSuccess": "2025-10-29T06:26:49.777Z",
-          "lastFailure": "2025-10-29T06:36:26.061Z",
+          "lastFailure": "2025-10-29T06:41:26.744Z",
           "source": "remote",
           "score": 0.31554464780807445
         },
@@ -74,7 +64,7 @@
           "failureCount": 1.0519188047749495e+79,
           "avgResponseTime": 155.96875,
           "lastSuccess": "2025-10-29T06:26:49.780Z",
-          "lastFailure": "2025-10-29T06:36:26.076Z",
+          "lastFailure": "2025-10-29T06:41:26.635Z",
           "source": "remote",
           "score": 0.31503797461752386
         },
@@ -84,7 +74,7 @@
           "failureCount": 1.2222640010160595e+66,
           "avgResponseTime": 426.5,
           "lastSuccess": "2025-10-29T06:25:21.442Z",
-          "lastFailure": "2025-10-29T06:36:26.124Z",
+          "lastFailure": "2025-10-29T06:41:26.783Z",
           "source": "remote",
           "score": 0.236025
         },
@@ -94,7 +84,7 @@
           "failureCount": 1.1147585641868412e+66,
           "avgResponseTime": 429.25,
           "lastSuccess": "2025-10-29T06:25:21.451Z",
-          "lastFailure": "2025-10-29T06:36:26.148Z",
+          "lastFailure": "2025-10-29T06:41:26.763Z",
           "source": "remote",
           "score": 0.23561249999999997
         },
@@ -104,7 +94,7 @@
           "failureCount": 1.1147585641868412e+66,
           "avgResponseTime": 426.25,
           "lastSuccess": "2025-10-29T06:25:21.443Z",
-          "lastFailure": "2025-10-29T06:36:26.136Z",
+          "lastFailure": "2025-10-29T06:41:26.606Z",
           "source": "remote",
           "score": 0.23606249999999998
         },
@@ -114,7 +104,7 @@
           "failureCount": 1.2013740447240128e+66,
           "avgResponseTime": 429.75,
           "lastSuccess": "2025-10-29T06:25:21.482Z",
-          "lastFailure": "2025-10-29T06:36:26.133Z",
+          "lastFailure": "2025-10-29T06:41:26.835Z",
           "source": "remote",
           "score": 0.23553749999999998
         }
@@ -131,7 +121,7 @@
   "metadata": {
     "nodeId": "stone-Super-Server",
     "nodeDomain": "tile10.zeromaps.cn",
-    "syncCount": 220,
-    "lastSync": "2025-10-29T06:38:44.197Z"
+    "syncCount": 231,
+    "lastSync": "2025-10-29T06:50:44.166Z"
   }
 }
