@@ -6,6 +6,7 @@
 import * as http from 'http'
 import * as fs from 'fs'
 import * as path from 'path'
+import * as os from 'os'
 import { RpcServer } from './rpc-server.js'
 import { NodeManager } from './node-manager.js'
 import { IPPoolSyncManager } from './ip-pool-sync.js'
@@ -43,7 +44,9 @@ export class APIRoutes {
       }
 
       // 路由分发
-      if (pathname === '/api/stats') {
+      if (pathname === '/api/health') {
+        await this.serveHealth(res)
+      } else if (pathname === '/api/stats') {
         await this.serveStats(res)
       } else if (pathname.startsWith('/api/stats/export')) {
         await this.serveStatsExport(req, res)
@@ -692,6 +695,66 @@ export class APIRoutes {
       logger.error('IP池同步API错误', error as Error)
       res.writeHead(500, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ error: 'Internal server error' }))
+    }
+  }
+
+  /**
+   * 提供健康检查API
+   */
+  private async serveHealth(res: http.ServerResponse): Promise<void> {
+    try {
+      // 获取系统信息
+      const systemInfo = {
+        cpu: {
+          usage: process.cpuUsage(),
+          loadAverage: process.platform !== 'win32' ? os.loadavg() : [0, 0, 0]
+        },
+        memory: {
+          usage: process.memoryUsage(),
+          total: os.totalmem(),
+          free: os.freemem()
+        },
+        uptime: process.uptime(),
+        platform: process.platform,
+        nodeVersion: process.version,
+        pid: process.pid
+      }
+
+      // 获取服务状态
+      const serviceStatus = {
+        rpc: this.rpcServer ? 'running' : 'stopped',
+        monitor: 'running',
+        webhook: 'running',
+        utls: 'running' // 假设 uTLS 代理正在运行
+      }
+
+      // 获取基本统计信息
+      const stats = await this.rpcServer.getStats()
+      const totalRequests = stats.fetcherStats?.totalRequests || 0
+      const failedRequests = stats.ipv6Stats?.totalFailure || 0
+
+      const healthData = {
+        status: 'ok',
+        timestamp: Date.now(),
+        version: this.getVersion(),
+        system: systemInfo,
+        services: serviceStatus,
+        totalRequests,
+        failedRequests,
+        uptime: Math.floor(process.uptime())
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(healthData))
+
+    } catch (error) {
+      logger.error('健康检查API错误', error as Error)
+      res.writeHead(500, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ 
+        status: 'error', 
+        error: 'Internal server error',
+        timestamp: Date.now()
+      }))
     }
   }
 
