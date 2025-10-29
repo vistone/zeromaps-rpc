@@ -1,70 +1,71 @@
 {
   "version": "1.0.0",
-  "lastUpdate": "2025-10-29T03:56:57.502Z",
+  "lastUpdate": "2025-10-29T04:02:33.193Z",
   "domains": {
     "kh.google.com": {
       "preferIPv6": true,
-      "ipv4": [
-        "142.250.105.93",
-        "142.250.105.190",
-        "142.250.105.136",
-        "142.250.105.91"
-      ],
+      "ipv4": [],
       "ipv6": [
         "2607:f8b0:4002:c1b::be",
         "2607:f8b0:4002:c1b::5b",
         "2607:f8b0:4002:c1b::88",
         "2607:f8b0:4002:c1b::5d"
       ],
-      "blacklist": [],
+      "blacklist": [
+        "2607",
+        "142.250.105.91",
+        "142.250.105.136",
+        "142.250.105.93",
+        "142.250.105.190"
+      ],
       "health": {
         "2607": {
-          "totalRequests": 8,
+          "totalRequests": 26,
           "successCount": 0,
-          "failureCount": 8,
+          "failureCount": 26,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T03:56:57.455Z",
-          "source": "local",
-          "score": 0
-        },
-        "142.250.105.91": {
-          "totalRequests": 2,
-          "successCount": 0,
-          "failureCount": 2,
-          "avgResponseTime": 0,
-          "lastSuccess": "",
-          "lastFailure": "2025-10-29T03:56:57.502Z",
-          "source": "local",
-          "score": 0
-        },
-        "142.250.105.190": {
-          "totalRequests": 2,
-          "successCount": 0,
-          "failureCount": 2,
-          "avgResponseTime": 0,
-          "lastSuccess": "",
-          "lastFailure": "2025-10-29T03:56:57.401Z",
+          "lastFailure": "2025-10-29T04:02:33.193Z",
           "source": "local",
           "score": 0
         },
         "142.250.105.136": {
-          "totalRequests": 2,
+          "totalRequests": 6,
           "successCount": 0,
-          "failureCount": 2,
+          "failureCount": 6,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T03:56:57.469Z",
+          "lastFailure": "2025-10-29T04:02:32.971Z",
+          "source": "local",
+          "score": 0
+        },
+        "142.250.105.190": {
+          "totalRequests": 6,
+          "successCount": 0,
+          "failureCount": 6,
+          "avgResponseTime": 0,
+          "lastSuccess": "",
+          "lastFailure": "2025-10-29T04:02:32.929Z",
+          "source": "local",
+          "score": 0
+        },
+        "142.250.105.91": {
+          "totalRequests": 6,
+          "successCount": 0,
+          "failureCount": 6,
+          "avgResponseTime": 0,
+          "lastSuccess": "",
+          "lastFailure": "2025-10-29T04:02:33.081Z",
           "source": "local",
           "score": 0
         },
         "142.250.105.93": {
-          "totalRequests": 2,
+          "totalRequests": 6,
           "successCount": 0,
-          "failureCount": 2,
+          "failureCount": 6,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T03:56:57.453Z",
+          "lastFailure": "2025-10-29T04:02:33.037Z",
           "source": "local",
           "score": 0
         }
@@ -82,6 +83,6 @@
     "nodeId": "stone-Super-Server",
     "nodeDomain": "tile10.zeromaps.cn",
     "syncCount": 0,
-    "lastSync": "2025-10-29T03:56:57.502Z"
+    "lastSync": "2025-10-29T04:02:33.193Z"
   }
 }
