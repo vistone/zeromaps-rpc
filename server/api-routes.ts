@@ -312,19 +312,36 @@ export class APIRoutes {
       // 处理 POST 请求体中的 URI
       if (req.method === 'POST') {
         const body = await this.readRequestBody(req)
-        const { uri } = JSON.parse(body)
+        const requestData = JSON.parse(body)
         
-        if (!uri) {
+        // 支持两种格式：{ uri } 或 { url, headers, timeout }
+        let uri: string
+        let timeout: number = 10000
+        
+        if (requestData.uri) {
+          uri = requestData.uri
+        } else if (requestData.url) {
+          // 从完整 URL 中提取 URI 部分
+          const urlMatch = requestData.url.match(/\/rt\/earth\/(.+)$/)
+          if (urlMatch) {
+            uri = urlMatch[1]
+          } else {
+            res.writeHead(400, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: 'Invalid URL format. Expected URL containing /rt/earth/' }))
+            return
+          }
+          timeout = requestData.timeout || 10000
+        } else {
           res.writeHead(400, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'URI is required' }))
+          res.end(JSON.stringify({ error: 'URI or URL is required' }))
           return
         }
         
         const url = `https://kh.google.com/rt/earth/${uri}`
-        logger.debug('[API] 收到请求', { uri: uri.substring(0, 80) })
+        logger.debug('[API] 收到请求', { uri: uri.substring(0, 80), timeout })
 
         const fetcher = this.rpcServer.getFetcher()
-        const result = await fetcher.fetch({ url, timeout: 10000 })
+        const result = await fetcher.fetch({ url, timeout })
 
         res.writeHead(200, {
           'Content-Type': 'application/octet-stream',
@@ -547,7 +564,16 @@ export class APIRoutes {
       const pathParts = url.pathname.split('/').filter(p => p)
       
       // 解析API路径
-      const action = pathParts[3] || 'data' // /api/ip-pool/{action}，默认为 'data'
+      const action = pathParts[2] || 'data' // /api/ip-pool/{action}
+      const subAction = pathParts[3] // 子操作，如 health/stats 中的 'stats'
+      
+      logger.debug('IP池同步API路径解析', { 
+        pathname: url.pathname, 
+        pathParts, 
+        action,
+        subAction,
+        method: req.method 
+      })
       
       // 设置CORS头
       res.setHeader('Access-Control-Allow-Origin', '*')
@@ -563,22 +589,22 @@ export class APIRoutes {
       
       switch (req.method) {
         case 'GET':
-          if (action === 'data') {
+          if (action === 'data' || (!action && !subAction)) {
             // 获取当前IP池数据
             const data = this.ipPoolSyncManager.getCurrentData()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify(data))
-          } else if (action === 'stats') {
+          } else if (action === 'stats' && !subAction) {
             // 获取同步统计
             const stats = this.ipPoolSyncManager.getSyncStats()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify(stats))
-          } else if (action === 'health' && pathParts[4] === 'stats') {
+          } else if (action === 'health' && subAction === 'stats') {
             // 获取健康检查统计
             const stats = this.ipPoolSyncManager.getHealthCheckStats()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify(stats))
-          } else if (action === 'health' && pathParts[4] === 'status') {
+          } else if (action === 'health' && subAction === 'status') {
             // 获取所有IP健康状态
             const statuses = this.ipPoolSyncManager.getAllIPHealthStatus()
             res.writeHead(200, { 'Content-Type': 'application/json' })
@@ -603,19 +629,19 @@ export class APIRoutes {
             await this.ipPoolSyncManager.triggerSync()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ success: true, message: '同步已触发' }))
-          } else if (action === 'health' && pathParts[4] === 'start') {
+          } else if (action === 'health' && subAction === 'start') {
             // 启动健康检查
             this.ipPoolSyncManager.startHealthCheck()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ success: true, message: '健康检查已启动' }))
-          } else if (action === 'health' && pathParts[4] === 'stop') {
+          } else if (action === 'health' && subAction === 'stop') {
             // 停止健康检查
             this.ipPoolSyncManager.stopHealthCheck()
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ success: true, message: '健康检查已停止' }))
-          } else if (action === 'health' && pathParts[4] === 'test' && pathParts[5]) {
+          } else if (action === 'health' && subAction === 'test' && pathParts[4]) {
             // 手动测试IP
-            const ip = decodeURIComponent(pathParts[5])
+            const ip = decodeURIComponent(pathParts[4])
             const domain = url.searchParams.get('domain') || 'kh.google.com'
             
             try {
@@ -626,9 +652,9 @@ export class APIRoutes {
               res.writeHead(500, { 'Content-Type': 'application/json' })
               res.end(JSON.stringify({ success: false, message: (error as Error).message }))
             }
-          } else if (action === 'health' && pathParts[4] === 'update-status' && pathParts[5]) {
+          } else if (action === 'health' && subAction === 'update-status' && pathParts[4]) {
             // 强制更新IP状态
-            const ip = decodeURIComponent(pathParts[5])
+            const ip = decodeURIComponent(pathParts[4])
             const domain = url.searchParams.get('domain') || 'kh.google.com'
             
             const body = await this.readRequestBody(req)
@@ -643,9 +669,9 @@ export class APIRoutes {
             this.ipPoolSyncManager.updateIPStatus(ip, domain, status)
             res.writeHead(200, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ success: true, message: 'IP状态已更新' }))
-          } else if (action === 'health' && pathParts[4] === 'clear-stats' && pathParts[5]) {
+          } else if (action === 'health' && subAction === 'clear-stats' && pathParts[4]) {
             // 清除IP统计数据
-            const ip = decodeURIComponent(pathParts[5])
+            const ip = decodeURIComponent(pathParts[4])
             const domain = url.searchParams.get('domain') || 'kh.google.com'
             
             this.ipPoolSyncManager.clearIPStats(ip, domain)

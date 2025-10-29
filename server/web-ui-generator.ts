@@ -953,14 +953,19 @@ export class WebUIGenerator {
         function updateStatsDisplay(data) {
             statsData = data;
             
-            document.getElementById('total-requests').textContent = data.totalRequests || 0;
-            document.getElementById('success-requests').textContent = data.successRequests || 0;
-            document.getElementById('avg-response-time').textContent = \`\${data.avgResponseTime || 0}ms\`;
-            document.getElementById('active-connections').textContent = data.activeConnections || 0;
+            // 映射 API 数据结构到页面显示
+            const totalRequests = data.requests?.total || 0;
+            const successRequests = data.ipv6?.totalSuccess || 0;
+            const avgResponseTime = data.ipv6?.avgResponseTime || 0;
+            const activeConnections = data.clients || 0;
             
-            const successRate = data.totalRequests > 0 ? 
-                ((data.successRequests / data.totalRequests) * 100).toFixed(1) : 0;
-            document.getElementById('success-rate').textContent = \`\${successRate}%\`;
+            document.getElementById('total-requests').textContent = totalRequests;
+            document.getElementById('success-requests').textContent = successRequests;
+            document.getElementById('avg-response-time').textContent = \`\${avgResponseTime}ms\`;
+            document.getElementById('active-connections').textContent = activeConnections;
+            
+            const successRate = data.ipv6?.successRate || 0;
+            document.getElementById('success-rate').textContent = \`\${successRate.toFixed(1)}%\`;
             
             updateConnectionStatus(true);
         }
@@ -1020,20 +1025,31 @@ export class WebUIGenerator {
             const tbody = document.getElementById('ipv6-tbody');
             if (!tbody) return;
             
-            if (!data || data.length === 0) {
+            if (!data || !data.addresses || data.addresses.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;">暂无IPv6数据</td></tr>';
                 return;
             }
             
-            tbody.innerHTML = data.map(ip => \`
+            // 显示前20个地址
+            const addresses = data.addresses.slice(0, 20);
+            tbody.innerHTML = addresses.map(addr => \`
                 <tr>
-                    <td>\${ip.address}</td>
-                    <td><span class="status-\${ip.status}">\${ip.status}</span></td>
-                    <td>\${ip.lastUsed || '--'}</td>
-                    <td>\${ip.usageCount || 0}</td>
-                    <td>\${ip.successRate || 0}%</td>
+                    <td><code>\${addr}</code></td>
+                    <td><span class="status-active">active</span></td>
+                    <td>--</td>
+                    <td>0</td>
+                    <td>0%</td>
                 </tr>
             \`).join('');
+            
+            // 更新统计信息
+            if (data.stats) {
+                const stats = data.stats;
+                document.getElementById('ipv6-total').textContent = stats.totalAddresses || 0;
+                document.getElementById('ipv6-active').textContent = stats.totalSuccess || 0;
+                document.getElementById('ipv6-blacklisted').textContent = stats.totalFailure || 0;
+                document.getElementById('ipv6-testing').textContent = '0';
+            }
         }
 
         // 日志相关函数
@@ -1050,20 +1066,26 @@ export class WebUIGenerator {
             }
         }
 
-        function updateLogsDisplay(logs) {
+        function updateLogsDisplay(data) {
             const container = document.getElementById('logs-container');
             if (!container) return;
             
-            if (!logs || logs.length === 0) {
+            if (!data || !data.logs || data.logs.length === 0) {
                 container.innerHTML = '<div class="log-entry log-info">暂无日志数据</div>';
                 return;
             }
             
-            container.innerHTML = logs.map(log => \`
-                <div class="log-entry log-\${log.level}">
-                    [\${log.timestamp}] \${log.message}
-                </div>
-            \`).join('');
+            container.innerHTML = data.logs.map(logStr => {
+                try {
+                    const log = JSON.parse(logStr);
+                    return \`<div class="log-entry log-\${log.level}">
+                        [\${log.timestamp}] \${log.message}
+                        \${log.context ? \`<br><small>上下文: \${JSON.stringify(log.context)}</small>\` : ''}
+                    </div>\`;
+                } catch (e) {
+                    return \`<div class="log-entry log-error">解析日志失败: \${logStr}</div>\`;
+                }
+            }).join('');
         }
 
         function addLogEntry(log) {
@@ -1333,7 +1355,7 @@ export class WebUIGenerator {
         // IP池同步相关函数
         async function refreshIPPoolData() {
             try {
-                const response = await fetch('/api/ip-pool');
+                const response = await fetch('/api/ip-pool/data');
                 const data = await response.json();
                 updateIPPoolDisplay(data);
             } catch (error) {
@@ -1343,7 +1365,84 @@ export class WebUIGenerator {
 
         function updateIPPoolDisplay(data) {
             ipPoolData = data;
-            // 这里可以添加IP池数据的显示逻辑
+            
+            // 更新健康检查统计
+            const statsContainer = document.getElementById('health-check-stats');
+            if (statsContainer && data.domains) {
+                let totalIPs = 0;
+                let activeIPs = 0;
+                let blacklistedIPs = 0;
+                let testingIPs = 0;
+                
+                Object.values(data.domains).forEach(domain => {
+                    if (domain.ipv4) totalIPs += domain.ipv4.length;
+                    if (domain.ipv6) totalIPs += domain.ipv6.length;
+                    if (domain.blacklist) blacklistedIPs += domain.blacklist.length;
+                    
+                    // 统计健康状态
+                    if (domain.health) {
+                        Object.values(domain.health).forEach(health => {
+                            if (health.totalRequests > 0) {
+                                if (health.successCount > 0) {
+                                    activeIPs++;
+                                } else {
+                                    testingIPs++;
+                                }
+                            }
+                        });
+                    }
+                });
+                
+                statsContainer.innerHTML = \`
+                    <div class="log-entry log-info">
+                        <strong>总IP数:</strong> \${totalIPs} | 
+                        <strong>活跃IP:</strong> \${activeIPs} | 
+                        <strong>黑名单IP:</strong> \${blacklistedIPs} | 
+                        <strong>测试中IP:</strong> \${testingIPs}
+                    </div>
+                \`;
+            }
+            
+            // 更新健康状态表格
+            updateHealthStatusTable(data);
+        }
+        
+        function updateHealthStatusTable(data) {
+            const tbody = document.getElementById('health-status-tbody');
+            if (!tbody || !data.domains) return;
+            
+            let rows = [];
+            Object.entries(data.domains).forEach(([domain, domainData]) => {
+                if (domainData.health) {
+                    Object.entries(domainData.health).forEach(([ip, health]) => {
+                        const successRate = health.totalRequests > 0 ? 
+                            ((health.successCount / health.totalRequests) * 100).toFixed(1) : 0;
+                        
+                        rows.push(\`
+                            <tr>
+                                <td>\${ip}</td>
+                                <td><span class="status-\${health.successCount > 0 ? 'active' : 'blacklisted'}">\${health.successCount > 0 ? 'active' : 'blacklisted'}</span></td>
+                                <td>\${health.totalRequests}</td>
+                                <td>\${health.successCount}</td>
+                                <td>\${health.failureCount}</td>
+                                <td>\${successRate}%</td>
+                                <td>\${health.avgResponseTime}ms</td>
+                                <td>\${health.lastSuccess || '--'}</td>
+                                <td>\${health.lastFailure || '--'}</td>
+                                <td>
+                                    <button class="button small" onclick="testIP('\${ip}')">测试</button>
+                                </td>
+                            </tr>
+                        \`);
+                    });
+                }
+            });
+            
+            if (rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">暂无健康检查数据</td></tr>';
+            } else {
+                tbody.innerHTML = rows.join('');
+            }
         }
 
         async function triggerSync() {
