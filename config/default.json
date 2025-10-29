@@ -3,6 +3,7 @@
     "server": {
         "name": "",
         "domain": "",
+        "nodeId": "",
         "rpc": {
             "port": 9527,
             "timeout": 30000

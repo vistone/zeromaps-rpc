@@ -2,6 +2,10 @@
   "$schema": "./schema.json",
   "_comment": "节点特定配置 - 主机名: stone-Super-Server",
   "_lastUpdated": "2025-10-20T10:07:49.273Z",
+  "server": {
+    "nodeId": "stone-Super-Server",
+    "domain": "tile10.zeromaps.cn"
+  },
   "utls": {
     "concurrency": 28
   },
