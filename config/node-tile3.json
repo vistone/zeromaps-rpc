@@ -17,6 +17,7 @@
   },
   "p2p": {
     "nodes": [
+      "tile3.zeromaps.cn:9528",
       "tile0.zeromaps.cn:9528",
       "tile4.zeromaps.cn:9528",
       "tile5.zeromaps.cn:9528",

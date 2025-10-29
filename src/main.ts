@@ -4,7 +4,7 @@
  */
 
 import { createZeroMapsRPC } from './index.js'
-import { createLogger } from '../server/logger.js'
+import { createLogger } from './utils/logger.js'
 
 const logger = createLogger('Main')
 

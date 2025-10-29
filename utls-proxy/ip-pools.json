@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastUpdate": "2025-10-29T04:16:42.986Z",
+  "lastUpdate": "2025-10-29T04:21:41.189Z",
   "domains": {
     "kh.google.com": {
       "preferIPv6": true,
@@ -20,52 +20,52 @@
       ],
       "health": {
         "2607": {
-          "totalRequests": 52,
+          "totalRequests": 53,
           "successCount": 0,
-          "failureCount": 52,
+          "failureCount": 53,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:16:42.986Z",
+          "lastFailure": "2025-10-29T04:21:41.013Z",
           "source": "local",
           "score": 0
         },
         "142.250.105.136": {
-          "totalRequests": 8,
+          "totalRequests": 9,
           "successCount": 0,
-          "failureCount": 8,
+          "failureCount": 9,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.280Z",
+          "lastFailure": "2025-10-29T04:21:41.083Z",
           "source": "local",
           "score": 0
         },
         "142.250.105.190": {
-          "totalRequests": 8,
+          "totalRequests": 9,
           "successCount": 0,
-          "failureCount": 8,
+          "failureCount": 9,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.342Z",
+          "lastFailure": "2025-10-29T04:21:41.010Z",
           "source": "local",
           "score": 0
         },
         "142.250.105.91": {
-          "totalRequests": 8,
+          "totalRequests": 9,
           "successCount": 0,
-          "failureCount": 8,
+          "failureCount": 9,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.257Z",
+          "lastFailure": "2025-10-29T04:21:41.189Z",
           "source": "local",
           "score": 0
         },
         "142.250.105.93": {
-          "totalRequests": 8,
+          "totalRequests": 9,
           "successCount": 0,
-          "failureCount": 8,
+          "failureCount": 9,
           "avgResponseTime": 0,
           "lastSuccess": "",
-          "lastFailure": "2025-10-29T04:11:42.202Z",
+          "lastFailure": "2025-10-29T04:21:41.176Z",
           "source": "local",
           "score": 0
         }
@@ -83,6 +83,6 @@
     "nodeId": "stone-Super-Server",
     "nodeDomain": "tile10.zeromaps.cn",
     "syncCount": 0,
-    "lastSync": "2025-10-29T04:16:42.986Z"
+    "lastSync": "2025-10-29T04:21:41.189Z"
   }
 }

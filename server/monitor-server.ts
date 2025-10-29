@@ -52,10 +52,10 @@ export class MonitorServer {
       // 方法1：从 dist/server 向上两级到项目根目录
       let packagePath = path.join(__dirname, '../../package.json')
 
-      // 方法2：如果方法1失败，尝试绝对路径
+      // 方法2：如果方法1失败，尝试从当前工作目录
       if (!fs.existsSync(packagePath)) {
-        packagePath = '/opt/zeromaps-rpc/package.json'
-        logger.debug('使用绝对路径读取版本号', { path: packagePath })
+        packagePath = path.join(process.cwd(), 'package.json')
+        logger.debug('使用工作目录路径读取版本号', { path: packagePath })
       }
 
       const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'))
