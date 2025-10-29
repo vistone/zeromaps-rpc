@@ -1098,42 +1098,54 @@ export class MonitorServer {
     // 初始加载
     fetchStats();
 
-    // 每3秒自动刷新
-    setInterval(fetchStats, 3000);
+    // 备用：每10秒通过HTTP API获取一次统计数据（作为WebSocket的备用方案）
+    setInterval(() => {
+      if (!wsConnection || wsConnection.readyState !== WebSocket.OPEN) {
+        console.log('WebSocket未连接，使用HTTP API获取统计数据');
+        fetchStats();
+      }
+    }, 10000);
 
-    // WebSocket 连接，接收实时请求日志
+    // WebSocket 连接，接收实时请求日志和统计数据
     const requestLogs = [];
     const errorLogs = [];
     const maxLogs = 50;
     const maxErrorLogs = 30;
+    let wsConnection = null;
 
     function connectWebSocket() {
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(\`\${protocol}//\${location.host}/ws\`);
+      wsConnection = new WebSocket(\`\${protocol}//\${location.host}/ws\`);
 
-      ws.onopen = () => {
+      wsConnection.onopen = () => {
         console.log('✓ WebSocket 已连接');
+        // 连接成功后立即获取一次统计数据
+        fetchStats();
       };
 
-      ws.onmessage = (event) => {
+      wsConnection.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
           if (msg.type === 'requestLog') {
             addRequestLog(msg.data);
           } else if (msg.type === 'errorLog') {
             addErrorLog(msg.data);
+          } else if (msg.type === 'stats') {
+            // 使用WebSocket推送的统计数据更新界面
+            updateStatsDisplay(msg.data);
           }
         } catch (e) {
           console.error('解析消息失败:', e);
         }
       };
 
-      ws.onerror = (error) => {
+      wsConnection.onerror = (error) => {
         console.error('WebSocket 错误:', error);
       };
 
-      ws.onclose = () => {
+      wsConnection.onclose = () => {
         console.log('✗ WebSocket 断开，5秒后重连...');
+        wsConnection = null;
         setTimeout(connectWebSocket, 5000);
       };
     }
@@ -1144,6 +1156,125 @@ export class MonitorServer {
         requestLogs.pop();
       }
       renderLogs();
+    }
+
+    function updateStatsDisplay(stats) {
+      // 更新版本信息
+      const versionElement = document.getElementById('version');
+      if (versionElement) {
+        versionElement.textContent = \`v\${stats.version}\`;
+      }
+
+      // 更新客户端连接数
+      const clientsElement = document.getElementById('clients');
+      if (clientsElement) {
+        clientsElement.textContent = stats.clients || 0;
+      }
+
+      // 更新请求统计
+      const totalRequestsElement = document.getElementById('totalRequests');
+      if (totalRequestsElement) {
+        totalRequestsElement.textContent = stats.requests?.total || 0;
+      }
+
+      const concurrentRequestsElement = document.getElementById('concurrentRequests');
+      if (concurrentRequestsElement) {
+        concurrentRequestsElement.textContent = stats.requests?.concurrent || 0;
+      }
+
+      const queueLengthElement = document.getElementById('queueLength');
+      if (queueLengthElement) {
+        queueLengthElement.textContent = stats.requests?.queueLength || 0;
+      }
+
+      // 更新并发控制
+      const concurrencyElement = document.getElementById('concurrency');
+      if (concurrencyElement) {
+        concurrencyElement.textContent = stats.concurrency?.current || 0;
+      }
+
+      const adaptiveElement = document.getElementById('adaptive');
+      if (adaptiveElement) {
+        adaptiveElement.textContent = stats.concurrency?.adaptive ? '是' : '否';
+      }
+
+      const keepAliveElement = document.getElementById('keepAlive');
+      if (keepAliveElement) {
+        keepAliveElement.textContent = stats.concurrency?.keepAlive ? '是' : '否';
+      }
+
+      // 更新IPv6统计
+      const ipv6TotalElement = document.getElementById('ipv6Total');
+      if (ipv6TotalElement) {
+        ipv6TotalElement.textContent = stats.ipv6?.total || 0;
+      }
+
+      const ipv6RequestsElement = document.getElementById('ipv6Requests');
+      if (ipv6RequestsElement) {
+        ipv6RequestsElement.textContent = stats.ipv6?.totalRequests || 0;
+      }
+
+      const ipv6SuccessRateElement = document.getElementById('ipv6SuccessRate');
+      if (ipv6SuccessRateElement) {
+        ipv6SuccessRateElement.textContent = \`\${(stats.ipv6?.successRate || 0).toFixed(1)}%\`;
+      }
+
+      const ipv6QpsElement = document.getElementById('ipv6Qps');
+      if (ipv6QpsElement) {
+        ipv6QpsElement.textContent = \`\${(stats.ipv6?.qps || 0).toFixed(1)}\`;
+      }
+
+      const ipv6AvgResponseTimeElement = document.getElementById('ipv6AvgResponseTime');
+      if (ipv6AvgResponseTimeElement) {
+        ipv6AvgResponseTimeElement.textContent = \`\${(stats.ipv6?.avgResponseTime || 0).toFixed(0)}ms\`;
+      }
+
+      // 更新系统信息
+      const uptimeElement = document.getElementById('uptime');
+      if (uptimeElement) {
+        uptimeElement.textContent = stats.ipv6?.uptime || '0s';
+      }
+
+      const memoryElement = document.getElementById('memory');
+      if (memoryElement && stats.system?.memory) {
+        memoryElement.textContent = \`\${(stats.system.memory.used / 1024 / 1024 / 1024).toFixed(1)}GB / \${(stats.system.memory.total / 1024 / 1024 / 1024).toFixed(1)}GB\`;
+      }
+
+      const cpuElement = document.getElementById('cpu');
+      if (cpuElement && stats.system?.cpu) {
+        cpuElement.textContent = \`\${stats.system.cpu.usage.toFixed(1)}%\`;
+      }
+
+      // 更新健康状态
+      const healthElement = document.getElementById('health');
+      if (healthElement) {
+        healthElement.textContent = stats.health?.status || 'unknown';
+        healthElement.className = \`health-\${stats.health?.status || 'unknown'}\`;
+      }
+
+      const utlsHealthElement = document.getElementById('utlsHealth');
+      if (utlsHealthElement) {
+        utlsHealthElement.textContent = stats.utlsHealth?.status || 'unknown';
+        utlsHealthElement.className = \`health-\${stats.utlsHealth?.status || 'unknown'}\`;
+      }
+
+      // 更新紧急停止状态
+      const emergencyStopElement = document.getElementById('emergencyStop');
+      if (emergencyStopElement) {
+        emergencyStopElement.textContent = stats.emergencyStop ? '是' : '否';
+        emergencyStopElement.className = stats.emergencyStop ? 'emergency-stop' : '';
+      }
+
+      const emergencyStopReasonElement = document.getElementById('emergencyStopReason');
+      if (emergencyStopReasonElement) {
+        emergencyStopReasonElement.textContent = stats.emergencyStopReason || '';
+      }
+
+      // 更新最后更新时间
+      const lastUpdateElement = document.getElementById('lastUpdate');
+      if (lastUpdateElement) {
+        lastUpdateElement.textContent = new Date(stats.timestamp).toLocaleString();
+      }
     }
 
     function renderLogs() {
