@@ -1,0 +1,29 @@
+{
+  "$schema": "./schema.json",
+  "_comment": "节点特定配置 - 主机名: tile0",
+  "_lastUpdated": "2025-10-29T12:00:00.000Z",
+  "server": {
+    "nodeId": "tile0",
+    "domain": "tile0.zeromaps.cn"
+  },
+  "utls": {
+    "concurrency": 25
+  },
+  "dataValidation": {
+    "allowedContentTypes": [
+      "image/",
+      "application/octet-stream"
+    ]
+  },
+  "p2p": {
+    "nodes": [
+      "tile3.zeromaps.cn:9528",
+      "tile4.zeromaps.cn:9528",
+      "tile5.zeromaps.cn:9528",
+      "tile6.zeromaps.cn:9528",
+      "tile10.zeromaps.cn:9528",
+      "tile12.zeromaps.cn:9528",
+      "www.zeromaps.com.cn:9528"
+    ]
+  }
+}
