@@ -144,8 +144,61 @@ else
     log "✓ Go 版本正确: $CURRENT_GO_VERSION"
 fi
 
-# 第四步：安装 Node.js 依赖
-log "[4/7] 安装依赖..."
+# 第四步：修复权限和安装 Node.js 依赖
+log "[4/7] 修复权限和安装依赖..."
+
+# 4.1 修复日志目录权限
+log "修复日志目录权限..."
+mkdir -p $INSTALL_DIR/logs
+chown -R root:root $INSTALL_DIR/logs 2>/dev/null || true
+chmod -R 755 $INSTALL_DIR/logs 2>/dev/null || true
+log "✓ 日志目录权限已修复"
+
+# 4.2 确保配置文件存在
+log "检查节点配置文件..."
+HOSTNAME=$(hostname)
+NODE_CONFIG_FILE="$INSTALL_DIR/config/node-${HOSTNAME}.json"
+if [ ! -f "$NODE_CONFIG_FILE" ]; then
+    log "⚠️  缺少节点配置文件: node-${HOSTNAME}.json"
+    log "创建默认配置文件..."
+    cat > "$NODE_CONFIG_FILE" << EOF
+{
+  "\$schema": "./schema.json",
+  "_comment": "节点特定配置 - 主机名: ${HOSTNAME}",
+  "_lastUpdated": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+  "server": {
+    "nodeId": "${HOSTNAME}",
+    "domain": "${HOSTNAME}.zeromaps.cn"
+  },
+  "utls": {
+    "concurrency": 20
+  },
+  "dataValidation": {
+    "allowedContentTypes": [
+      "image/",
+      "application/octet-stream"
+    ]
+  },
+  "p2p": {
+    "nodes": [
+      "tile0.zeromaps.cn:9528",
+      "tile3.zeromaps.cn:9528",
+      "tile4.zeromaps.cn:9528",
+      "tile5.zeromaps.cn:9528",
+      "tile6.zeromaps.cn:9528",
+      "tile10.zeromaps.cn:9528",
+      "tile12.zeromaps.cn:9528",
+      "www.zeromaps.com.cn:9528"
+    ]
+  }
+}
+EOF
+    log "✓ 已创建节点配置文件: node-${HOSTNAME}.json"
+else
+    log "✓ 节点配置文件已存在: node-${HOSTNAME}.json"
+fi
+
+# 4.3 安装依赖
 unset NODE_ENV
 npm install 2>&1 | tee -a $LOG_FILE || error "npm install 失败"
 log "✓ 依赖安装完成"
@@ -220,7 +273,7 @@ module.exports = {
     },
     {
       name: 'zeromaps-rpc',
-      script: './dist/server/index.js',
+      script: './dist/src/main.js',
       cwd: '$INSTALL_DIR',
       instances: 1,
       exec_mode: 'fork',
@@ -321,7 +374,7 @@ if pm2 describe zeromaps-rpc >/dev/null 2>&1; then
     sleep 1
 fi
 
-pm2 start $INSTALL_DIR/dist/server/index.js \
+pm2 start $INSTALL_DIR/dist/src/main.js \
     --name zeromaps-rpc \
     --cwd $INSTALL_DIR \
     --error $INSTALL_DIR/logs/zeromaps-error.log \
